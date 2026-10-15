@@ -12,6 +12,12 @@ test_search_fts_and_special_characters (test_core.KnowledgeTests.test_search_fts
 test_store_original_and_deduplicate (test_core.KnowledgeTests.test_store_original_and_deduplicate) ... ok
 test_summary_and_length_guard (test_core.KnowledgeTests.test_summary_and_length_guard) ... ok
 test_utf8_and_cp1252_import (test_core.KnowledgeTests.test_utf8_and_cp1252_import) ... ok
+test_activation_initializes_schema_and_requires_restart (test_database.DatabaseSettingsTests.test_activation_initializes_schema_and_requires_restart) ... ok
+test_connection_test_uses_tls_and_redacts_password (test_database.DatabaseSettingsTests.test_connection_test_uses_tls_and_redacts_password) ... ok
+test_invalid_connection_values_are_rejected (test_database.DatabaseSettingsTests.test_invalid_connection_values_are_rejected) ... ok
+test_postgres_adapter_translates_parameters (test_database.DatabaseSettingsTests.test_postgres_adapter_translates_parameters) ... ok
+test_profile_is_saved_without_password (test_database.DatabaseSettingsTests.test_profile_is_saved_without_password) ... ok
+test_database_profile_is_stored_without_password (test_gui.InterfaceTests.test_database_profile_is_stored_without_password) ... skipped 'Keine grafische Anzeige verfügbar'
 test_email_account_is_managed_in_settings (test_gui.InterfaceTests.test_email_account_is_managed_in_settings) ... skipped 'Keine grafische Anzeige verfügbar'
 test_email_preview_requires_explicit_activation (test_gui.InterfaceTests.test_email_preview_requires_explicit_activation) ... skipped 'Keine grafische Anzeige verfügbar'
 test_existing_keys_are_visible_but_masked (test_gui.InterfaceTests.test_existing_keys_are_visible_but_masked) ... skipped 'Keine grafische Anzeige verfügbar'
@@ -21,6 +27,7 @@ test_imap_readonly_import_and_deduplication (test_importer.ImportTests.test_imap
 test_microsoft_graph_import (test_importer.ImportTests.test_microsoft_graph_import) ... ok
 test_microsoft_requires_client_id (test_importer.ImportTests.test_microsoft_requires_client_id) ... ok
 test_pst_import_uses_local_archive_and_limit (test_importer.ImportTests.test_pst_import_uses_local_archive_and_limit) ... ok
+test_postgres_store_contract (test_postgres.PostgresStoreTests.test_postgres_store_contract) ... skipped 'PostgreSQL-Testdienst nicht konfiguriert'
 test_anthropic (test_settings.AdapterTests.test_anthropic) ... ok
 test_gemini (test_settings.AdapterTests.test_gemini) ... ok
 test_ollama_never_sends_cloud_credentials (test_settings.AdapterTests.test_ollama_never_sends_cloud_credentials) ... ok
@@ -38,6 +45,6 @@ test_switch_to_claude_and_ollama (test_settings.SettingsTests.test_switch_to_cla
 test_vault_failure_does_not_change_preferences (test_settings.SettingsTests.test_vault_failure_does_not_change_preferences) ... ok
 
 ----------------------------------------------------------------------
-Ran 38 tests in 0.232s
+Ran 45 tests in 0.217s
 
-OK (skipped=4)
+OK (skipped=6)

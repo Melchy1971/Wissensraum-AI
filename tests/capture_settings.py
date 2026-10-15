@@ -15,7 +15,7 @@ with tempfile.TemporaryDirectory() as directory:
     base=Path(directory)
     (base/'.env.local').write_text('OPENAI_API_KEY=synthetic-existing-1234567890\nANTHROPIC_API_KEY=synthetic-claude-0987654321',encoding='utf-8')
     vault=FakeVault()
-    with patch.object(app,'BASE',base),patch.dict(os.environ,{k:os.environ[k] for k in ('DISPLAY','XAUTHORITY','PATH','SYSTEMROOT','SystemRoot','WINDIR','HOME','USERPROFILE','TCL_LIBRARY','TK_LIBRARY') if k in os.environ},clear=True),patch.object(app,'Settings',lambda store,base:Settings(store,base,vault,environ={})):
+    with patch.object(app,'BASE',base),patch.dict(os.environ,{k:os.environ[k] for k in ('DISPLAY','XAUTHORITY','PATH','SYSTEMROOT','SystemRoot','WINDIR','HOME','USERPROFILE','TCL_LIBRARY','TK_LIBRARY') if k in os.environ},clear=True),patch.object(app,'SystemVault',lambda:vault),patch.object(app,'Settings',lambda store,base,vault_arg=None:Settings(store,base,vault,environ={})):
         window=app.App()
         window.geometry('1180x780+0+0')
         window.open_settings()
@@ -29,6 +29,13 @@ with tempfile.TemporaryDirectory() as directory:
         window.open_mail_settings()
         window.update()
         ImageGrab.grab().crop((0,0,window.winfo_width(),window.winfo_height())).save('accounts-preview.png')
+        window.open_database_settings()
+        for name,value in {'host':'203.0.113.10','port':'5432','database':'wissen_demo','username':'demo_user',
+                           'password':'synthetic-password','sslmode':'require'}.items():
+            window.database_vars[name].set(value)
+        window.database_message.set('Kennwort: Betriebssystem-Schlüsselspeicher')
+        window.update()
+        ImageGrab.grab().crop((0,0,window.winfo_width(),window.winfo_height())).save('database-preview.png')
         preview=window.show_mail_preview([
             {'id':'101','date':'15.10.2026 09:30','sender':'projekt@example.com','subject':'Freigabe zum Projektstart'},
             {'id':'102','date':'14.10.2026 16:10','sender':'team@example.com','subject':'Protokoll und offene Punkte','imported':True},

@@ -4,11 +4,13 @@ import json
 from pathlib import Path
 from core import Store, import_document
 from settings import Settings
+from settings import SystemVault
+from database import DatabaseSettings
 BASE = Path(__file__).resolve().parent
 
 def main():
     parser = argparse.ArgumentParser(description='Wissensraum: SQL-Wissensmanagement')
-    parser.add_argument('--db',type=Path,default=BASE/'data'/'wissen.db')
+    parser.add_argument('--db',type=Path,help='Lokale SQLite-Datei; überschreibt die konfigurierte Datenquelle')
     commands = parser.add_subparsers(dest='command',required=True)
     commands.add_parser('list')
     imp = commands.add_parser('import')
@@ -23,7 +25,7 @@ def main():
     backup.add_argument('target',type=Path)
     args = parser.parse_args()
     try:
-        store = Store(args.db)
+        store = Store(args.db) if args.db else DatabaseSettings(BASE,SystemVault()).open_store(BASE/'data'/'wissen.db')
         if args.command == 'list':
             result = store.list()
         elif args.command == 'import':

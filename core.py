@@ -66,6 +66,8 @@ def chunks(text: str, size: int = 1800, overlap: int = 200):
 
 
 class Store:
+    backend = 'sqlite'
+
     def __init__(self, path: Path | str):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -151,6 +153,170 @@ class Store:
         with self.connect() as source, closing(sqlite3.connect(target)) as dest:
             with dest:
                 source.backup(dest)
+
+
+POSTGRES_SCHEMA = '''
+CREATE SCHEMA IF NOT EXISTS wissensraum;
+SET search_path TO wissensraum, public;
+CREATE TABLE IF NOT EXISTS documents (
+ id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, title TEXT NOT NULL, category TEXT NOT NULL,
+ filename TEXT, original BYTEA, content TEXT NOT NULL,
+ sha256 TEXT NOT NULL UNIQUE, created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS chunks (
+ id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+ document_id BIGINT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+ ordinal INTEGER NOT NULL, content TEXT NOT NULL, UNIQUE(document_id,ordinal)
+);
+CREATE INDEX IF NOT EXISTS chunks_document_id_idx ON chunks(document_id);
+CREATE INDEX IF NOT EXISTS chunks_search_idx ON chunks USING GIN (to_tsvector('simple',content));
+CREATE TABLE IF NOT EXISTS ai_runs (
+ id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, kind TEXT NOT NULL, question TEXT NOT NULL,
+ answer TEXT NOT NULL, sources_json TEXT NOT NULL, model TEXT NOT NULL,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS email_accounts (
+ id TEXT PRIMARY KEY, label TEXT NOT NULL, provider TEXT NOT NULL,
+ email TEXT NOT NULL, username TEXT NOT NULL, host TEXT NOT NULL DEFAULT '', port INTEGER NOT NULL DEFAULT 0,
+ client_id TEXT NOT NULL DEFAULT '', tenant TEXT NOT NULL DEFAULT 'common',
+ created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS email_imports (
+ account_id TEXT NOT NULL REFERENCES email_accounts(id) ON DELETE CASCADE,
+ remote_id TEXT NOT NULL, document_id BIGINT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+ imported_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ PRIMARY KEY(account_id,remote_id)
+);
+'''
+
+
+class _PostgresConnection:
+    def __init__(self,connection):
+        self.connection=connection
+
+    @staticmethod
+    def sql(value):
+        return value.replace('?', '%s')
+
+    def execute(self,query,parameters=()):
+        return self.connection.execute(self.sql(query),parameters)
+
+    def executemany(self,query,parameters):
+        with self.connection.cursor() as cursor:
+            return cursor.executemany(self.sql(query),parameters)
+
+
+class PostgresStore:
+    """PostgreSQL implementation used after explicit activation in database settings."""
+    backend = 'postgresql'
+
+    def __init__(self,profile,password,connector=None):
+        self.profile=dict(profile)
+        self.password=password
+        self.connector=connector
+        with self.connect() as db:
+            for statement in (part.strip() for part in POSTGRES_SCHEMA.split(';')):
+                if statement:
+                    db.execute(statement)
+
+    def _connect(self):
+        if self.connector is None:
+            try:
+                import psycopg
+                from psycopg.rows import dict_row
+            except ImportError:
+                raise ValueError('PostgreSQL-Unterstützung fehlt. Abhängigkeiten erneut installieren.') from None
+            connector=psycopg.connect
+        else:
+            connector=self.connector
+            dict_row=None
+        connection=None
+        try:
+            options=dict(host=self.profile['host'],port=int(self.profile['port']),dbname=self.profile['database'],
+                         user=self.profile['username'],password=self.password,sslmode=self.profile.get('sslmode','require'),
+                         connect_timeout=10,application_name='Wissensraum-AI')
+            if dict_row is not None:
+                options['row_factory']=dict_row
+            connection=connector(**options)
+            connection.execute('SET search_path TO wissensraum, public')
+            return connection
+        except Exception:
+            if connection is not None:
+                try: connection.close()
+                except Exception: pass
+            raise ValueError('Aktive PostgreSQL-Datenbank ist nicht erreichbar. Datenbankeinstellungen und Firewall prüfen.') from None
+
+    @contextmanager
+    def connect(self):
+        connection=self._connect()
+        try:
+            with connection:
+                yield _PostgresConnection(connection)
+        finally:
+            connection.close()
+
+    def add(self,title,content,category='Allgemein',filename=None,original=None):
+        title,content=title.strip(),content.strip()
+        if not title or not content:
+            raise ValueError('Titel und lesbarer Inhalt sind erforderlich.')
+        if len(content)>2_000_000:
+            raise ValueError('Maximal 2 Millionen Textzeichen pro Dokument.')
+        digest=hashlib.sha256(content.encode()).hexdigest()
+        with self.connect() as db:
+            existing=db.execute('SELECT id FROM documents WHERE sha256=?',(digest,)).fetchone()
+            if existing:
+                return existing['id'],False
+            row=db.execute('''INSERT INTO documents(title,category,filename,original,content,sha256)
+                              VALUES(?,?,?,?,?,?) RETURNING id''',
+                           (title,category.strip() or 'Allgemein',filename,original,content,digest)).fetchone()
+            doc_id=row['id']
+            db.executemany('INSERT INTO chunks(document_id,ordinal,content) VALUES(?,?,?)',
+                           ((doc_id,index+1,part) for index,part in enumerate(chunks(content))))
+            return doc_id,True
+
+    def list(self):
+        with self.connect() as db:
+            return [dict(row) for row in db.execute('SELECT id,title,category,created_at FROM documents ORDER BY id DESC')]
+
+    def get(self,doc_id):
+        with self.connect() as db:
+            row=db.execute('SELECT * FROM documents WHERE id=?',(doc_id,)).fetchone()
+        if not row:
+            raise ValueError('Dokument wurde nicht gefunden.')
+        return dict(row)
+
+    def delete(self,doc_id):
+        with self.connect() as db:
+            db.execute('DELETE FROM documents WHERE id=?',(doc_id,))
+
+    def search(self,query,limit=8):
+        words=list(dict.fromkeys(re.findall(r'\w+',query,re.UNICODE)))[:30]
+        if not words:
+            return []
+        expression=' OR '.join(words)
+        with self.connect() as db:
+            rows=db.execute('''SELECT c.id AS chunk_id,d.id AS document_id,d.title,d.category,c.ordinal,c.content,
+                  -ts_rank_cd(to_tsvector('simple',d.title || ' ' || d.category || ' ' || c.content),
+                              websearch_to_tsquery('simple',?)) AS rank
+                  FROM chunks c JOIN documents d ON d.id=c.document_id
+                  WHERE to_tsvector('simple',c.content) @@ websearch_to_tsquery('simple',?)
+                     OR to_tsvector('simple',d.title || ' ' || d.category) @@ websearch_to_tsquery('simple',?)
+                  ORDER BY rank,c.id LIMIT ?''',(expression,expression,expression,max(1,min(limit,30)))).fetchall()
+        return [dict(row) for row in rows]
+
+    def log(self,kind,question,answer,sources,model):
+        with self.connect() as db:
+            db.execute('INSERT INTO ai_runs(kind,question,answer,sources_json,model) VALUES(?,?,?,?,?)',
+                       (kind,question,answer,json.dumps(sources,ensure_ascii=False),model))
+
+    def history(self):
+        with self.connect() as db:
+            return [dict(row) for row in db.execute('SELECT * FROM ai_runs ORDER BY id DESC LIMIT 100')]
+
+    def backup(self,target):
+        raise ValueError('PostgreSQL-Sicherungen werden auf dem VPS mit pg_dump erstellt; die lokale SQLite-Sicherung ist hierfür nicht anwendbar.')
 
 
 def import_document(path):

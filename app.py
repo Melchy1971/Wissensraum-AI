@@ -8,7 +8,8 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from tkinter.scrolledtext import ScrolledText
 from core import Store, import_document
-from settings import Settings, PROVIDERS
+from settings import Settings, SystemVault, PROVIDERS
+from database import DatabaseSettings
 from importer import Importer, MailAccounts, MAIL_PROVIDERS
 
 BASE = Path(__file__).resolve().parent
@@ -21,10 +22,17 @@ class App(tk.Tk):
         self.geometry('1180x780')
         self.minsize(920, 650)
         self.configure(bg='#f3f4f0')
-        self.store = Store(Path(os.environ.get('WISSEN_DB', BASE/'data'/'wissen.db')))
+        self.vault=SystemVault()
+        self.database_settings=DatabaseSettings(BASE,self.vault)
+        self.database_start_error=''
+        try:
+            self.store=self.database_settings.open_store(Path(os.environ.get('WISSEN_DB',BASE/'data'/'wissen.db')))
+        except ValueError as error:
+            self.database_start_error=str(error)
+            self.store=Store(Path(os.environ.get('WISSEN_DB',BASE/'data'/'wissen.db')))
         self.queue = queue.Queue()
         self.busy = False
-        self.settings = Settings(self.store, BASE)
+        self.settings = Settings(self.store, BASE, self.vault)
         self.mail_accounts = MailAccounts(self.store, self.settings.vault)
         self.importer = Importer(self.store, self.mail_accounts)
         self.docs = {}
@@ -112,7 +120,8 @@ class App(tk.Tk):
         ttk.Button(self.history_tab,text='Verlauf aktualisieren',command=self.show_history).pack(anchor='w',pady=(0,12))
         self.history = ScrolledText(self.history_tab,wrap='word',font=('Segoe UI',11),padx=14,pady=12)
         self.history.pack(fill='both',expand=True)
-        self.status = tk.StringVar(value='Bereit · SQLite · Einzelplatz')
+        source='PostgreSQL' if self.store.backend=='postgresql' else 'SQLite · Einzelplatz'
+        self.status = tk.StringVar(value='Bereit · '+source)
         ttk.Label(self,textvariable=self.status,padding=(24,0,24,12)).pack(fill='x')
         self.build_import()
         self.build_settings()
@@ -278,7 +287,7 @@ class App(tk.Tk):
     def build_import(self):
         frame=self.import_tab
         ttk.Label(frame,text='Daten importieren',font=('Segoe UI',18,'bold')).pack(anchor='w')
-        ttk.Label(frame,text='Importierte Inhalte werden als durchsuchbare Dokumente in SQLite gespeichert.',wraplength=900).pack(anchor='w',pady=(5,14))
+        ttk.Label(frame,text='Importierte Inhalte werden als durchsuchbare Dokumente in der aktiven SQL-Datenbank gespeichert.',wraplength=900).pack(anchor='w',pady=(5,14))
         local=ttk.LabelFrame(frame,text='Lokale Dokumente',padding=14)
         local.pack(fill='x',pady=(0,10))
         ttk.Label(local,text='TXT, Markdown, PDF mit Text und DOCX · maximal 20 MB je Datei').pack(side='left')
@@ -434,12 +443,19 @@ class App(tk.Tk):
         self.settings_sections.select(self.mail_settings_frame)
         self.refresh_mail_accounts()
 
+    def open_database_settings(self):
+        self.tabs.select(self.settings_tab)
+        self.settings_sections.select(self.database_settings_frame)
+        self.load_database_settings()
+
     def build_settings(self):
         self.settings_sections=ttk.Notebook(self.settings_tab)
         self.settings_sections.pack(fill='both',expand=True)
         self.ai_settings_frame=ttk.Frame(self.settings_sections,padding=12)
+        self.database_settings_frame=ttk.Frame(self.settings_sections,padding=12)
         self.mail_settings_frame=ttk.Frame(self.settings_sections,padding=12)
         self.settings_sections.add(self.ai_settings_frame,text='KI-Anbieter')
+        self.settings_sections.add(self.database_settings_frame,text='Datenbank')
         self.settings_sections.add(self.mail_settings_frame,text='E-Mail-Konten')
         frame=self.ai_settings_frame
         ttk.Label(frame,text='KI-Anbieter & API-Schlüssel',font=('Segoe UI',18,'bold')).pack(anchor='w')
@@ -488,12 +504,95 @@ class App(tk.Tk):
         self.settings_help.pack(anchor='w',fill='x',pady=(5,0))
         frame.bind('<Configure>',self.resize_settings_text,add='+')
         self.refresh_settings()
+        self.build_database_settings()
         self.build_mail_settings()
+
+    def build_database_settings(self):
+        frame=self.database_settings_frame
+        ttk.Label(frame,text='Datenbank',font=('Segoe UI',18,'bold')).pack(anchor='w')
+        self.database_active=tk.StringVar()
+        ttk.Label(frame,textvariable=self.database_active,font=('Segoe UI',11,'bold')).pack(anchor='w',pady=(5,12))
+        form=ttk.LabelFrame(frame,text='PostgreSQL-Verbindung',padding=14)
+        form.pack(fill='x'); form.columnconfigure(1,weight=1); form.columnconfigure(3,weight=1)
+        self.database_vars={name:tk.StringVar() for name in ('host','port','database','username','password','sslmode')}
+        fields=[('Server / IP-Adresse','host'),('Port','port'),('Datenbankname','database'),
+                ('Benutzername','username'),('Kennwort','password'),('TLS-Modus','sslmode')]
+        self.database_fields={}
+        for index,(title,name) in enumerate(fields):
+            row=index//2; column=(index%2)*2
+            ttk.Label(form,text=title).grid(row=row,column=column,sticky='w',padx=(0,10),pady=6)
+            if name=='sslmode':
+                widget=ttk.Combobox(form,textvariable=self.database_vars[name],state='readonly',
+                                    values=('require','verify-ca','verify-full'))
+            else:
+                widget=ttk.Entry(form,textvariable=self.database_vars[name],show='*' if name=='password' else '')
+            widget.grid(row=row,column=column+1,sticky='ew',padx=(0,18),pady=6)
+            self.database_fields[name]=widget
+        ttk.Label(frame,text='Das Kennwort wird ausschließlich im Betriebssystem-Schlüsselspeicher abgelegt. '
+                  'TLS ist für PostgreSQL-Verbindungen verpflichtend.',wraplength=950).pack(anchor='w',pady=(10,6))
+        actions=ttk.Frame(frame); actions.pack(fill='x',pady=(4,6))
+        for title,command,style in [('Einstellungen speichern',self.save_database_settings,'TButton'),
+                                   ('Verbindung testen',self.test_database_connection,'TButton'),
+                                   ('PostgreSQL aktivieren',self.activate_postgresql,'Accent.TButton'),
+                                   ('Lokales SQLite aktivieren',self.activate_sqlite,'TButton')]:
+            button=ttk.Button(actions,text=title,command=command,style=style)
+            button.pack(side='left',padx=(0,8)); self.buttons.append(button)
+        self.database_message=tk.StringVar()
+        ttk.Label(frame,textvariable=self.database_message,wraplength=950).pack(anchor='w',pady=(5,4))
+        ttk.Label(frame,text='Eine Aktivierung gilt ab dem nächsten Programmstart. Vorhandene SQLite-Dokumente werden nicht automatisch '
+                  'nach PostgreSQL übertragen. Beide Datenbestände bleiben getrennt.',wraplength=950).pack(anchor='w',pady=(6,0))
+        self.load_database_settings()
+
+    def database_form(self):
+        return {name:value.get() for name,value in self.database_vars.items() if name!='password'}
+
+    def load_database_settings(self):
+        profile=self.database_settings.profile()
+        for name in ('host','port','database','username','sslmode'):
+            self.database_vars[name].set(profile[name])
+        password,source=self.database_settings.password()
+        self.database_vars['password'].set(password)
+        configured='PostgreSQL auf dem VPS' if profile['backend']=='postgresql' else 'Lokale SQLite-Datei'
+        running='PostgreSQL' if self.store.backend=='postgresql' else 'SQLite'
+        self.database_active.set('Konfiguriert: '+configured+' · Aktuelle Sitzung: '+running)
+        if self.database_start_error:
+            self.database_message.set('PostgreSQL-Start fehlgeschlagen; lokale SQLite-Datei geöffnet. '+self.database_start_error)
+        else:
+            self.database_message.set('Kennwort: '+source)
+
+    def save_database_settings(self):
+        try:
+            self.database_settings.save(self.database_form(),self.database_vars['password'].get())
+            self.load_database_settings()
+            self.database_message.set('PostgreSQL-Verbindungsdaten gespeichert. Aktive Datenquelle bleibt unverändert.')
+        except Exception as error:
+            messagebox.showerror('Datenbank',str(error),parent=self)
+
+    def test_database_connection(self):
+        values=self.database_form(); password=self.database_vars['password'].get()
+        def done(result):
+            self.database_message.set('Verbindung erfolgreich: '+result['database']+' · Benutzer '+result['username']+' · '+result['version'])
+        self.work(lambda:self.database_settings.test(values,password),done)
+
+    def activate_postgresql(self):
+        values=self.database_form(); password=self.database_vars['password'].get()
+        def done(_):
+            self.load_database_settings()
+            self.database_message.set('PostgreSQL ist aktiviert. Programm neu starten; danach werden neue Daten auf dem VPS gespeichert.')
+        self.work(lambda:self.database_settings.activate_postgresql(values,password),done)
+
+    def activate_sqlite(self):
+        try:
+            self.database_settings.activate_sqlite()
+            self.load_database_settings()
+            self.database_message.set('Lokales SQLite ist aktiviert. Programm neu starten, um die Datenquelle zu wechseln.')
+        except Exception as error:
+            messagebox.showerror('Datenbank',str(error),parent=self)
 
     def build_mail_settings(self):
         frame=self.mail_settings_frame
         ttk.Label(frame,text='E-Mail-Konten',font=('Segoe UI',18,'bold')).pack(anchor='w')
-        ttk.Label(frame,text='Kontodaten werden in SQLite gespeichert; Kennwörter und OAuth-Token im Betriebssystem-Schlüsselspeicher.',wraplength=950).pack(anchor='w',pady=(5,10))
+        ttk.Label(frame,text='Kontodaten werden in der aktiven SQL-Datenbank gespeichert; Kennwörter und OAuth-Token im Betriebssystem-Schlüsselspeicher.',wraplength=950).pack(anchor='w',pady=(5,10))
         columns=('label','provider','email','status')
         self.mail_tree=ttk.Treeview(frame,columns=columns,show='headings',height=4,selectmode='browse')
         for col,title,width in [('label','Kontoname',180),('provider','Anbieter',190),('email','E-Mail-Adresse',260),('status','Anmeldung',150)]:

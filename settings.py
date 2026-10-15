@@ -70,7 +70,7 @@ class SystemVault:
         try:
             backend.set_password(self.service,provider,key)
         except Exception:
-            raise ValueError('API-Schlüssel konnte nicht im Betriebssystem-Schlüsselspeicher gespeichert werden.') from None
+            raise ValueError('Zugangsdaten konnten nicht im Betriebssystem-Schlüsselspeicher gespeichert werden.') from None
 
     def delete(self,provider):
         backend=self.backend()
@@ -78,7 +78,7 @@ class SystemVault:
             if backend.get_password(self.service,provider):
                 backend.delete_password(self.service,provider)
         except Exception:
-            raise ValueError('API-Schlüssel konnte nicht aus dem Betriebssystem-Schlüsselspeicher entfernt werden.') from None
+            raise ValueError('Zugangsdaten konnten nicht aus dem Betriebssystem-Schlüsselspeicher entfernt werden.') from None
 
 
 class Settings:
@@ -89,7 +89,7 @@ class Settings:
 
     def config(self):
         with self.store.connect() as db:
-            return dict(db.execute('SELECT name,value FROM settings').fetchall())
+            return {row['name']:row['value'] for row in db.execute('SELECT name,value FROM settings').fetchall()}
 
     def put(self,values):
         with self.store.connect() as db:

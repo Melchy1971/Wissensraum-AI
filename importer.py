@@ -75,7 +75,7 @@ class MailAccounts:
 
     def list(self):
         with self.store.connect() as db:
-            rows=[dict(r) for r in db.execute('SELECT * FROM email_accounts ORDER BY label COLLATE NOCASE')]
+            rows=[dict(r) for r in db.execute('SELECT * FROM email_accounts ORDER BY lower(label)')]
         for row in rows:
             row['auth_status']='Verbunden' if self.vault.get(self.secret_name(row['id'])) else 'Nicht verbunden'
         return rows

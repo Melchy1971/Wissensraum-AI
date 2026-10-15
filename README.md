@@ -1,8 +1,8 @@
 # Wissensraum AI – KI-gestütztes Wissensmanagement mit SQL
 
-Version 1.3 · 15.10.2026 · lokale Einzelplatzanwendung · Python 3.11 oder neuer
+Version 1.4 · 15.10.2026 · lokale Einzelplatzanwendung · Python 3.11 oder neuer
 
-Dokumente, Notizen, Originaldateien und KI-Verlauf werden in einer SQLite-SQL-Datenbank gespeichert. Die Anwendung bietet eine deutschsprachige Desktop-Oberfläche und eine Kommandozeilenschnittstelle. Es wird kein Webserver benötigt.
+Dokumente, Notizen, Originaldateien und KI-Verlauf werden wahlweise in einer lokalen SQLite- oder einer PostgreSQL-Datenbank gespeichert. Die Anwendung bietet eine deutschsprachige Desktop-Oberfläche und eine Kommandozeilenschnittstelle. Es wird kein Webserver benötigt.
 
 ## Start unter Windows
 
@@ -25,7 +25,7 @@ Python 3.11+ mit Tkinter voraussetzen, anschließend `sh start.sh` ausführen. U
 
 | Bereich | Implementiert |
 |---|---|
-| Datenbank | SQLite mit Fremdschlüsseln, Transaktionen, FTS5 und Schema-Version |
+| Datenbank | Lokales SQLite oder aktivierbares PostgreSQL auf einem VPS; Fremdschlüssel, Transaktionen und Volltextsuche |
 | Dokumente | TXT, Markdown, textbasierte PDF, DOCX einschließlich Tabellen |
 | E-Mail | Gmail und sonstige IMAP-Konten im Nur-Lesen-Modus; Microsoft 365/Outlook über OAuth 2.0 und Microsoft Graph |
 | Outlook-Archive | Lokaler PST-Import über die optionale `libratom`-Erweiterung |
@@ -71,13 +71,13 @@ flowchart TD
 
 ## Datenspeicherung und Betrieb
 
-Standarddatei: `data/wissen.db` im Programmordner. Alternativer Pfad über `WISSEN_DB`. Das Modell kann über `OPENAI_MODEL` konfiguriert werden; Standard ist `gpt-4.1-mini`. Der Schlüssel wird aus `OPENAI_API_KEY`, `.env.local` im Programmordner oder `.env.local` im übergeordneten Ordner geladen. Die Oberfläche zeigt Anbieter und Schlüsselstatus im Bereich **Einstellungen**; neue Schlüssel werden im Betriebssystem-Schlüsselspeicher abgelegt. Es gibt keinen Dialog, der einen Schlüssel im Klartext anzeigt.
+Standarddatei: `data/wissen.db` im Programmordner. Alternativer Pfad über `WISSEN_DB`. Unter **Einstellungen → Datenbank** kann eine TLS-geschützte PostgreSQL-Verbindung gespeichert, getestet und für den nächsten Programmstart aktiviert werden. Das PostgreSQL-Kennwort bleibt im Betriebssystem-Schlüsselspeicher; `data/database.json` enthält nur Server, Port, Datenbankname, Benutzer, TLS-Modus und die aktive Datenquelle. Eine Aktivierung überträgt vorhandene SQLite-Daten nicht automatisch. Das Modell kann über `OPENAI_MODEL` konfiguriert werden; Standard ist `gpt-4.1-mini`. Der Schlüssel wird aus `OPENAI_API_KEY`, `.env.local` im Programmordner oder `.env.local` im übergeordneten Ordner geladen. Die Oberfläche zeigt Anbieter und Schlüsselstatus im Bereich **Einstellungen**; neue Schlüssel werden im Betriebssystem-Schlüsselspeicher abgelegt. Es gibt keinen Dialog, der einen Schlüssel im Klartext anzeigt.
 
 Dokumentimport und Suche benötigen keine API. Bei Fragen werden Frage und ausgewählte Textabschnitte an den gewählten KI-Anbieter gesendet; bei Zusammenfassungen der vollständige unterstützte Dokumenttext. Die Anwendung setzt `store=false` bei OpenAI-Responses-Anfragen. Dies ersetzt keine Prüfung der geltenden Datenverarbeitung und ist keine Zusage vollständiger Speicherfreiheit beim Anbieter. Die API-Nutzung wird separat abgerechnet.
 
-Die SQLite-Datei ist nicht durch die Anwendung verschlüsselt. Sie enthält auch importierte E-Mail-Texte und die jeweiligen Originalnachrichten. Betriebssystemkonto und Laufwerksverschlüsselung schützen lokale Daten. Dies ist eine Einzelplatzanwendung; die aktive Datenbank auf einem lokalen Datenträger halten. Für Netzwerkfreigaben und parallele Bearbeitung ist diese Version nicht ausgelegt.
+Die SQLite-Datei ist nicht durch die Anwendung verschlüsselt. Sie enthält auch importierte E-Mail-Texte und die jeweiligen Originalnachrichten. Betriebssystemkonto und Laufwerksverschlüsselung schützen lokale Daten. PostgreSQL verwendet das getrennte Schema `wissensraum`; die Verbindung wird mit TLS aufgebaut. Die Anwendung bleibt eine Einzelplatzanwendung und enthält keine Benutzer- oder Mandantentrennung.
 
-**Sicherung:** „Datenbank sichern“ erstellt eine vollständige Datenbankkopie einschließlich Originalen und KI-Verlauf. **Wiederherstellung:** Anwendung beenden, bestehende `data/wissen.db` samt eventuell vorhandenen `wissen.db-wal` und `wissen.db-shm` gemeinsam in einen anderen Ordner verschieben, Sicherungsdatei als `data/wissen.db` einsetzen, Anwendung starten. Nicht die aktive Datei im laufenden Betrieb durch eine Sicherung ersetzen. Schlüsseldatei separat sichern. Im Betriebssystem-Schlüsselspeicher verwaltete Schlüssel sind nicht in der SQL-Sicherung enthalten und müssen auf einem anderen Rechner erneut eingerichtet werden.
+**Sicherung:** Bei SQLite erstellt „Datenbank sichern“ eine vollständige Datenbankkopie einschließlich Originalen und KI-Verlauf. **Wiederherstellung:** Anwendung beenden, bestehende `data/wissen.db` samt eventuell vorhandenen `wissen.db-wal` und `wissen.db-shm` gemeinsam in einen anderen Ordner verschieben, Sicherungsdatei als `data/wissen.db` einsetzen, Anwendung starten. PostgreSQL wird serverseitig mit `pg_dump` gesichert; die lokale Sicherungsschaltfläche ist dafür gesperrt. Schlüsseldatei separat sichern. Im Betriebssystem-Schlüsselspeicher verwaltete Schlüssel sind nicht in der SQL-Sicherung enthalten und müssen auf einem anderen Rechner erneut eingerichtet werden.
 
 ## CLI
 
@@ -100,7 +100,7 @@ python cli.py --db data/test.db list
 
 ## Prüfung dieser Auslieferung
 
-- 38 automatisierte Tests prüfen Speicherung, BLOB-Erhalt, Dubletten, Suche, Sicherung, Dokumentextraktion, KI-Adapter, Schlüsselspeicherung, Schema-Migration, E-Mail-Auswahlfreigabe, IMAP-Nur-Lesen-Import, PST-Import und Microsoft-Graph-Import.
+- 45 automatisierte Tests prüfen Speicherung, BLOB-Erhalt, Dubletten, Suche, Sicherung, Dokumentextraktion, KI-Adapter, Schlüsselspeicherung, Schema-Migration, Datenbankprofile, TLS-Verbindungskonfiguration, E-Mail-Auswahlfreigabe, IMAP-Nur-Lesen-Import, PST-Import und Microsoft-Graph-Import. Ein zusätzlicher CI-Dienst prüft den vollständigen Speichervertrag gegen echtes PostgreSQL 18.
 - KI-Vertrag mit simulierten API-Antworten geprüft. Live-Test mit synthetischen Testdaten durchgeführt; die API antwortete mit HTTP 429. Live-Antwortqualität ist deshalb nicht bestätigt.
 - Die Desktop-Oberfläche wird unter Linux mit virtuellem Bildschirm gestartet und automatisiert geprüft. GitHub Actions erzeugt zusätzlich Vorschauen der Einstellungen und des Importbereichs. Der Windows-Starter wird durch die Windows-Matrix kompiliert und getestet.
 - GitHub Actions prüft Python 3.11 und 3.13 auf Windows und Linux, einschließlich grafischer Oberflächentests. Der aktuelle Status ist im Actions-Tab sichtbar.

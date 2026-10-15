@@ -23,7 +23,8 @@ class InterfaceTests(unittest.TestCase):
         self.base.joinpath('.env.local').write_text('OPENAI_API_KEY=synthetic-existing-1234567890',encoding='utf-8')
         self.vault=FakeVault()
         self.patches=[patch.object(app,'BASE',self.base),patch.dict(os.environ,{k:os.environ[k] for k in ('DISPLAY','XAUTHORITY','PATH','SYSTEMROOT','SystemRoot','WINDIR','HOME','USERPROFILE','TCL_LIBRARY','TK_LIBRARY') if k in os.environ},clear=True),
-                      patch.object(app,'Settings',lambda store,base:Settings(store,base,self.vault,environ={}))]
+                      patch.object(app,'SystemVault',lambda:self.vault),
+                      patch.object(app,'Settings',lambda store,base,vault=None:Settings(store,base,self.vault,environ={}))]
         for p in self.patches: p.start()
         self.window=None
         self.addCleanup(self.cleanup)
@@ -41,6 +42,7 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn('Einstellungen',[window.tabs.tab(t,'text') for t in window.tabs.tabs()])
         self.assertIn('Import',[window.tabs.tab(t,'text') for t in window.tabs.tabs()])
         self.assertIn('E-Mail-Konten',[window.settings_sections.tab(t,'text') for t in window.settings_sections.tabs()])
+        self.assertIn('Datenbank',[window.settings_sections.tab(t,'text') for t in window.settings_sections.tabs()])
         self.assertEqual(window.key_value.get(),'synthetic-existing-1234567890')
         self.assertEqual(window.key_entry.cget('show'),'*')
         values=window.provider_tree.item('openai','values')
@@ -85,6 +87,17 @@ class InterfaceTests(unittest.TestCase):
         self.assertEqual(window.mail_tree.item(account_id,'values')[0],'Privat')
         self.assertIn('Privat',window.import_account_value.get())
         self.assertEqual(self.vault.get('mail:'+account_id),'synthetic-app-password')
+
+    def test_database_profile_is_stored_without_password(self):
+        window=self.window
+        values={'host':'db.example.test','port':'5432','database':'wissen_test','username':'test_user',
+                'password':'synthetic-db-password','sslmode':'require'}
+        for name,value in values.items(): window.database_vars[name].set(value)
+        window.save_database_settings()
+        saved=window.database_settings.path.read_text(encoding='utf-8')
+        self.assertNotIn('synthetic-db-password',saved)
+        self.assertEqual(self.vault.get('database:postgresql'),'synthetic-db-password')
+        self.assertIn('Aktive Datenquelle bleibt unverändert',window.database_message.get())
 
     def test_email_preview_requires_explicit_activation(self):
         items=[{'id':'101','date':'15.10.2026','sender':'a@example.com','subject':'Freigabe'},
