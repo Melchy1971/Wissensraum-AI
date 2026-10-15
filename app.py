@@ -534,10 +534,13 @@ class App(tk.Tk):
         for title,command,style in [('Einstellungen speichern',self.save_database_settings,'TButton'),
                                    ('Verbindung testen',self.test_database_connection,'TButton'),
                                    ('PostgreSQL aktivieren',self.activate_postgresql,'Accent.TButton'),
-                                   ('Lokales SQLite aktivieren',self.activate_sqlite,'TButton'),
-                                   ('Anwendungsschema zurücksetzen',self.reset_postgresql,'TButton')]:
+                                   ('Lokales SQLite aktivieren',self.activate_sqlite,'TButton')]:
             button=ttk.Button(actions,text=title,command=command,style=style)
             button.pack(side='left',padx=(0,8)); self.buttons.append(button)
+        reset_actions=ttk.Frame(frame); reset_actions.pack(fill='x',pady=(4,2))
+        button=ttk.Button(reset_actions,text='Anwendungsschema zurücksetzen',command=self.reset_postgresql)
+        button.pack(side='left'); self.buttons.append(button)
+        ttk.Label(reset_actions,text='Löscht alle Wissensraum-Daten in PostgreSQL.',foreground='#8a2e2e').pack(side='left',padx=12)
         self.database_message=tk.StringVar()
         ttk.Label(frame,textvariable=self.database_message,wraplength=950).pack(anchor='w',pady=(5,4))
         ttk.Label(frame,text='Eine Aktivierung gilt ab dem nächsten Programmstart. Vorhandene SQLite-Dokumente werden nicht automatisch '
