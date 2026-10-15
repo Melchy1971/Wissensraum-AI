@@ -42,7 +42,13 @@ CREATE TABLE IF NOT EXISTS ai_runs (
  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value TEXT NOT NULL);
-PRAGMA user_version = 2;
+CREATE TABLE IF NOT EXISTS email_accounts (
+ id TEXT PRIMARY KEY, label TEXT NOT NULL, provider TEXT NOT NULL,
+ email TEXT NOT NULL, username TEXT NOT NULL, host TEXT NOT NULL DEFAULT '', port INTEGER NOT NULL DEFAULT 0,
+ client_id TEXT NOT NULL DEFAULT '', tenant TEXT NOT NULL DEFAULT 'common',
+ created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+PRAGMA user_version = 3;
 '''
 
 
@@ -59,7 +65,7 @@ class Store:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as db:
             version = db.execute('PRAGMA user_version').fetchone()[0]
-            if version > 2:
+            if version > 3:
                 raise ValueError('Datenbankversion ist neuer als diese Anwendung.')
             db.executescript(SCHEMA)
 

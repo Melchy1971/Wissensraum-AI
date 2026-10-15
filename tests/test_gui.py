@@ -39,6 +39,8 @@ class InterfaceTests(unittest.TestCase):
     def test_existing_keys_are_visible_but_masked(self):
         window=self.window
         self.assertIn('Einstellungen',[window.tabs.tab(t,'text') for t in window.tabs.tabs()])
+        self.assertIn('Import',[window.tabs.tab(t,'text') for t in window.tabs.tabs()])
+        self.assertIn('E-Mail-Konten',[window.settings_sections.tab(t,'text') for t in window.settings_sections.tabs()])
         self.assertEqual(window.key_value.get(),'synthetic-existing-1234567890')
         self.assertEqual(window.key_entry.cget('show'),'*')
         values=window.provider_tree.item('openai','values')
@@ -69,5 +71,19 @@ class InterfaceTests(unittest.TestCase):
         window.activate_provider()
         self.assertEqual(window.settings.active(),'ollama')
         self.assertEqual(str(window.key_entry.cget('state')),'disabled')
+
+    def test_email_account_is_managed_in_settings(self):
+        window=self.window
+        window.open_mail_settings()
+        window.mail_vars['label'].set('Privat')
+        window.mail_vars['email'].set('owner@gmail.com')
+        window.mail_vars['username'].set('owner@gmail.com')
+        window.mail_vars['secret'].set('synthetic-app-password')
+        window.save_mail_account()
+        account_id=window.mail_vars['id'].get()
+        self.assertTrue(account_id)
+        self.assertEqual(window.mail_tree.item(account_id,'values')[0],'Privat')
+        self.assertIn('Privat',window.import_account_value.get())
+        self.assertEqual(self.vault.get('mail:'+account_id),'synthetic-app-password')
 
 if __name__=='__main__': unittest.main()

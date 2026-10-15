@@ -9,6 +9,7 @@ from tkinter import ttk, filedialog, messagebox
 from tkinter.scrolledtext import ScrolledText
 from core import Store, import_document
 from settings import Settings, PROVIDERS
+from importer import Importer, MailAccounts, MAIL_PROVIDERS
 
 BASE = Path(__file__).resolve().parent
 
@@ -24,6 +25,8 @@ class App(tk.Tk):
         self.queue = queue.Queue()
         self.busy = False
         self.settings = Settings(self.store, BASE)
+        self.mail_accounts = MailAccounts(self.store, self.settings.vault)
+        self.importer = Importer(self.store, self.mail_accounts)
         self.docs = {}
         self.style = ttk.Style(self)
         self.style.theme_use('clam')
@@ -40,7 +43,7 @@ class App(tk.Tk):
         tools = ttk.Frame(self, padding=(24,0,24,12))
         tools.pack(fill='x')
         self.buttons = []
-        for label, command in [('Dateien importieren',self.import_files),('Notiz erfassen',self.note),
+        for label, command in [('Import',self.open_import),('Notiz erfassen',self.note),
                                ('Datenbank sichern',self.backup),('Einstellungen',self.open_settings)]:
             b = ttk.Button(tools,text=label,command=command)
             b.pack(side='left',padx=(0,8))
@@ -53,6 +56,8 @@ class App(tk.Tk):
         self.tabs.add(self.library,text='Dokumente & Suche')
         self.tabs.add(self.chat,text='Wissen befragen')
         self.tabs.add(self.history_tab,text='KI-Verlauf')
+        self.import_tab = ttk.Frame(self.tabs,padding=16)
+        self.tabs.add(self.import_tab,text='Import')
         self.settings_tab = ttk.Frame(self.tabs,padding=16)
         self.tabs.add(self.settings_tab,text='Einstellungen')
         search = ttk.Frame(self.library)
@@ -109,6 +114,7 @@ class App(tk.Tk):
         self.history.pack(fill='both',expand=True)
         self.status = tk.StringVar(value='Bereit · SQLite · Einzelplatz')
         ttk.Label(self,textvariable=self.status,padding=(24,0,24,12)).pack(fill='x')
+        self.build_import()
         self.build_settings()
         self.refresh()
         self.show_history()
@@ -265,8 +271,87 @@ class App(tk.Tk):
         self.tabs.select(self.settings_tab)
         self.refresh_settings()
 
+    def open_import(self):
+        self.tabs.select(self.import_tab)
+        self.refresh_import_accounts()
+
+    def build_import(self):
+        frame=self.import_tab
+        ttk.Label(frame,text='Daten importieren',font=('Segoe UI',18,'bold')).pack(anchor='w')
+        ttk.Label(frame,text='Importierte Inhalte werden als durchsuchbare Dokumente in SQLite gespeichert.',wraplength=900).pack(anchor='w',pady=(5,14))
+        local=ttk.LabelFrame(frame,text='Lokale Dokumente',padding=14)
+        local.pack(fill='x',pady=(0,10))
+        ttk.Label(local,text='TXT, Markdown, PDF mit Text und DOCX · maximal 20 MB je Datei').pack(side='left')
+        b=ttk.Button(local,text='Dokumente auswählen',command=self.import_files,style='Accent.TButton')
+        b.pack(side='right'); self.buttons.append(b)
+        pst=ttk.LabelFrame(frame,text='Outlook-Archiv',padding=14)
+        pst.pack(fill='x',pady=(0,10))
+        ttk.Label(pst,text='PST-Datei lokal auslesen; Outlook-Installation ist nicht erforderlich.').pack(side='left')
+        b=ttk.Button(pst,text='PST-Datei importieren',command=self.import_pst_file)
+        b.pack(side='right'); self.buttons.append(b)
+        mailbox=ttk.LabelFrame(frame,text='E-Mail-Konto',padding=14)
+        mailbox.pack(fill='x',pady=(0,10))
+        mailbox.columnconfigure(1,weight=1)
+        ttk.Label(mailbox,text='Konto').grid(row=0,column=0,sticky='w',padx=(0,14),pady=5)
+        self.import_account_value=tk.StringVar()
+        self.import_account=ttk.Combobox(mailbox,textvariable=self.import_account_value,state='readonly')
+        self.import_account.grid(row=0,column=1,sticky='ew',pady=5)
+        ttk.Button(mailbox,text='Konten verwalten',command=self.open_mail_settings).grid(row=0,column=2,padx=(10,0),pady=5)
+        ttk.Label(mailbox,text='Ordner').grid(row=1,column=0,sticky='w',padx=(0,14),pady=5)
+        self.import_folder=tk.StringVar(value='INBOX')
+        ttk.Entry(mailbox,textvariable=self.import_folder).grid(row=1,column=1,sticky='ew',pady=5)
+        ttk.Label(mailbox,text='Max. E-Mails').grid(row=2,column=0,sticky='w',padx=(0,14),pady=5)
+        self.import_limit=tk.StringVar(value='100')
+        ttk.Spinbox(mailbox,from_=1,to=2000,textvariable=self.import_limit,width=10).grid(row=2,column=1,sticky='w',pady=5)
+        b=ttk.Button(mailbox,text='Postfach importieren',command=self.import_mailbox,style='Accent.TButton')
+        b.grid(row=2,column=2,padx=(10,0),pady=5); self.buttons.append(b)
+        self.import_message=tk.StringVar(value='Bereit. E-Mail-Import liest nur und verändert keine Nachrichten auf dem Server.')
+        ttk.Label(frame,textvariable=self.import_message,wraplength=1000).pack(anchor='w',fill='x',pady=(8,0))
+
+    def refresh_import_accounts(self):
+        rows=self.mail_accounts.list()
+        self.import_account_ids={f'{r["label"]} · {r["email"]}':r['id'] for r in rows}
+        values=list(self.import_account_ids)
+        self.import_account.configure(values=values)
+        if self.import_account_value.get() not in self.import_account_ids:
+            self.import_account_value.set(values[0] if values else '')
+
+    @staticmethod
+    def report_text(report):
+        return f'{report["found"]} gefunden · {report["imported"]} importiert · {report["duplicates"]} bereits vorhanden · {report["errors"]} Fehler'
+
+    def import_pst_file(self):
+        path=filedialog.askopenfilename(title='Outlook-PST-Datei auswählen',filetypes=[('Outlook-PST','*.pst')])
+        if not path: return
+        try: limit=int(self.import_limit.get())
+        except ValueError:
+            messagebox.showerror('PST-Import','Gültige maximale Anzahl eingeben.',parent=self); return
+        self.work(lambda:self.importer.import_pst(path,limit),lambda result:(self.refresh(),self.import_message.set('PST: '+self.report_text(result))))
+
+    def import_mailbox(self):
+        account_id=self.import_account_ids.get(self.import_account_value.get())
+        if not account_id:
+            messagebox.showinfo('E-Mail-Import','Zuerst unter Einstellungen ein E-Mail-Konto anlegen.',parent=self); return
+        try: limit=int(self.import_limit.get())
+        except ValueError:
+            messagebox.showerror('E-Mail-Import','Gültige maximale Anzahl eingeben.',parent=self); return
+        folder=self.import_folder.get().strip() or 'INBOX'
+        self.work(lambda:self.importer.import_imap(account_id,folder,limit),
+                  lambda result:(self.refresh(),self.import_message.set('Postfach: '+self.report_text(result))))
+
+    def open_mail_settings(self):
+        self.tabs.select(self.settings_tab)
+        self.settings_sections.select(self.mail_settings_frame)
+        self.refresh_mail_accounts()
+
     def build_settings(self):
-        frame=self.settings_tab
+        self.settings_sections=ttk.Notebook(self.settings_tab)
+        self.settings_sections.pack(fill='both',expand=True)
+        self.ai_settings_frame=ttk.Frame(self.settings_sections,padding=12)
+        self.mail_settings_frame=ttk.Frame(self.settings_sections,padding=12)
+        self.settings_sections.add(self.ai_settings_frame,text='KI-Anbieter')
+        self.settings_sections.add(self.mail_settings_frame,text='E-Mail-Konten')
+        frame=self.ai_settings_frame
         ttk.Label(frame,text='KI-Anbieter & API-Schlüssel',font=('Segoe UI',18,'bold')).pack(anchor='w')
         self.active_notice=tk.StringVar()
         ttk.Label(frame,textvariable=self.active_notice).pack(anchor='w',pady=(6,12))
@@ -313,6 +398,115 @@ class App(tk.Tk):
         self.settings_help.pack(anchor='w',fill='x',pady=(5,0))
         frame.bind('<Configure>',self.resize_settings_text,add='+')
         self.refresh_settings()
+        self.build_mail_settings()
+
+    def build_mail_settings(self):
+        frame=self.mail_settings_frame
+        ttk.Label(frame,text='E-Mail-Konten',font=('Segoe UI',18,'bold')).pack(anchor='w')
+        ttk.Label(frame,text='Kontodaten werden in SQLite gespeichert; Kennwörter und OAuth-Token im Betriebssystem-Schlüsselspeicher.',wraplength=950).pack(anchor='w',pady=(5,10))
+        columns=('label','provider','email','status')
+        self.mail_tree=ttk.Treeview(frame,columns=columns,show='headings',height=4,selectmode='browse')
+        for col,title,width in [('label','Kontoname',180),('provider','Anbieter',190),('email','E-Mail-Adresse',260),('status','Anmeldung',150)]:
+            self.mail_tree.heading(col,text=title); self.mail_tree.column(col,width=width)
+        self.mail_tree.pack(fill='x')
+        self.mail_tree.bind('<<TreeviewSelect>>',lambda _:self.load_mail_account())
+        form=ttk.Frame(frame,padding=(0,10,0,5)); form.pack(fill='x'); form.columnconfigure(1,weight=1); form.columnconfigure(3,weight=1)
+        self.mail_vars={name:tk.StringVar() for name in ('id','label','provider','email','username','host','port','client_id','tenant','secret')}
+        self.mail_provider_names={info['name']:key for key,info in MAIL_PROVIDERS.items()}
+        self.mail_provider_value=tk.StringVar()
+        self.mail_provider=ttk.Combobox(form,textvariable=self.mail_provider_value,state='readonly',values=list(self.mail_provider_names))
+        fields=[('Kontoname','label',ttk.Entry),('Anbieter','provider',None),('E-Mail-Adresse','email',ttk.Entry),
+                ('Benutzername','username',ttk.Entry),('IMAP-Server','host',ttk.Entry),('IMAP-Port','port',ttk.Entry),
+                ('Microsoft Client-ID','client_id',ttk.Entry),('Microsoft Mandant','tenant',ttk.Entry)]
+        self.mail_fields={}
+        for index,(title,name,kind) in enumerate(fields):
+            row=index//2; col=(index%2)*2
+            ttk.Label(form,text=title).grid(row=row,column=col,sticky='w',padx=(0,10),pady=4)
+            widget=self.mail_provider if name=='provider' else kind(form,textvariable=self.mail_vars[name])
+            widget.grid(row=row,column=col+1,sticky='ew',padx=(0,18),pady=4); self.mail_fields[name]=widget
+        ttk.Label(form,text='Kennwort / App-Passwort').grid(row=4,column=0,sticky='w',padx=(0,10),pady=4)
+        self.mail_secret=ttk.Entry(form,textvariable=self.mail_vars['secret'],show='*')
+        self.mail_secret.grid(row=4,column=1,sticky='ew',padx=(0,18),pady=4)
+        ttk.Label(form,text='Bestehende Zugangsdaten werden nicht angezeigt. Leer lassen, um sie beizubehalten.',wraplength=480).grid(row=4,column=2,columnspan=2,sticky='w',pady=4)
+        self.mail_provider.bind('<<ComboboxSelected>>',lambda _:self.select_mail_provider())
+        actions=ttk.Frame(frame); actions.pack(fill='x',pady=(4,6))
+        for title,command,style in [('Neues Konto',self.new_mail_account,'TButton'),('Konto speichern',self.save_mail_account,'Accent.TButton'),
+                                   ('Microsoft verbinden',self.connect_microsoft,'TButton'),('Konto löschen',self.delete_mail_account,'TButton')]:
+            b=ttk.Button(actions,text=title,command=command,style=style); b.pack(side='left',padx=(0,8)); self.buttons.append(b)
+        self.mail_message=tk.StringVar()
+        ttk.Label(frame,textvariable=self.mail_message,wraplength=950).pack(anchor='w',pady=(5,0))
+        self.refresh_mail_accounts()
+
+    def refresh_mail_accounts(self,selected=None):
+        rows=self.mail_accounts.list(); self.mail_rows={r['id']:r for r in rows}
+        self.mail_tree.delete(*self.mail_tree.get_children())
+        for row in rows:
+            self.mail_tree.insert('','end',iid=row['id'],values=(row['label'],MAIL_PROVIDERS[row['provider']]['name'],row['email'],row['auth_status']))
+        if selected in self.mail_rows:
+            self.mail_tree.selection_set(selected); self.load_mail_account()
+        elif rows:
+            self.mail_tree.selection_set(rows[0]['id']); self.load_mail_account()
+        else:
+            self.new_mail_account()
+        self.refresh_import_accounts()
+
+    def new_mail_account(self):
+        for value in self.mail_vars.values(): value.set('')
+        self.mail_vars['provider'].set('gmail'); self.mail_vars['port'].set('993'); self.mail_vars['tenant'].set('common')
+        self.apply_mail_provider(); self.mail_message.set('Neues Konto. Gmail benötigt in der Regel ein App-Passwort; Microsoft verwendet OAuth 2.0.')
+
+    def load_mail_account(self):
+        selected=self.mail_tree.selection()
+        if not selected: return
+        row=self.mail_rows[selected[0]]
+        for name in ('id','label','provider','email','username','host','port','client_id','tenant'):
+            self.mail_vars[name].set(row[name])
+        self.mail_vars['secret'].set(''); self.apply_mail_provider()
+        self.mail_message.set(row['auth_status']+' · Bestehende Zugangsdaten bleiben verborgen.')
+
+    def apply_mail_provider(self):
+        provider=self.mail_vars['provider'].get() or 'gmail'
+        self.mail_provider_value.set(MAIL_PROVIDERS[provider]['name'])
+        if provider=='gmail':
+            self.mail_vars['host'].set('imap.gmail.com'); self.mail_vars['port'].set('993')
+        elif provider=='microsoft':
+            self.mail_vars['host'].set(''); self.mail_vars['port'].set('0'); self.mail_vars['tenant'].set(self.mail_vars['tenant'].get() or 'common')
+        for name in ('host','port','username','secret'):
+            self.mail_fields.get(name,self.mail_secret).configure(state='disabled' if provider=='microsoft' else 'normal')
+        for name in ('client_id','tenant'):
+            self.mail_fields[name].configure(state='normal' if provider=='microsoft' else 'disabled')
+
+    def select_mail_provider(self):
+        self.mail_vars['provider'].set(self.mail_provider_names[self.mail_provider_value.get()])
+        self.apply_mail_provider()
+
+    def mail_form(self):
+        return {name:value.get() for name,value in self.mail_vars.items() if name!='secret'}
+
+    def save_mail_account(self):
+        try:
+            account_id=self.mail_accounts.save(self.mail_form(),self.mail_vars['secret'].get())
+            self.refresh_mail_accounts(account_id); self.mail_message.set('E-Mail-Konto gespeichert.')
+        except Exception as e:
+            messagebox.showerror('E-Mail-Konto',str(e),parent=self)
+
+    def connect_microsoft(self):
+        account_id=self.mail_vars['id'].get()
+        if not account_id or self.mail_vars['provider'].get()!='microsoft':
+            messagebox.showinfo('Microsoft verbinden','Microsoft-Konto zuerst mit Client-ID speichern.',parent=self); return
+        self.work(lambda:self.mail_accounts.begin_microsoft(account_id),self.show_microsoft_login)
+
+    def show_microsoft_login(self,context):
+        messagebox.showinfo('Microsoft-Anmeldung',context['message'],parent=self)
+        self.work(lambda:self.mail_accounts.finish_microsoft(context),lambda _:(self.refresh_mail_accounts(context['account_id']),self.mail_message.set('Microsoft-Konto verbunden.')))
+
+    def delete_mail_account(self):
+        account_id=self.mail_vars['id'].get()
+        if account_id and messagebox.askyesno('E-Mail-Konto','Konto und gespeicherte Zugangsdaten entfernen? Importierte E-Mails bleiben erhalten.',parent=self):
+            try:
+                self.mail_accounts.delete(account_id); self.refresh_mail_accounts(); self.mail_message.set('E-Mail-Konto entfernt.')
+            except Exception as e:
+                messagebox.showerror('E-Mail-Konto',str(e),parent=self)
 
     def resize_settings_text(self,event):
         """Keep explanatory text readable without wasting vertical space."""

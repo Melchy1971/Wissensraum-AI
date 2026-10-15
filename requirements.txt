@@ -1,3 +1,4 @@
 pypdf==6.10.0
 python-docx==1.2.0
 keyring==25.7.0
+msal==1.39.0

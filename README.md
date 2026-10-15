@@ -1,6 +1,6 @@
 # Wissensraum AI – KI-gestütztes Wissensmanagement mit SQL
 
-Version 1.1 · 15.10.2026 · lokale Einzelplatzanwendung · Python 3.11 oder neuer
+Version 1.2 · 15.10.2026 · lokale Einzelplatzanwendung · Python 3.11 oder neuer
 
 Dokumente, Notizen, Originaldateien und KI-Verlauf werden in einer SQLite-SQL-Datenbank gespeichert. Die Anwendung bietet eine deutschsprachige Desktop-Oberfläche und eine Kommandozeilenschnittstelle. Es wird kein Webserver benötigt.
 
@@ -8,9 +8,9 @@ Dokumente, Notizen, Originaldateien und KI-Verlauf werden in einer SQLite-SQL-Da
 
 1. ZIP vollständig in einen beschreibbaren Ordner entpacken, beispielsweise `H:\Wissensraum`. Nicht direkt aus der ZIP starten und nicht unter `Programme` ablegen.
 2. Python 3.11 oder neuer von https://www.python.org/downloads/ mit Tcl/Tk installieren.
-3. `start_windows.bat` doppelt anklicken. Beim ersten Start werden die Python-Bibliotheken für PDF und Word installiert; dafür ist Internetzugang erforderlich.
+3. `start_windows.bat` doppelt anklicken. Beim ersten Start werden die erforderlichen Python-Bibliotheken installiert; dafür ist Internetzugang erforderlich.
 4. **Einstellungen** öffnen. Vorhandene Schlüssel aus Umgebung und `.env.local`/`.env` werden automatisch maskiert angezeigt. Anbieter auswählen, Modell prüfen und **Als aktive KI verwenden** anklicken. Neue Schlüssel im maskierten Eingabefeld hinterlegen oder über **Schlüsseldatei importieren** übernehmen.
-5. **Dateien importieren** anklicken oder über **Notiz erfassen** eigene Inhalte eingeben.
+5. **Import** öffnen. Dort lokale Dokumente, Outlook-PST-Dateien oder konfigurierte E-Mail-Konten einlesen. E-Mail-Konten werden unter **Einstellungen → E-Mail-Konten** gepflegt.
 6. **Dokumente & Suche** durchsuchen. Unter **Wissen befragen** eine Frage eingeben; **Quellen suchen & antworten** startet die KI-Anfrage.
 
 Zum Prüfen kann `beispiele/Freigabeprozess.md` importiert werden. Die Inhalte sind ausdrücklich fiktiv. Beispielfrage: „Wer gibt Beschaffungsanträge über 500 Euro frei?“
@@ -27,6 +27,8 @@ Python 3.11+ mit Tkinter voraussetzen, anschließend `sh start.sh` ausführen. U
 |---|---|
 | Datenbank | SQLite mit Fremdschlüsseln, Transaktionen, FTS5 und Schema-Version |
 | Dokumente | TXT, Markdown, textbasierte PDF, DOCX einschließlich Tabellen |
+| E-Mail | Gmail und sonstige IMAP-Konten im Nur-Lesen-Modus; Microsoft 365/Outlook über OAuth 2.0 und Microsoft Graph |
+| Outlook-Archive | Lokaler PST-Import über die optionale `libratom`-Erweiterung |
 | Originale | Binärdateien als BLOB in SQL; Export über die Oberfläche |
 | Notizen | Titel, frei wählbarer Bereich, Inhalt |
 | Dubletten | SHA-256 über den extrahierten, außen getrimmten Text; identischer Text wird einmal gespeichert |
@@ -41,7 +43,7 @@ Die Suche ist lexikalisch: Begriffe müssen im Dokument vorkommen. Synonyme, ech
 
 Die KI erhält die acht bestbewerteten Abschnitte, keine vollständige Gesamtauswertung des Bestands. Ein relevanter Abschnitt kann außerhalb dieser Auswahl liegen. Quellenverweise werden auf gültige Nummern geprüft; das prüft nicht, ob die Aussage tatsächlich aus der Quelle folgt. Antworten ohne Quellenmarkierung erhalten einen ausdrücklichen Prüfhinweis. Aussagen müssen anhand der angezeigten Textstellen geprüft werden.
 
-Grenzen: 20 MB Originaldatei, 2 Millionen extrahierte Zeichen pro Dokument, 4.000 Zeichen pro Frage, 24.000 Zeichen für eine Zusammenfassung. OCR für Scans, PST, Audio, Web-Crawling, Benutzerverwaltung, Rechtevergabe, PostgreSQL, Wissensgraph und Mehrbenutzerbetrieb sind nicht enthalten. Importierte Dokumente sind unveränderlich; korrigierte Inhalte werden als neues Dokument importiert. Beim Löschen eines Dokuments bleiben Quellenkopien im KI-Verlauf erhalten und können weiter sensible Inhalte enthalten.
+Grenzen: 20 MB lokale Originaldatei, 25 MB je abgerufener IMAP-Nachricht, 2 Millionen extrahierte Zeichen pro Dokument, 4.000 Zeichen pro Frage, 24.000 Zeichen für eine Zusammenfassung. OCR für Scans, E-Mail-Anhänge, Audio, Web-Crawling, Benutzerverwaltung, Rechtevergabe, PostgreSQL, Wissensgraph und Mehrbenutzerbetrieb sind nicht enthalten. Ein Importlauf verarbeitet maximal 2.000 IMAP-, 1.000 Microsoft- oder 10.000 PST-Nachrichten. Importierte Dokumente sind unveränderlich; korrigierte Inhalte werden als neues Dokument importiert. Beim Löschen eines Dokuments bleiben Quellenkopien im KI-Verlauf erhalten und können weiter sensible Inhalte enthalten.
 
 ## Datenmodell
 
@@ -51,16 +53,17 @@ Grenzen: 20 MB Originaldatei, 2 Millionen extrahierte Zeichen pro Dokument, 4.00
 | `chunks` | Nummerierte Textabschnitte mit Fremdschlüssel auf das Dokument |
 | `search_index` | FTS5-Index über Titel, Bereich und Text |
 | `ai_runs` | Anfrageart, Frage, Antwort, Quellen-Snapshot als JSON, Modell, Zeit |
+| `email_accounts` | Kontoname, Anbieter, Adresse, Serverparameter und OAuth-Anwendungskennung; keine Kennwörter oder Token |
 
 Die SQL-Definition steht in `schema.sql`; die Anwendung initialisiert sie automatisch aus `core.py`. `chunks_search` ist eine Sicht für den Volltextindex. SQL-Werte werden parametrisiert gebunden. KI-Ausgaben werden niemals als SQL oder Programmcode ausgeführt.
 
 ```mermaid
 flowchart TD
-    A[Datei oder Notiz] --> B[Textextraktion und Dublettenprüfung]
+    A[Datei, PST, E-Mail oder Notiz] --> B[Textextraktion und Dublettenprüfung]
     B --> C[(SQLite: Originale und Textabschnitte)]
     D[Frage] --> E[Volltextsuche]
     C --> E
-    E --> F[Ausgewählte Quellen an OpenAI]
+    E --> F[Ausgewählte Quellen an aktive KI]
     F --> G[Antwort und Quellenprüfung]
     G --> H[(SQLite: KI-Verlauf)]
 ```
@@ -71,7 +74,7 @@ Standarddatei: `data/wissen.db` im Programmordner. Alternativer Pfad über `WISS
 
 Dokumentimport und Suche benötigen keine API. Bei Fragen werden Frage und ausgewählte Textabschnitte an den gewählten KI-Anbieter gesendet; bei Zusammenfassungen der vollständige unterstützte Dokumenttext. Die Anwendung setzt `store=false` bei OpenAI-Responses-Anfragen. Dies ersetzt keine Prüfung der geltenden Datenverarbeitung und ist keine Zusage vollständiger Speicherfreiheit beim Anbieter. Die API-Nutzung wird separat abgerechnet.
 
-Die SQLite-Datei ist nicht durch die Anwendung verschlüsselt. Betriebssystemkonto und Laufwerksverschlüsselung schützen lokale Daten. Dies ist eine Einzelplatzanwendung; die aktive Datenbank auf einem lokalen Datenträger halten. Für Netzwerkfreigaben und parallele Bearbeitung ist diese Version nicht ausgelegt.
+Die SQLite-Datei ist nicht durch die Anwendung verschlüsselt. Sie enthält auch importierte E-Mail-Texte und die jeweiligen Originalnachrichten. Betriebssystemkonto und Laufwerksverschlüsselung schützen lokale Daten. Dies ist eine Einzelplatzanwendung; die aktive Datenbank auf einem lokalen Datenträger halten. Für Netzwerkfreigaben und parallele Bearbeitung ist diese Version nicht ausgelegt.
 
 **Sicherung:** „Datenbank sichern“ erstellt eine vollständige Datenbankkopie einschließlich Originalen und KI-Verlauf. **Wiederherstellung:** Anwendung beenden, bestehende `data/wissen.db` samt eventuell vorhandenen `wissen.db-wal` und `wissen.db-shm` gemeinsam in einen anderen Ordner verschieben, Sicherungsdatei als `data/wissen.db` einsetzen, Anwendung starten. Nicht die aktive Datei im laufenden Betrieb durch eine Sicherung ersetzen. Schlüsseldatei separat sichern. Im Betriebssystem-Schlüsselspeicher verwaltete Schlüssel sind nicht in der SQL-Sicherung enthalten und müssen auf einem anderen Rechner erneut eingerichtet werden.
 
@@ -96,9 +99,9 @@ python cli.py --db data/test.db list
 
 ## Prüfung dieser Auslieferung
 
-- Basisprüfung Version 1.0: 14 automatisierte Tests bestanden: Speicherung, BLOB-Erhalt, Dubletten, Suche, FTS-Löschung, Sicherung, UTF-8/Windows-Zeichensatz, DOCX-Tabellen, Scan-PDF-Ablehnung, Abschnittsüberlappung, Quellen-Auswahl, Verlauf, ungültige Quellen, API-Fehler und Eingabegrenzen.
+- 36 automatisierte Tests prüfen Speicherung, BLOB-Erhalt, Dubletten, Suche, Sicherung, Dokumentextraktion, KI-Adapter, Schlüsselspeicherung, Schema-Migration, IMAP-Nur-Lesen-Import, PST-Import und Microsoft-Graph-Import.
 - KI-Vertrag mit simulierten API-Antworten geprüft. Live-Test mit synthetischen Testdaten durchgeführt; die API antwortete mit HTTP 429. Live-Antwortqualität ist deshalb nicht bestätigt.
-- Die Desktop-Oberfläche ist implementiert und kompiliert. Grafischer Start und visuelle Bedienprüfung waren mangels Anzeige in der Erstellungsumgebung nicht möglich. Der Windows-Starter wurde auf diesem Linux-System nicht ausgeführt.
+- Die Desktop-Oberfläche wird unter Linux mit virtuellem Bildschirm gestartet und automatisiert geprüft. GitHub Actions erzeugt zusätzlich Vorschauen der Einstellungen und des Importbereichs. Der Windows-Starter wird durch die Windows-Matrix kompiliert und getestet.
 - GitHub Actions prüft Python 3.11 und 3.13 auf Windows und Linux, einschließlich grafischer Oberflächentests. Der aktuelle Status ist im Actions-Tab sichtbar.
 
 Tests ausführen:
@@ -121,7 +124,7 @@ python -m unittest discover -s tests -v
 
 ## Entwicklung
 
-Die CI-Tests rufen keine kostenpflichtige KI-API auf. API-Verträge werden mit kontrollierten Testantworten geprüft. Die Desktop-Oberfläche benötigt eine separate manuelle Bedienprüfung. Änderungen an Datenmodellen benötigen eine passende Migration; die aktuelle Version initialisiert Schema 2 und lehnt neuere Schemata ab.
+Die CI-Tests rufen keine kostenpflichtige KI-, Microsoft- oder E-Mail-API auf. API-Verträge werden mit kontrollierten Testantworten geprüft. Änderungen an Datenmodellen benötigen eine passende Migration; die aktuelle Version initialisiert Schema 3 und lehnt neuere Schemata ab.
 
 
 ## Einstellungen: KI auswählen und Schlüssel verwalten
@@ -147,6 +150,36 @@ Neu eingegebene Schlüssel werden mit `keyring` in einem nativen Betriebssystem-
 
 **Schlüssel entfernen** löscht den von der Anwendung verwalteten Schlüssel und deaktiviert den Anbieter auch für extern vorhandene Schlüssel. Umgebungsvariablen und ursprüngliche Dateien bleiben erhalten. Das entfernt keine Zugangsdaten beim Anbieter und widerruft keinen API-Schlüssel. Einen neuen Wert eingeben und speichern, um den Anbieter wieder zu aktivieren.
 
-Schema 1 wird beim Öffnen automatisch auf Schema 2 erweitert; vorhandene Dokumente, Suchindex und KI-Verlauf bleiben erhalten. Alte Programmversionen können eine auf Version 2 aktualisierte Datenbank nicht mehr öffnen. Vor einem Programm-Downgrade die frühere Datenbanksicherung verwenden.
+Schema 1 und 2 werden beim Öffnen automatisch auf Schema 3 erweitert; vorhandene Dokumente, Suchindex und KI-Verlauf bleiben erhalten. Alte Programmversionen können eine auf Version 3 aktualisierte Datenbank nicht mehr öffnen. Vor einem Programm-Downgrade die frühere Datenbanksicherung verwenden.
 
 Die Anbieteradapter werden mit kontrollierten API-Antworten getestet. Claude, Gemini und Ollama wurden in dieser Entwicklungsumgebung nicht mit echten Zugängen bzw. einem lokalen Modell live geprüft. Der vorherige OpenAI-Live-Test erhielt HTTP 429. Modellvorschläge sind konfigurierbare Vorgaben und keine Zusicherung der Verfügbarkeit.
+
+## Import und E-Mail-Konten
+
+Der Reiter **Import** trennt drei Quellen: lokale Dokumente, Outlook-PST-Dateien und E-Mail-Postfächer. Jeder E-Mail-Import liest das Postfach ohne Nachrichten zu löschen oder als gelesen zu markieren. E-Mails werden mit Betreff, Absender, Empfänger, Datum, Nachrichten-ID und Nachrichtentext gespeichert. Anhänge werden noch nicht extrahiert. Identischer extrahierter Inhalt wird nicht doppelt gespeichert.
+
+### Gmail
+
+1. Google-Konto mit Bestätigung in zwei Schritten absichern und ein App-Passwort für Wissensraum erzeugen.
+2. **Einstellungen → E-Mail-Konten → Neues Konto** öffnen und **Gmail** wählen.
+3. Kontoname, E-Mail-Adresse und Benutzername eintragen. Server `imap.gmail.com` und Port `993` werden automatisch gesetzt.
+4. Das App-Passwort unter **Kennwort / App-Passwort** eintragen und speichern.
+
+### Microsoft 365 und Outlook.com
+
+Microsoft-Konten verwenden OAuth 2.0 und Microsoft Graph. Dafür wird einmalig eine eigene öffentliche Anwendung in Microsoft Entra benötigt:
+
+1. Entra App-Registrierung anlegen, den passenden Kontotyp wählen und **Flows für öffentliche Clients zulassen** aktivieren.
+2. Delegierte Microsoft-Graph-Berechtigung `Mail.Read` eintragen.
+3. Anwendungs-ID als **Microsoft Client-ID** eintragen. Für Organisations- und Privatkonten kann der Mandant `common` verwendet werden; sonst die Verzeichnis-ID eintragen.
+4. Konto speichern, **Microsoft verbinden** anklicken und den angezeigten Gerätecode im Microsoft-Anmeldefenster bestätigen.
+
+### Sonstige E-Mail-Anbieter
+
+**Sonstiges IMAP-Konto** wählen und IMAP-Server, TLS-Port, Benutzername sowie Anbieterkennwort oder App-Passwort eintragen. Die Anwendung verwendet ausschließlich IMAP über TLS. Serverseitige Ordnernamen unterscheiden sich; Standard ist `INBOX`.
+
+### Outlook-PST
+
+PST-Verarbeitung benötigt `libratom` und dessen lokale C-Bibliothek. Unter Windows einmal `install-pst-support.bat` ausführen. Falls die Installation scheitert, die **C++ Build Tools für Visual Studio** installieren und das Skript erneut starten. Anschließend im Reiter **Import** die PST-Datei auswählen. Die Verarbeitung erfolgt lokal; Outlook selbst ist nicht erforderlich.
+
+Kontokennwörter, App-Passwörter und Microsoft-Token werden im nativen Betriebssystem-Schlüsselspeicher verwaltet. SQLite enthält nur Kontometadaten. Beim Entfernen eines Kontos werden dessen gespeicherte Zugangsdaten entfernt; bereits importierte E-Mails bleiben in der Wissensdatenbank.

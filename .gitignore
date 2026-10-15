@@ -12,3 +12,9 @@ __pycache__/
 data/
 .pytest_cache/
 settings-preview.png
+import-preview.png
+accounts-preview.png
+*.pst
+*.ost
+*.mbox
+*.eml
