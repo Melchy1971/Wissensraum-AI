@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS ai_runs (
  sources_json TEXT NOT NULL, model TEXT NOT NULL,
  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-PRAGMA user_version = 1;
+CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value TEXT NOT NULL);
+PRAGMA user_version = 2;
 '''
 
 
@@ -58,7 +59,7 @@ class Store:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as db:
             version = db.execute('PRAGMA user_version').fetchone()[0]
-            if version > 1:
+            if version > 2:
                 raise ValueError('Datenbankversion ist neuer als diese Anwendung.')
             db.executescript(SCHEMA)
 
@@ -184,7 +185,15 @@ def load_key(base):
 
 
 class AI:
-    def __init__(self, store, key, model='gpt-4.1-mini', transport=None):
+    def __init__(self, store, key, model='gpt-4.1-mini', transport=None, provider='openai'):
+        from settings import PROVIDERS
+        if provider not in PROVIDERS:
+            raise ValueError("Unbekannter KI-Anbieter.")
+        if PROVIDERS[provider]['env'] and (not key or any(c.isspace() or ord(c)<32 for c in key)):
+            raise ValueError('API-Schlüssel fehlt oder enthält ungültige Zeichen.')
+        if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.:/-]{0,119}',model):
+            raise ValueError('Ungültige Modell-ID.')
+        self.provider = provider
         self.store, self.key, self.model = store, key, model
         self.transport = transport or urllib.request.urlopen
 
@@ -196,12 +205,30 @@ class AI:
                         'Belege jede sachliche Aussage mit [Q1], [Q2] usw. '
                         'Nenne Widersprüche und fehlende Belege. Wenn die Quellen nicht ausreichen, sage das ausdrücklich. '
                         'Führe keine Aktionen aus. Erfinde keine Quellen und keine Fakten.')
-        payload = {'model': self.model, 'instructions': instructions,
-                   'input': json.dumps({'frage':question,'quellen':context}, ensure_ascii=False),
-                   'store':False, 'max_output_tokens':1600}
-        req = urllib.request.Request('https://api.openai.com/v1/responses',
-              data=json.dumps(payload).encode(), headers={'Authorization':'Bearer '+self.key,
-              'Content-Type':'application/json'}, method='POST')
+        from settings import PROVIDERS
+        user_input=json.dumps({'frage':question,'quellen':context},ensure_ascii=False)
+        endpoint=PROVIDERS[self.provider]['endpoint']
+        headers={'Content-Type':'application/json'}
+        if self.provider=='openai':
+            headers['Authorization']='Bearer '+self.key
+            payload={'model':self.model,'instructions':instructions,'input':user_input,
+                     'store':False,'max_output_tokens':1600}
+        elif self.provider=='anthropic':
+            headers.update({'x-api-key':self.key,'anthropic-version':'2023-06-01'})
+            payload={'model':self.model,'system':instructions,'max_tokens':1600,
+                     'messages':[{'role':'user','content':user_input}]}
+        elif self.provider=='gemini':
+            from urllib.parse import quote
+            endpoint+='/'+quote(self.model,safe='')+':generateContent'
+            headers['x-goog-api-key']=self.key
+            payload={'systemInstruction':{'parts':[{'text':instructions}]},
+                     'contents':[{'role':'user','parts':[{'text':user_input}]}],
+                     'generationConfig':{'maxOutputTokens':3000}}
+        else:
+            payload={'model':self.model,'stream':False,
+                     'messages':[{'role':'system','content':instructions},{'role':'user','content':user_input}],
+                     'options':{'num_predict':1600}}
+        req=urllib.request.Request(endpoint,data=json.dumps(payload).encode(),headers=headers,method='POST')
         try:
             with self.transport(req, timeout=90) as response:
                 result = json.load(response)
@@ -211,10 +238,24 @@ class AI:
             raise ValueError(messages.get(e.code, f'KI-Dienst meldet HTTP {e.code}. Später erneut versuchen.')) from None
         except (urllib.error.URLError, TimeoutError, OSError):
             raise ValueError('KI-Dienst nicht erreichbar. Internetverbindung prüfen.') from None
-        if result.get('status') not in ('completed', None):
-            raise ValueError('KI-Antwort wurde nicht vollständig erzeugt. Anfrage eingrenzen.')
-        answer = '\n'.join(c['text'] for item in result.get('output',[]) for c in item.get('content',[])
-                           if c.get('type') == 'output_text')
+        if self.provider=='openai':
+            if result.get('status') not in ('completed',None):
+                raise ValueError('KI-Antwort wurde nicht vollständig erzeugt. Anfrage eingrenzen.')
+            answer='\n'.join(c['text'] for item in result.get('output',[]) for c in item.get('content',[])
+                             if c.get('type')=='output_text')
+        elif self.provider=='anthropic':
+            if result.get('stop_reason') not in ('end_turn','stop_sequence'):
+                raise ValueError('Claude-Antwort unvollständig oder abgelehnt.')
+            answer='\n'.join(c['text'] for c in result.get('content',[]) if c.get('type')=='text')
+        elif self.provider=='gemini':
+            candidates=result.get('candidates',[])
+            if not candidates or candidates[0].get('finishReason')!='STOP':
+                raise ValueError('Gemini-Antwort blockiert oder unvollständig.')
+            answer='\n'.join(p.get('text','') for p in candidates[0].get('content',{}).get('parts',[]) if not p.get('thought'))
+        else:
+            if not result.get('done') or result.get('done_reason') not in ('stop',None):
+                raise ValueError('Ollama-Antwort unvollständig.')
+            answer=result.get('message',{}).get('content','')
         if not answer.strip():
             raise ValueError('KI-Dienst lieferte keine Textantwort.')
         labels = re.findall(r'\[Q(\d+)\]', answer)
@@ -232,7 +273,7 @@ class AI:
         if not sources:
             return 'Keine passenden Quellen gefunden. Suchbegriffe aus deinen Dokumenten verwenden.', []
         answer = self.generate(question, sources)
-        self.store.log('question', question, answer, sources, self.model)
+        self.store.log('question', question, answer, sources, self.model if self.provider=='openai' else self.provider+'/'+self.model)
         return answer, sources
 
     def summarize(self, doc_id):
@@ -243,5 +284,5 @@ class AI:
                    for i,part in enumerate(chunks(doc['content'], size=3000, overlap=0))]
         question = 'Fasse das Dokument strukturiert zusammen: Kernaussagen, Entscheidungen, Aufgaben, offene Punkte. Nichts ergänzen.'
         answer = self.generate(question, sources)
-        self.store.log('summary', question, answer, sources, self.model)
+        self.store.log('summary', question, answer, sources, self.model if self.provider=='openai' else self.provider+'/'+self.model)
         return answer, sources

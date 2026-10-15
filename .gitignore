@@ -11,3 +11,4 @@ __pycache__/
 *.key
 data/
 .pytest_cache/
+settings-preview.png

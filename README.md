@@ -1,6 +1,6 @@
 # Wissensraum AI – KI-gestütztes Wissensmanagement mit SQL
 
-Version 1.0 · 15.10.2026 · lokale Einzelplatzanwendung · Python 3.11 oder neuer
+Version 1.1 · 15.10.2026 · lokale Einzelplatzanwendung · Python 3.11 oder neuer
 
 Dokumente, Notizen, Originaldateien und KI-Verlauf werden in einer SQLite-SQL-Datenbank gespeichert. Die Anwendung bietet eine deutschsprachige Desktop-Oberfläche und eine Kommandozeilenschnittstelle. Es wird kein Webserver benötigt.
 
@@ -9,7 +9,7 @@ Dokumente, Notizen, Originaldateien und KI-Verlauf werden in einer SQLite-SQL-Da
 1. ZIP vollständig in einen beschreibbaren Ordner entpacken, beispielsweise `H:\Wissensraum`. Nicht direkt aus der ZIP starten und nicht unter `Programme` ablegen.
 2. Python 3.11 oder neuer von https://www.python.org/downloads/ mit Tcl/Tk installieren.
 3. `start_windows.bat` doppelt anklicken. Beim ersten Start werden die Python-Bibliotheken für PDF und Word installiert; dafür ist Internetzugang erforderlich.
-4. Die separat bereitgestellte Schlüsseldatei über **API-Schlüsseldatei** auswählen. Sie wird für diese Sitzung geladen. Für automatisches Laden die Datei mit dem Namen `.env.local` im Programmordner ablegen. Windows darf keinen zusätzlichen `.txt`-Suffix anhängen.
+4. **Einstellungen** öffnen. Vorhandene Schlüssel aus Umgebung und `.env.local`/`.env` werden automatisch maskiert angezeigt. Anbieter auswählen, Modell prüfen und **Speichern & aktivieren** anklicken. Neue Schlüssel im maskierten Eingabefeld hinterlegen oder über **Schlüsseldatei importieren** übernehmen.
 5. **Dateien importieren** anklicken oder über **Notiz erfassen** eigene Inhalte eingeben.
 6. **Dokumente & Suche** durchsuchen. Unter **Wissen befragen** eine Frage eingeben; **Quellen suchen & antworten** startet die KI-Anfrage.
 
@@ -67,13 +67,13 @@ flowchart TD
 
 ## Datenspeicherung und Betrieb
 
-Standarddatei: `data/wissen.db` im Programmordner. Alternativer Pfad über `WISSEN_DB`. Das Modell kann über `OPENAI_MODEL` konfiguriert werden; Standard ist `gpt-4.1-mini`. Der Schlüssel wird aus `OPENAI_API_KEY`, `.env.local` im Programmordner oder `.env.local` im übergeordneten Ordner geladen. Die Oberfläche kann zusätzlich eine vorhandene Schlüsseldatei für die laufende Sitzung laden. Es gibt keinen Dialog, der einen Schlüssel im Klartext anzeigt.
+Standarddatei: `data/wissen.db` im Programmordner. Alternativer Pfad über `WISSEN_DB`. Das Modell kann über `OPENAI_MODEL` konfiguriert werden; Standard ist `gpt-4.1-mini`. Der Schlüssel wird aus `OPENAI_API_KEY`, `.env.local` im Programmordner oder `.env.local` im übergeordneten Ordner geladen. Die Oberfläche zeigt Anbieter und Schlüsselstatus im Bereich **Einstellungen**; neue Schlüssel werden im Betriebssystem-Schlüsselspeicher abgelegt. Es gibt keinen Dialog, der einen Schlüssel im Klartext anzeigt.
 
-Dokumentimport und Suche benötigen keine API. Bei Fragen werden Frage und ausgewählte Textabschnitte an die OpenAI-API gesendet; bei Zusammenfassungen der vollständige unterstützte Dokumenttext. Die Anwendung setzt `store=false` bei Responses-Anfragen. Dies ersetzt keine Prüfung der geltenden Datenverarbeitung und ist keine Zusage vollständiger Speicherfreiheit beim Anbieter. Die API-Nutzung wird separat abgerechnet.
+Dokumentimport und Suche benötigen keine API. Bei Fragen werden Frage und ausgewählte Textabschnitte an den gewählten KI-Anbieter gesendet; bei Zusammenfassungen der vollständige unterstützte Dokumenttext. Die Anwendung setzt `store=false` bei OpenAI-Responses-Anfragen. Dies ersetzt keine Prüfung der geltenden Datenverarbeitung und ist keine Zusage vollständiger Speicherfreiheit beim Anbieter. Die API-Nutzung wird separat abgerechnet.
 
 Die SQLite-Datei ist nicht durch die Anwendung verschlüsselt. Betriebssystemkonto und Laufwerksverschlüsselung schützen lokale Daten. Dies ist eine Einzelplatzanwendung; die aktive Datenbank auf einem lokalen Datenträger halten. Für Netzwerkfreigaben und parallele Bearbeitung ist diese Version nicht ausgelegt.
 
-**Sicherung:** „Datenbank sichern“ erstellt eine vollständige Datenbankkopie einschließlich Originalen und KI-Verlauf. **Wiederherstellung:** Anwendung beenden, bestehende `data/wissen.db` samt eventuell vorhandenen `wissen.db-wal` und `wissen.db-shm` gemeinsam in einen anderen Ordner verschieben, Sicherungsdatei als `data/wissen.db` einsetzen, Anwendung starten. Nicht die aktive Datei im laufenden Betrieb durch eine Sicherung ersetzen. Schlüsseldatei separat sichern.
+**Sicherung:** „Datenbank sichern“ erstellt eine vollständige Datenbankkopie einschließlich Originalen und KI-Verlauf. **Wiederherstellung:** Anwendung beenden, bestehende `data/wissen.db` samt eventuell vorhandenen `wissen.db-wal` und `wissen.db-shm` gemeinsam in einen anderen Ordner verschieben, Sicherungsdatei als `data/wissen.db` einsetzen, Anwendung starten. Nicht die aktive Datei im laufenden Betrieb durch eine Sicherung ersetzen. Schlüsseldatei separat sichern. Im Betriebssystem-Schlüsselspeicher verwaltete Schlüssel sind nicht in der SQL-Sicherung enthalten und müssen auf einem anderen Rechner erneut eingerichtet werden.
 
 ## CLI
 
@@ -96,10 +96,10 @@ python cli.py --db data/test.db list
 
 ## Prüfung dieser Auslieferung
 
-- 14 automatisierte Tests bestanden: Speicherung, BLOB-Erhalt, Dubletten, Suche, FTS-Löschung, Sicherung, UTF-8/Windows-Zeichensatz, DOCX-Tabellen, Scan-PDF-Ablehnung, Abschnittsüberlappung, Quellen-Auswahl, Verlauf, ungültige Quellen, API-Fehler und Eingabegrenzen.
+- Basisprüfung Version 1.0: 14 automatisierte Tests bestanden: Speicherung, BLOB-Erhalt, Dubletten, Suche, FTS-Löschung, Sicherung, UTF-8/Windows-Zeichensatz, DOCX-Tabellen, Scan-PDF-Ablehnung, Abschnittsüberlappung, Quellen-Auswahl, Verlauf, ungültige Quellen, API-Fehler und Eingabegrenzen.
 - KI-Vertrag mit simulierten API-Antworten geprüft. Live-Test mit synthetischen Testdaten durchgeführt; die API antwortete mit HTTP 429. Live-Antwortqualität ist deshalb nicht bestätigt.
 - Die Desktop-Oberfläche ist implementiert und kompiliert. Grafischer Start und visuelle Bedienprüfung waren mangels Anzeige in der Erstellungsumgebung nicht möglich. Der Windows-Starter wurde auf diesem Linux-System nicht ausgeführt.
-- Eigenständiges Projekt. GitHub Actions ist für Python 3.11 und 3.13 auf Windows und Linux vorbereitet. Remote-CI-Ergebnisse liegen vor dem ersten Push noch nicht vor.
+- GitHub Actions prüft Python 3.11 und 3.13 auf Windows und Linux, einschließlich grafischer Oberflächentests. Der aktuelle Status ist im Actions-Tab sichtbar.
 
 Tests ausführen:
 
@@ -117,8 +117,35 @@ python -m unittest discover -s tests -v
 
 **Kein Tkinter / keine Anzeige:** Python mit Tcl/Tk auf einem Desktop installieren oder die CLI verwenden.
 
-**Kein API-Schlüssel:** Über „API-Schlüsseldatei“ die separat bereitgestellte Konfiguration auswählen. Keine Zugangsdaten in Notizen oder Dokumente importieren.
+**Kein API-Schlüssel:** Unter „Einstellungen“ den Schlüssel des gewünschten Anbieters hinterlegen oder eine vorhandene Schlüsseldatei importieren. Keine Zugangsdaten in Notizen oder Dokumente importieren.
 
 ## Entwicklung
 
-Die CI-Tests rufen keine kostenpflichtige KI-API auf. API-Verträge werden mit kontrollierten Testantworten geprüft. Die Desktop-Oberfläche benötigt eine separate manuelle Bedienprüfung. Änderungen an Datenmodellen benötigen eine passende Migration; die aktuelle Version initialisiert Schema 1 und lehnt neuere Schemata ab.
+Die CI-Tests rufen keine kostenpflichtige KI-API auf. API-Verträge werden mit kontrollierten Testantworten geprüft. Die Desktop-Oberfläche benötigt eine separate manuelle Bedienprüfung. Änderungen an Datenmodellen benötigen eine passende Migration; die aktuelle Version initialisiert Schema 2 und lehnt neuere Schemata ab.
+
+
+## Einstellungen: KI auswählen und Schlüssel verwalten
+
+1. Reiter **Einstellungen** öffnen oder die gleichnamige Schaltfläche oben anklicken.
+2. In der Tabelle OpenAI, Claude, Gemini oder Ollama auswählen. Dies allein ändert die aktive KI noch nicht.
+3. Die Modell-ID kann aus Vorschlägen gewählt oder direkt eingegeben werden. Der Anbieter muss das Modell für den verwendeten API-Zugang freigeschaltet haben.
+4. Vorhandene Schlüssel sind maskiert vorausgefüllt. Die Übersicht zeigt nur die letzten vier Zeichen bei längeren Schlüsseln sowie die Herkunft. Neue Schlüssel ersetzen den bisherigen Wert im Eingabefeld.
+5. **Speichern & aktivieren** setzt den Anbieter für Fragen, Zusammenfassungen und CLI. Eine Überschrift nennt den tatsächlich aktiven Anbieter; eine abweichende Auswahl in der Tabelle ist nur eine Bearbeitungsauswahl.
+6. **Verbindung testen** prüft die ausgewählten Formwerte ohne Dokumente zu senden und ohne automatisch zu speichern oder den Anbieter zu wechseln. Der Test kann API-Kosten verursachen.
+
+| Anbieter | Erkannte Schlüsselvariablen | Ausführung |
+|---|---|---|
+| OpenAI | `OPENAI_API_KEY` | OpenAI Responses API |
+| Claude | `ANTHROPIC_API_KEY` | Anthropic Messages API |
+| Gemini | `GEMINI_API_KEY`, alternativ `GOOGLE_API_KEY` | Google Gemini GenerateContent |
+| Ollama | Kein API-Schlüssel | Lokaler Dienst unter `127.0.0.1:11434`; Modell muss installiert sein |
+
+**Priorität:** Betriebssystem-Schlüsselspeicher → Umgebungsvariable → `.env.local` im Programmordner → `.env` im Programmordner → `.env.local` im übergeordneten Ordner. Ein in der Anwendung deaktivierter Schlüssel wird aus keiner dieser Quellen verwendet. Bereits vorhandene Datei-/Umgebungsschlüssel werden beim Start nicht kopiert oder verändert. Das Speichern unveränderter Schlüssel erfordert keine neue Ablage.
+
+Neu eingegebene Schlüssel werden mit `keyring` in einem nativen Betriebssystem-Speicher verwaltet: Windows-Anmeldeinformationsverwaltung, macOS-Schlüsselbund oder ein unterstützter Linux-Secret-Service. Plaintext-Dateibackends werden abgelehnt. Ohne funktionierenden sicheren Speicher schlägt das Speichern eines neuen Schlüssels ausdrücklich fehl; bestehende Datei-/Umgebungsschlüssel bleiben nutzbar. Die SQL-Datenbank speichert nur aktive KI, Modell-IDs und Deaktivierungsstatus. Die OS-Schlüssel gelten für das aktuelle Betriebssystemkonto und die Anwendung, auch bei Verwendung mehrerer Wissensdatenbanken.
+
+**Schlüssel entfernen** löscht den von der Anwendung verwalteten Schlüssel und deaktiviert den Anbieter auch für extern vorhandene Schlüssel. Umgebungsvariablen und ursprüngliche Dateien bleiben erhalten. Das entfernt keine Zugangsdaten beim Anbieter und widerruft keinen API-Schlüssel. Einen neuen Wert eingeben und speichern, um den Anbieter wieder zu aktivieren.
+
+Schema 1 wird beim Öffnen automatisch auf Schema 2 erweitert; vorhandene Dokumente, Suchindex und KI-Verlauf bleiben erhalten. Alte Programmversionen können eine auf Version 2 aktualisierte Datenbank nicht mehr öffnen. Vor einem Programm-Downgrade die frühere Datenbanksicherung verwenden.
+
+Die Anbieteradapter werden mit kontrollierten API-Antworten getestet. Claude, Gemini und Ollama wurden in dieser Entwicklungsumgebung nicht mit echten Zugängen bzw. einem lokalen Modell live geprüft. Der vorherige OpenAI-Live-Test erhielt HTTP 429. Modellvorschläge sind konfigurierbare Vorgaben und keine Zusicherung der Verfügbarkeit.

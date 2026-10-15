@@ -1,4 +1,4 @@
--- Schema SQLite / FTS5 · Version 1
+-- Schema SQLite / FTS5 · Version 2
 
 PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS documents (
@@ -29,4 +29,5 @@ CREATE TABLE IF NOT EXISTS ai_runs (
  sources_json TEXT NOT NULL, model TEXT NOT NULL,
  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-PRAGMA user_version = 1;
+CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value TEXT NOT NULL);
+PRAGMA user_version = 2;

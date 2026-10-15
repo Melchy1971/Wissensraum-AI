@@ -12,8 +12,25 @@ test_search_fts_and_special_characters (test_core.KnowledgeTests.test_search_fts
 test_store_original_and_deduplicate (test_core.KnowledgeTests.test_store_original_and_deduplicate) ... ok
 test_summary_and_length_guard (test_core.KnowledgeTests.test_summary_and_length_guard) ... ok
 test_utf8_and_cp1252_import (test_core.KnowledgeTests.test_utf8_and_cp1252_import) ... ok
+test_existing_keys_are_visible_but_masked (test_gui.InterfaceTests.test_existing_keys_are_visible_but_masked) ... skipped 'Keine grafische Anzeige verfügbar'
+test_save_switch_reload_and_remove (test_gui.InterfaceTests.test_save_switch_reload_and_remove) ... skipped 'Keine grafische Anzeige verfügbar'
+test_anthropic (test_settings.AdapterTests.test_anthropic) ... ok
+test_gemini (test_settings.AdapterTests.test_gemini) ... ok
+test_ollama_never_sends_cloud_credentials (test_settings.AdapterTests.test_ollama_never_sends_cloud_credentials) ... ok
+test_truncated_and_blocked_answers_are_rejected (test_settings.AdapterTests.test_truncated_and_blocked_answers_are_rejected) ... ok
+test_credential_precedence_and_persistence (test_settings.SettingsTests.test_credential_precedence_and_persistence) ... ok
+test_existing_file_key_is_detected_without_being_copied (test_settings.SettingsTests.test_existing_file_key_is_detected_without_being_copied) ... ok
+test_import_all_supported_env_names (test_settings.SettingsTests.test_import_all_supported_env_names) ... ok
+test_missing_key_and_invalid_model (test_settings.SettingsTests.test_missing_key_and_invalid_model) ... ok
+test_no_plaintext_backend (test_settings.SettingsTests.test_no_plaintext_backend) ... ok
+test_remove_disables_external_fallback_until_replaced (test_settings.SettingsTests.test_remove_disables_external_fallback_until_replaced) ... ok
+test_save_unchanged_external_key_does_not_require_vault_write (test_settings.SettingsTests.test_save_unchanged_external_key_does_not_require_vault_write) ... ok
+test_schema_upgrade_keeps_documents_and_fts (test_settings.SettingsTests.test_schema_upgrade_keeps_documents_and_fts) ... ok
+test_short_secrets_never_show_in_mask (test_settings.SettingsTests.test_short_secrets_never_show_in_mask) ... ok
+test_switch_to_claude_and_ollama (test_settings.SettingsTests.test_switch_to_claude_and_ollama) ... ok
+test_vault_failure_does_not_change_preferences (test_settings.SettingsTests.test_vault_failure_does_not_change_preferences) ... ok
 
 ----------------------------------------------------------------------
-Ran 14 tests in 0.125s
+Ran 31 tests in 0.161s
 
-OK
+OK (skipped=2)

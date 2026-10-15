@@ -7,7 +7,8 @@ import threading
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from tkinter.scrolledtext import ScrolledText
-from core import Store, AI, import_document, load_key
+from core import Store, import_document
+from settings import Settings, PROVIDERS
 
 BASE = Path(__file__).resolve().parent
 
@@ -22,7 +23,7 @@ class App(tk.Tk):
         self.store = Store(Path(os.environ.get('WISSEN_DB', BASE/'data'/'wissen.db')))
         self.queue = queue.Queue()
         self.busy = False
-        self.key_override = None
+        self.settings = Settings(self.store, BASE)
         self.docs = {}
         self.style = ttk.Style(self)
         self.style.theme_use('clam')
@@ -40,7 +41,7 @@ class App(tk.Tk):
         tools.pack(fill='x')
         self.buttons = []
         for label, command in [('Dateien importieren',self.import_files),('Notiz erfassen',self.note),
-                               ('Datenbank sichern',self.backup),('API-Schlüsseldatei',self.select_key)]:
+                               ('Datenbank sichern',self.backup),('Einstellungen',self.open_settings)]:
             b = ttk.Button(tools,text=label,command=command)
             b.pack(side='left',padx=(0,8))
             self.buttons.append(b)
@@ -52,6 +53,8 @@ class App(tk.Tk):
         self.tabs.add(self.library,text='Dokumente & Suche')
         self.tabs.add(self.chat,text='Wissen befragen')
         self.tabs.add(self.history_tab,text='KI-Verlauf')
+        self.settings_tab = ttk.Frame(self.tabs,padding=16)
+        self.tabs.add(self.settings_tab,text='Einstellungen')
         search = ttk.Frame(self.library)
         search.pack(fill='x',pady=(0,12))
         self.query = tk.StringVar()
@@ -86,7 +89,8 @@ class App(tk.Tk):
         self.detail.pack(fill='both',expand=True,padx=(14,0))
         self.write(self.detail,'Noch keine Auswahl. Importiere Dokumente oder erfasse eine Notiz.\n\nDateiformate: TXT, Markdown, PDF mit Text und DOCX.')
         ttk.Label(self.chat,text='Frage an deine Dokumente',font=('Segoe UI',16,'bold')).pack(anchor='w')
-        ttk.Label(self.chat,text='Passende Textstellen und deine Frage werden bei einer KI-Anfrage an OpenAI gesendet.').pack(anchor='w',pady=(4,10))
+        self.provider_notice = tk.StringVar()
+        ttk.Label(self.chat,textvariable=self.provider_notice,wraplength=820).pack(anchor='w',pady=(4,10))
         question_row = ttk.Frame(self.chat)
         question_row.pack(fill='x')
         self.question = tk.StringVar()
@@ -105,6 +109,7 @@ class App(tk.Tk):
         self.history.pack(fill='both',expand=True)
         self.status = tk.StringVar(value='Bereit · SQLite · Einzelplatz')
         ttk.Label(self,textvariable=self.status,padding=(24,0,24,12)).pack(fill='x')
+        self.build_settings()
         self.refresh()
         self.show_history()
         self.after(100,self.poll)
@@ -222,7 +227,7 @@ class App(tk.Tk):
         title.focus_set()
 
     def ai(self):
-        return AI(self.store,self.key_override or load_key(BASE),os.environ.get('OPENAI_MODEL','gpt-4.1-mini'))
+        return self.settings.ai()
 
     def present_answer(self, result):
         answer,sources = result
@@ -256,18 +261,134 @@ class App(tk.Tk):
             text.append(f'{item["created_at"]} UTC · {item["model"]}\n{item["question"]}\n\n{item["answer"]}\n\nQuellen zum Anfragezeitpunkt:\n{refs}')
         self.write(self.history,'\n\n'.join(text) if text else 'Noch keine KI-Anfragen gespeichert.')
 
+    def open_settings(self):
+        self.tabs.select(self.settings_tab)
+        self.refresh_settings()
+
+    def build_settings(self):
+        frame=self.settings_tab
+        ttk.Label(frame,text='KI-Anbieter & API-Schlüssel',font=('Segoe UI',18,'bold')).pack(anchor='w')
+        self.active_notice=tk.StringVar()
+        ttk.Label(frame,textvariable=self.active_notice).pack(anchor='w',pady=(6,12))
+        columns=('name','key','source')
+        self.provider_tree=ttk.Treeview(frame,columns=columns,show='headings',height=4,selectmode='browse')
+        for col,title,width in [('name','KI-Anbieter',190),('key','API-Schlüssel (maskiert)',170),('source','Herkunft / Status',300)]:
+            self.provider_tree.heading(col,text=title)
+            self.provider_tree.column(col,width=width)
+        self.provider_tree.pack(fill='x')
+        self.provider_tree.bind('<<TreeviewSelect>>',lambda _:self.load_provider_form())
+        form=ttk.Frame(frame,padding=(0,18,0,10))
+        form.pack(fill='x')
+        form.columnconfigure(1,weight=1)
+        ttk.Label(form,text='Ausgewählter Anbieter').grid(row=0,column=0,sticky='w',padx=(0,20),pady=6)
+        self.provider_name=tk.StringVar()
+        ttk.Label(form,textvariable=self.provider_name,font=('Segoe UI',12,'bold')).grid(row=0,column=1,sticky='w')
+        ttk.Label(form,text='Modell-ID').grid(row=1,column=0,sticky='w',padx=(0,20),pady=6)
+        self.model_value=tk.StringVar()
+        self.model_entry=ttk.Combobox(form,textvariable=self.model_value)
+        self.model_entry.grid(row=1,column=1,sticky='ew',pady=6)
+        ttk.Label(form,text='API-Schlüssel').grid(row=2,column=0,sticky='w',padx=(0,20),pady=6)
+        self.key_value=tk.StringVar()
+        self.key_entry=ttk.Entry(form,textvariable=self.key_value,show='*')
+        self.key_entry.grid(row=2,column=1,sticky='ew',pady=6)
+        ttk.Label(form,text='Vorhandene Schlüssel sind vorausgefüllt und maskiert. Zum Ersetzen einen neuen Schlüssel eintragen.',
+                  wraplength=780).grid(row=3,column=1,sticky='w',pady=(2,8))
+        actions=ttk.Frame(frame)
+        actions.pack(fill='x',pady=(4,10))
+        for title,command,style in [('Speichern & aktivieren',self.save_provider,'Accent.TButton'),
+                                   ('Verbindung testen',self.test_provider,'TButton'),
+                                   ('Schlüssel entfernen',self.remove_provider_key,'TButton'),
+                                   ('Schlüsseldatei importieren',self.select_key,'TButton')]:
+            b=ttk.Button(actions,text=title,command=command,style=style)
+            b.pack(side='left',padx=(0,8))
+            self.buttons.append(b)
+        self.settings_message=tk.StringVar()
+        ttk.Label(frame,textvariable=self.settings_message,wraplength=850).pack(anchor='w',pady=(6,8))
+        ttk.Label(frame,text='Modell-IDs sind bearbeitbar; Modellzugriff hängt vom Anbieter ab. Verbindungstests können API-Kosten verursachen. '
+                  'Schlüssel werden nicht in der Wissensdatenbank gespeichert. Entfernen deaktiviert auch vorhandene Datei-/Umgebungsschlüssel für diese Anwendung.',
+                  wraplength=850).pack(anchor='w',pady=(8,0))
+        self.refresh_settings()
+
+    def selected_provider(self):
+        selected=self.provider_tree.selection()
+        return selected[0] if selected else self.settings.active()
+
+    def refresh_settings(self,provider=None):
+        selected=provider or (self.provider_tree.selection()[0] if self.provider_tree.selection() else self.settings.active())
+        self.provider_tree.delete(*self.provider_tree.get_children())
+        for row in self.settings.overview():
+            self.provider_tree.insert('','end',iid=row['provider'],values=(row['name'],row['masked'],row['source']))
+        self.provider_tree.selection_set(selected)
+        self.load_provider_form()
+        active=self.settings.active()
+        self.active_notice.set('Aktive KI: '+PROVIDERS[active]['name']+' · '+self.settings.model(active))
+        if active=='ollama':
+            self.provider_notice.set('Aktive KI: Ollama auf diesem Rechner. Frage und Quellen gehen an den lokalen Ollama-Dienst.')
+        else:
+            self.provider_notice.set('Aktive KI: '+PROVIDERS[active]['name']+'. Frage und passende Textstellen werden an diesen Anbieter gesendet.')
+
+    def load_provider_form(self):
+        provider=self.selected_provider()
+        info=PROVIDERS[provider]
+        self.provider_name.set(info['name'])
+        self.model_entry.configure(values=info['models'])
+        self.model_value.set(self.settings.model(provider))
+        key,source=self.settings.credential(provider)
+        self.key_entry.configure(state='normal' if info['env'] else 'disabled')
+        self.key_value.set(key)
+        self.settings_message.set(source+(' · Ollama muss lokal installiert sein und das Modell bereitstellen.' if provider=='ollama' else ''))
+
+    def save_provider(self):
+        try:
+            provider=self.selected_provider()
+            key=self.key_value.get().strip() if PROVIDERS[provider]['env'] else None
+            if PROVIDERS[provider]['env'] and not key:
+                raise ValueError('Für diesen Anbieter einen API-Schlüssel hinterlegen.')
+            self.settings.save(provider,self.model_value.get(),key)
+            self.refresh_settings(provider)
+            self.settings_message.set('Gespeichert und aktiviert: '+PROVIDERS[provider]['name'])
+        except Exception as e:
+            messagebox.showerror('Einstellungen',str(e),parent=self)
+
+    def test_provider(self):
+        from core import AI
+        provider=self.selected_provider()
+        key=self.key_value.get().strip()
+        model=self.model_value.get().strip()
+        if PROVIDERS[provider]['env'] and not key:
+            messagebox.showinfo('Verbindungstest','Zuerst einen API-Schlüssel eintragen.',parent=self)
+            return
+        if not model:
+            messagebox.showinfo('Verbindungstest','Zuerst eine Modell-ID eintragen.',parent=self)
+            return
+        sources=[{'title':'Verbindungstest','document_id':0,'ordinal':1,'content':'Der Verbindungstest ist erfolgreich.'}]
+        def run():
+            AI(self.store,key,model,provider=provider).generate('Bestätige den Verbindungstest kurz mit Quellenverweis.',sources)
+        def done(_):
+            self.settings_message.set('Verbindung erfolgreich: '+PROVIDERS[provider]['name']+' / '+model+'. Die aktive KI bleibt bis zum Speichern unverändert.')
+        self.work(run,done)
+
+    def remove_provider_key(self):
+        provider=self.selected_provider()
+        if not PROVIDERS[provider]['env']:
+            return
+        if messagebox.askyesno('Schlüssel entfernen','Gespeicherten Schlüssel entfernen und diesen Anbieter für die Anwendung deaktivieren? Externe Schlüsseldateien bleiben erhalten.',parent=self):
+            try:
+                self.settings.remove_key(provider)
+                self.refresh_settings(provider)
+            except Exception as e:
+                messagebox.showerror('Einstellungen',str(e),parent=self)
+
     def select_key(self):
-        p = filedialog.askopenfilename(title='Vorhandene .env.local mit OPENAI_API_KEY auswählen',filetypes=[('Schlüsseldatei','*')])
+        p=filedialog.askopenfilename(title='Vorhandene Schlüsseldatei auswählen',filetypes=[('Schlüsseldatei','*')])
         if not p:
             return
         try:
-            lines = Path(p).read_text(encoding='utf-8').splitlines()
-            value = next((line.partition('=')[2].strip().strip('\"\'') for line in lines if line.partition('=')[0].strip()=='OPENAI_API_KEY'),'')
-            if not value.startswith('sk-'):
-                raise ValueError('Datei enthält keinen gültig formatierten OPENAI_API_KEY.')
-            self.key_override = value
-            self.status.set('API-Schlüssel für diese Sitzung geladen')
+            count=self.settings.import_keys(p)
+            self.refresh_settings()
+            self.settings_message.set(f'{count} Anbieter-Schlüssel importiert. Aktive KI bleibt unverändert.')
         except Exception as e:
+            self.refresh_settings()
             messagebox.showerror('Schlüsseldatei',str(e),parent=self)
 
     def delete(self):

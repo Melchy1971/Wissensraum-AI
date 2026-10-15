@@ -2,7 +2,8 @@
 import argparse
 import json
 from pathlib import Path
-from core import Store, AI, load_key, import_document
+from core import Store, import_document
+from settings import Settings
 BASE = Path(__file__).resolve().parent
 
 def main():
@@ -35,8 +36,7 @@ def main():
             store.backup(args.target)
             result = {'backup':str(args.target)}
         else:
-            import os
-            ai = AI(store,load_key(BASE),os.environ.get('OPENAI_MODEL','gpt-4.1-mini'))
+            ai = Settings(store,BASE).ai()
             answer,sources = ai.ask(args.query) if args.command=='ask' else ai.summarize(args.id)
             result = {'answer':answer,'sources':sources}
         print(json.dumps(result,ensure_ascii=False,indent=2))
