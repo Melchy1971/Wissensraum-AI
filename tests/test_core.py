@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 import urllib.error
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from core import AI, Store, chunks, import_document
+from core import AI, Store, chunks, discover_documents, import_document, import_documents
 
 class KnowledgeTests(unittest.TestCase):
     def setUp(self):
@@ -60,6 +60,24 @@ class KnowledgeTests(unittest.TestCase):
         self.assertEqual(import_document(p)[1],'Grüße')
         p.write_text('Überblick',encoding='utf-8')
         self.assertEqual(import_document(p)[1],'Überblick')
+
+    def test_folder_import_is_recursive_and_keeps_relative_paths(self):
+        folder=self.root/'Ablage'
+        nested=folder/'Projekte'/'2026'
+        nested.mkdir(parents=True)
+        (folder/'Start.md').write_text('Übersicht des Wissensraums',encoding='utf-8')
+        (nested/'Plan.txt').write_text('Projektplan mit Meilensteinen',encoding='utf-8')
+        (nested/'Bild.jpg').write_bytes(b'not-an-import-document')
+        documents,skipped,errors=discover_documents(folder)
+        self.assertEqual([name for _,name in documents],['Start.md','Projekte/2026/Plan.txt'])
+        self.assertEqual((skipped,errors),(1,[]))
+        report=import_documents(self.store,documents,skipped,errors)
+        self.assertEqual(report,{'found':3,'supported':2,'imported':2,'duplicates':0,
+                                 'skipped':1,'errors':0,'details':[]})
+        filenames={self.store.get(row['id'])['filename'] for row in self.store.list()}
+        self.assertEqual(filenames,{'Start.md','Projekte/2026/Plan.txt'})
+        duplicate_report=import_documents(self.store,documents,skipped,errors)
+        self.assertEqual(duplicate_report['duplicates'],2)
 
     def test_docx_tables(self):
         from docx import Document

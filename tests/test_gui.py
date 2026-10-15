@@ -43,6 +43,7 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn('Import',[window.tabs.tab(t,'text') for t in window.tabs.tabs()])
         self.assertIn('E-Mail-Konten',[window.settings_sections.tab(t,'text') for t in window.settings_sections.tabs()])
         self.assertIn('Datenbank',[window.settings_sections.tab(t,'text') for t in window.settings_sections.tabs()])
+        self.assertEqual(window.folder_import_button.cget('text'),'Ordner inkl. Unterordner')
         self.assertEqual(window.key_value.get(),'synthetic-existing-1234567890')
         self.assertEqual(window.key_entry.cget('show'),'*')
         values=window.provider_tree.item('openai','values')

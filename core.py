@@ -11,6 +11,8 @@ import sqlite3
 import urllib.error
 import urllib.request
 
+SUPPORTED_DOCUMENT_SUFFIXES = frozenset({'.txt', '.md', '.pdf', '.docx'})
+
 SCHEMA = '''
 PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS documents (
@@ -347,6 +349,50 @@ def import_document(path):
     else:
         raise ValueError('Unterstützt werden TXT, Markdown, PDF und DOCX.')
     return path.stem, text, path.name, data
+
+
+def discover_documents(folder):
+    """Find supported documents recursively without leaving the selected tree via links."""
+    root = Path(folder)
+    if not root.is_dir():
+        raise ValueError('Der ausgewählte Ordner ist nicht verfügbar.')
+    documents, skipped, errors = [], 0, []
+
+    def scan_error(error):
+        location = error.filename or str(root)
+        errors.append(f'{location}: {error.strerror or error}')
+
+    for current, directories, filenames in os.walk(root, topdown=True, onerror=scan_error, followlinks=False):
+        current_path = Path(current)
+        kept_directories = []
+        for name in sorted(directories, key=str.casefold):
+            path = current_path/name
+            if not path.is_symlink():
+                kept_directories.append(name)
+        directories[:] = kept_directories
+        for name in sorted(filenames, key=str.casefold):
+            path = current_path/name
+            if path.is_symlink() or not path.is_file() or path.suffix.lower() not in SUPPORTED_DOCUMENT_SUFFIXES:
+                skipped += 1
+                continue
+            documents.append((path, path.relative_to(root).as_posix()))
+    return documents, skipped, errors
+
+
+def import_documents(store, documents, skipped=0, scan_errors=None):
+    """Import discovered documents and retain their relative source paths."""
+    report = {'found':len(documents)+skipped, 'supported':len(documents), 'imported':0,
+              'duplicates':0, 'skipped':skipped, 'errors':len(scan_errors or []),
+              'details':list(scan_errors or [])}
+    for path, stored_name in documents:
+        try:
+            title, text, _, data = import_document(path)
+            _, created = store.add(title, text, filename=stored_name, original=data)
+            report['imported' if created else 'duplicates'] += 1
+        except Exception as error:
+            report['errors'] += 1
+            report['details'].append(f'{stored_name}: {error}')
+    return report
 
 
 def load_key(base):

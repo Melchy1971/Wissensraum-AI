@@ -7,7 +7,7 @@ import threading
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
 from tkinter.scrolledtext import ScrolledText
-from core import Store, import_document
+from core import Store, discover_documents, import_documents
 from settings import Settings, SystemVault, PROVIDERS
 from database import DatabaseSettings
 from importer import Importer, MailAccounts, MAIL_PROVIDERS
@@ -210,20 +210,31 @@ class App(tk.Tk):
         paths = filedialog.askopenfilenames(filetypes=[('Dokumente','*.txt *.md *.pdf *.docx')])
         if not paths:
             return
+        documents=[(Path(path),Path(path).name) for path in paths]
+        self.work(lambda:import_documents(self.store,documents),self.finish_local_import)
+
+    def import_folder(self):
+        folder=filedialog.askdirectory(title='Ordner mit Dokumenten auswählen')
+        if not folder:
+            return
         def run():
-            report = []
-            for path in paths:
-                try:
-                    title,text,name,data = import_document(path)
-                    _,created = self.store.add(title,text,filename=name,original=data)
-                    report.append(f'{name}: '+('importiert' if created else 'bereits vorhanden'))
-                except Exception as e:
-                    report.append(f'{Path(path).name}: FEHLER – {e}')
-            return '\n'.join(report)
-        def done(report):
-            self.refresh()
-            messagebox.showinfo('Importergebnis',report,parent=self)
-        self.work(run,done)
+            documents,skipped,scan_errors=discover_documents(folder)
+            return import_documents(self.store,documents,skipped,scan_errors)
+        self.work(run,self.finish_local_import)
+
+    @staticmethod
+    def local_report_text(report):
+        return (f'{report["found"]} Dateien gefunden · {report["supported"]} unterstützt · '
+                f'{report["imported"]} importiert · {report["duplicates"]} bereits vorhanden · '
+                f'{report["skipped"]} übersprungen · {report["errors"]} Fehler')
+
+    def finish_local_import(self,report):
+        self.refresh()
+        summary=self.local_report_text(report)
+        self.import_message.set('Lokale Dokumente: '+summary)
+        details=report['details'][:20]
+        suffix='' if len(report['details']) <= 20 else f'\n… {len(report["details"])-20} weitere Fehler'
+        messagebox.showinfo('Importergebnis',summary+('\n\n'+'\n'.join(details)+suffix if details else ''),parent=self)
 
     def note(self):
         window = tk.Toplevel(self)
@@ -300,8 +311,12 @@ class App(tk.Tk):
         local=ttk.LabelFrame(frame,text='Lokale Dokumente',padding=14)
         local.pack(fill='x',pady=(0,10))
         ttk.Label(local,text='TXT, Markdown, PDF mit Text und DOCX · maximal 20 MB je Datei').pack(side='left')
-        b=ttk.Button(local,text='Dokumente auswählen',command=self.import_files,style='Accent.TButton')
-        b.pack(side='right'); self.buttons.append(b)
+        local_buttons=ttk.Frame(local)
+        local_buttons.pack(side='right')
+        b=ttk.Button(local_buttons,text='Dokumente auswählen',command=self.import_files)
+        b.pack(side='left',padx=(0,8)); self.buttons.append(b)
+        self.folder_import_button=ttk.Button(local_buttons,text='Ordner inkl. Unterordner',command=self.import_folder,style='Accent.TButton')
+        self.folder_import_button.pack(side='left'); self.buttons.append(self.folder_import_button)
         pst=ttk.LabelFrame(frame,text='Outlook-Archiv',padding=14)
         pst.pack(fill='x',pady=(0,10))
         ttk.Label(pst,text='PST-Datei lokal auslesen; Outlook-Installation ist nicht erforderlich.').pack(side='left')
