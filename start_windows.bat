@@ -13,5 +13,24 @@ if errorlevel 1 (
  pause
  exit /b 1
 )
+.venv\Scripts\python.exe -c "from PIL import Image, ImageTk" >nul 2>nul
+if errorlevel 1 (
+ echo Beschaedigte Python-Umgebung erkannt. Virtuelle Umgebung wird neu aufgebaut.
+ rmdir /s /q .venv
+ py -3 -m venv .venv
+ .venv\Scripts\python.exe -m pip install --upgrade pip
+ .venv\Scripts\python.exe -m pip install --no-cache-dir -r requirements.txt
+ if errorlevel 1 (
+  echo Reparatur fehlgeschlagen. Internetverbindung und Python-Installation pruefen.
+  pause
+  exit /b 1
+ )
+ .venv\Scripts\python.exe -c "from PIL import Image, ImageTk" >nul 2>nul
+ if errorlevel 1 (
+  echo Pillow konnte nicht korrekt geladen werden.
+  pause
+  exit /b 1
+ )
+)
 .venv\Scripts\python.exe app.py
 if errorlevel 1 pause

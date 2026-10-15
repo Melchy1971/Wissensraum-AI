@@ -7,7 +7,6 @@ import threading
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
 from tkinter.scrolledtext import ScrolledText
-from PIL import Image, ImageTk
 from core import Store, discover_documents, import_documents
 from settings import Settings, SystemVault, PROVIDERS
 from database import DatabaseSettings
@@ -190,14 +189,17 @@ class App(tk.Tk):
 
     def refresh_logo(self):
         self.logo_image=None
+        self.logo_load_error=''
         if self.design_settings.logo_path.is_file():
             try:
+                from PIL import Image, ImageTk
                 with Image.open(self.design_settings.logo_path) as source:
                     image=source.convert('RGBA')
                     image.thumbnail((180,60),Image.Resampling.LANCZOS)
                     self.logo_image=ImageTk.PhotoImage(image)
-            except OSError:
+            except Exception:
                 self.logo_image=None
+                self.logo_load_error='Logo konnte wegen einer fehlerhaften Bildbibliothek nicht geladen werden.'
         if hasattr(self,'logo_label'):
             self.logo_label.configure(image=self.logo_image or '')
         preview=getattr(self,'design_logo_preview',None)
@@ -643,7 +645,8 @@ class App(tk.Tk):
     def refresh_design_settings(self):
         if hasattr(self,'design_theme'):
             self.design_theme.set(self.design_settings.theme())
-            state='Logo hinterlegt und auf der Hauptseite sichtbar.' if self.design_settings.logo_path.is_file() else 'Kein eigenes Logo hinterlegt.'
+            state=(self.logo_load_error or ('Logo hinterlegt und auf der Hauptseite sichtbar.'
+                   if self.design_settings.logo_path.is_file() else 'Kein eigenes Logo hinterlegt.'))
             self.design_message.set(state+' Designmodus: '+('Dunkel' if self.design_settings.theme()=='dark' else 'Hell')+'.')
         self.refresh_logo()
 

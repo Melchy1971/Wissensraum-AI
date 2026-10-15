@@ -4,9 +4,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from PIL import Image, UnidentifiedImageError
-
-
 THEMES = {
     'light': {
         'background':'#f5f5f5', 'surface':'#ffffff', 'input':'#ffffff',
@@ -55,6 +52,10 @@ class DesignSettings:
 
     def save_logo(self,source):
         source=Path(source)
+        try:
+            from PIL import Image, UnidentifiedImageError
+        except Exception:
+            raise ValueError('Die Bildbibliothek ist beschädigt. Anwendung über start_windows.bat neu starten, damit die Umgebung repariert wird.') from None
         try:
             if not source.is_file():
                 raise ValueError('Die ausgewählte Logodatei ist nicht verfügbar.')

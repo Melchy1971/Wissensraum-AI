@@ -1,6 +1,6 @@
 # Wissensraum AI – KI-gestütztes Wissensmanagement mit SQL
 
-Version 1.8 · 15.10.2026 · lokale Einzelplatzanwendung · Python 3.11 oder neuer
+Version 1.8.1 · 15.10.2026 · lokale Einzelplatzanwendung · Python 3.11 oder neuer
 
 Dokumente, Notizen, Originaldateien und KI-Verlauf werden wahlweise in einer lokalen SQLite- oder einer PostgreSQL-Datenbank gespeichert. Die Anwendung bietet eine deutschsprachige Desktop-Oberfläche und eine Kommandozeilenschnittstelle. Es wird kein Webserver benötigt.
 
@@ -121,6 +121,8 @@ python -m unittest discover -s tests -v
 **Keine Treffer:** Konkrete Begriffe aus dem Dokument verwenden. Diese Version enthält keine semantische Suche.
 
 **PDF ohne Text:** OCR ist erforderlich und nicht Bestandteil dieser Version.
+
+**Startfehler `PIL._imaging uses unknown slot ID`:** Eine vorhandene virtuelle Umgebung enthält inkompatible Pillow-Dateien. Der aktuelle Windows-Starter erkennt diesen Zustand, löscht ausschließlich den lokalen Ordner `.venv`, installiert alle Abhängigkeiten neu und startet danach die Anwendung. Anwendungsdaten unter `data` bleiben erhalten.
 
 **Kein Tkinter / keine Anzeige:** Python mit Tcl/Tk auf einem Desktop installieren oder die CLI verwenden.
 

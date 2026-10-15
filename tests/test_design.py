@@ -1,6 +1,8 @@
 from pathlib import Path
+import builtins
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from PIL import Image
 
@@ -38,6 +40,13 @@ class DesignSettingsTests(unittest.TestCase):
         invalid.write_text('not an image',encoding='utf-8')
         with self.assertRaisesRegex(ValueError,'kein lesbares'):
             self.design.save_logo(invalid)
+        original_import=builtins.__import__
+        def broken_pillow(name,*args,**kwargs):
+            if name=='PIL':
+                raise SystemError('broken native module')
+            return original_import(name,*args,**kwargs)
+        with patch('builtins.__import__',side_effect=broken_pillow),self.assertRaisesRegex(ValueError,'Bildbibliothek ist beschädigt'):
+            self.design.save_logo(source)
         self.design.remove_logo()
         self.assertFalse(saved.exists())
 
