@@ -52,6 +52,13 @@ class InterfaceTests(unittest.TestCase):
         window.open_settings()
         self.assertEqual(window.tabs.select(),str(window.settings_tab))
 
+    def test_exit_button_closes_application(self):
+        window=self.window
+        self.assertEqual(window.exit_button.cget('text'),'Beenden')
+        with patch.object(window,'destroy') as destroy:
+            window.exit_button.invoke()
+        destroy.assert_called_once_with()
+
     def test_save_switch_reload_and_remove(self):
         window=self.window
         window.provider_tree.selection_set('anthropic')

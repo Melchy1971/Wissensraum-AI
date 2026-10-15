@@ -42,6 +42,8 @@ class App(tk.Tk):
         self.style.configure('TButton', padding=(12,8))
         self.style.configure('Accent.TButton', background='#185b50', foreground='white')
         self.style.map('Accent.TButton', background=[('active','#12483e'),('disabled','#65736e')])
+        self.style.configure('Exit.TButton', background='#a52a2a', foreground='white')
+        self.style.map('Exit.TButton', background=[('active','#7f1d1d')])
         self.style.configure('Treeview', rowheight=32, fieldbackground='white', background='white')
         self.style.map('Treeview', background=[('selected','#185b50')], foreground=[('selected','white')])
         header = ttk.Frame(self, padding=(24,18))
@@ -56,6 +58,9 @@ class App(tk.Tk):
             b = ttk.Button(tools,text=label,command=command)
             b.pack(side='left',padx=(0,8))
             self.buttons.append(b)
+        self.exit_button = ttk.Button(tools,text='Beenden',command=self.exit_application,style='Exit.TButton')
+        self.exit_button.pack(side='right')
+        self.protocol('WM_DELETE_WINDOW',self.exit_application)
         self.tabs = ttk.Notebook(self)
         self.tabs.pack(fill='both',expand=True,padx=24,pady=(0,12))
         self.library = ttk.Frame(self.tabs,padding=16)
@@ -128,6 +133,10 @@ class App(tk.Tk):
         self.refresh()
         self.show_history()
         self.after(100,self.poll)
+
+    def exit_application(self):
+        """End the desktop application immediately from every close control."""
+        self.destroy()
 
     def write(self, widget, text):
         widget.configure(state='normal')
