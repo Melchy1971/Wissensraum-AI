@@ -1,7 +1,7 @@
 """Local SQL knowledge store and source-grounded AI operations. Python 3.11+."""
 from __future__ import annotations
 import hashlib
-from contextlib import contextmanager
+from contextlib import contextmanager, closing
 import io
 import json
 import os
@@ -135,8 +135,9 @@ class Store:
         target = Path(target)
         if target.resolve() == self.path.resolve():
             raise ValueError('Die Sicherung muss einen anderen Dateinamen haben.')
-        with self.connect() as source, sqlite3.connect(target) as dest:
-            source.backup(dest)
+        with self.connect() as source, closing(sqlite3.connect(target)) as dest:
+            with dest:
+                source.backup(dest)
 
 
 def import_document(path):
