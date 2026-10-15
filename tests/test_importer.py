@@ -17,12 +17,16 @@ class FakeImap:
     def __init__(self,host,port):
         self.host,self.port=host,port
         self.logged_out=False
+        self.uid_calls=[]
     def login(self,user,password):
         self.login_values=(user,password); return 'OK',[]
     def select(self,folder,readonly=False):
         self.selected=(folder,readonly); return 'OK',[b'2']
-    def search(self,*_): return 'OK',[b'1 2']
-    def fetch(self,message_id,_): return 'OK',[(b'RFC822',RAW_MAIL)]
+    def uid(self,command,*args):
+        self.uid_calls.append((command,args))
+        if command=='search': return 'OK',[b'101 202']
+        if command=='fetch': return 'OK',[(b'RFC822',RAW_MAIL)]
+        raise AssertionError(command)
     def logout(self): self.logged_out=True
 
 class FakeArchive:
@@ -65,10 +69,15 @@ class ImportTests(unittest.TestCase):
         clients=[]
         def factory(host,port):
             clients.append(FakeImap(host,port)); return clients[-1]
-        report=self.importer.import_imap(account_id,'INBOX',100,factory)
-        self.assertEqual(report,{'found':2,'imported':1,'duplicates':1,'errors':0})
+        preview=self.importer.preview_imap(account_id,'INBOX',100,factory)
+        self.assertEqual([item['id'] for item in preview],['202','101'])
+        report=self.importer.import_imap_ids(account_id,'INBOX',[preview[0]['id']],factory)
+        self.assertEqual(report,{'found':1,'imported':1,'duplicates':0,'errors':0})
         self.assertEqual(clients[0].selected,('INBOX',True))
-        self.assertTrue(clients[0].logged_out)
+        self.assertEqual(len(clients),2)
+        self.assertTrue(all(client.logged_out for client in clients))
+        self.assertTrue(all('HEADER.FIELDS' in call[1][1] for call in clients[0].uid_calls if call[0]=='fetch'))
+        self.assertEqual(clients[1].uid_calls[-1][1][1],'(BODY.PEEK[])')
         self.assertEqual(self.store.search('Freigabe')[0]['title'],'Projektstatus')
         doc=self.store.get(1)
         self.assertEqual(doc['original'],RAW_MAIL)
@@ -87,8 +96,12 @@ class ImportTests(unittest.TestCase):
               'toRecipients':[{'emailAddress':{'address':'owner@example.com'}}],
               'receivedDateTime':'2026-10-15T08:00:00Z','internetMessageId':'<graph@example.com>',
               'body':{'contentType':'html','content':'<p>Graph Inhalt</p>'}}
+        def graph(url,token):
+            if '/mailFolders/' in url:
+                return {'value':[{k:v for k,v in item.items() if k in ('id','subject','from','receivedDateTime')}]}
+            return item
         with patch.object(self.accounts,'microsoft_token',return_value='synthetic-token'):
-            report=self.importer.import_microsoft(account_id,10,lambda url,token:{'value':[item]})
+            report=self.importer.import_microsoft(account_id,10,graph)
         self.assertEqual(report['imported'],1)
         self.assertEqual(self.store.search('Graph Inhalt')[0]['title'],'Graph Nachricht')
         with self.store.connect() as db:

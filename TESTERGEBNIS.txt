@@ -13,6 +13,7 @@ test_store_original_and_deduplicate (test_core.KnowledgeTests.test_store_origina
 test_summary_and_length_guard (test_core.KnowledgeTests.test_summary_and_length_guard) ... ok
 test_utf8_and_cp1252_import (test_core.KnowledgeTests.test_utf8_and_cp1252_import) ... ok
 test_email_account_is_managed_in_settings (test_gui.InterfaceTests.test_email_account_is_managed_in_settings) ... skipped 'Keine grafische Anzeige verfügbar'
+test_email_preview_requires_explicit_activation (test_gui.InterfaceTests.test_email_preview_requires_explicit_activation) ... skipped 'Keine grafische Anzeige verfügbar'
 test_existing_keys_are_visible_but_masked (test_gui.InterfaceTests.test_existing_keys_are_visible_but_masked) ... skipped 'Keine grafische Anzeige verfügbar'
 test_save_switch_reload_and_remove (test_gui.InterfaceTests.test_save_switch_reload_and_remove) ... skipped 'Keine grafische Anzeige verfügbar'
 test_account_metadata_and_secret_are_separated (test_importer.ImportTests.test_account_metadata_and_secret_are_separated) ... ok
@@ -37,6 +38,6 @@ test_switch_to_claude_and_ollama (test_settings.SettingsTests.test_switch_to_cla
 test_vault_failure_does_not_change_preferences (test_settings.SettingsTests.test_vault_failure_does_not_change_preferences) ... ok
 
 ----------------------------------------------------------------------
-Ran 37 tests in 0.182s
+Ran 38 tests in 0.205s
 
-OK (skipped=3)
+OK (skipped=4)

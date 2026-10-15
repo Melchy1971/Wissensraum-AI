@@ -224,45 +224,84 @@ class Importer:
             '',body]))
         return self.store.add(subject,content,'E-Mail · '+label,subject+'.eml',raw)
 
-    def import_imap(self,account_id,folder='INBOX',limit=100,client_factory=None):
+    def _imap_login(self,account_id,folder,client_factory=None):
         account=self.accounts.get(account_id)
-        if account['provider']=='microsoft':
-            return self.import_microsoft(account_id,limit)
         secret=self.accounts.vault.get(self.accounts.secret_name(account_id))
         if not secret:
             raise ValueError('Für dieses Konto fehlt das Kennwort oder App-Passwort.')
-        limit=self._limit(limit,2000)
         factory=client_factory or imaplib.IMAP4_SSL
-        report={'found':0,'imported':0,'duplicates':0,'errors':0}
-        client=None
+        client=factory(account['host'],account['port'])
         try:
-            client=factory(account['host'],account['port'])
             client.login(account['username'],secret)
             status,_=client.select(folder or 'INBOX',readonly=True)
             if status!='OK':
                 raise ValueError('E-Mail-Ordner wurde nicht gefunden.')
-            status,data=client.search(None,'ALL')
+            return client,account
+        except imaplib.IMAP4.error:
+            try: client.logout()
+            except Exception: pass
+            raise ValueError('IMAP-Anmeldung fehlgeschlagen. Zugangsdaten und IMAP-Freigabe prüfen.') from None
+        except (OSError,TimeoutError):
+            try: client.logout()
+            except Exception: pass
+            raise ValueError('IMAP-Server ist nicht erreichbar.') from None
+
+    @staticmethod
+    def _imap_raw(payload):
+        return next((item[1] for item in payload or [] if isinstance(item,tuple) and isinstance(item[1],bytes)),None)
+
+    def preview_imap(self,account_id,folder='INBOX',limit=100,client_factory=None):
+        limit=self._limit(limit,2000)
+        client,_=self._imap_login(account_id,folder,client_factory)
+        items=[]
+        try:
+            status,data=client.uid('search',None,'ALL')
             if status!='OK':
                 raise ValueError('E-Mails konnten nicht aufgelistet werden.')
             ids=(data[0].split() if data and data[0] else [])[-limit:]
-            report['found']=len(ids)
-            for message_id in reversed(ids):
+            for uid in reversed(ids):
                 try:
-                    status,payload=client.fetch(message_id,'(BODY.PEEK[])')
-                    raw=next((item[1] for item in payload if isinstance(item,tuple) and isinstance(item[1],bytes)),None)
+                    status,payload=client.uid('fetch',uid,'(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM DATE MESSAGE-ID)])')
+                    raw=self._imap_raw(payload)
+                    if status!='OK' or not raw: raise ValueError('Kopfzeile nicht lesbar')
+                    message=BytesParser(policy=policy.default).parsebytes(raw)
+                    items.append({'id':uid.decode('ascii'),'subject':decoded(message.get('Subject')) or '(Ohne Betreff)',
+                                  'sender':decoded(message.get('From')),'date':decoded(message.get('Date'))})
+                except Exception:
+                    items.append({'id':uid.decode('ascii',errors='ignore'),'subject':'(Kopfzeile nicht lesbar)','sender':'','date':''})
+        finally:
+            try: client.logout()
+            except Exception: pass
+        return items
+
+    def import_imap_ids(self,account_id,folder,uids,client_factory=None):
+        uids=list(dict.fromkeys(str(uid) for uid in uids))
+        if not uids or len(uids)>2000 or any(not re.fullmatch(r'\d+',uid) for uid in uids):
+            raise ValueError('Keine gültige E-Mail-Auswahl vorhanden.')
+        client,account=self._imap_login(account_id,folder,client_factory)
+        report={'found':len(uids),'imported':0,'duplicates':0,'errors':0}
+        try:
+            for uid in uids:
+                try:
+                    status,payload=client.uid('fetch',uid.encode('ascii'),'(BODY.PEEK[])')
+                    raw=self._imap_raw(payload)
                     if status!='OK' or not raw or len(raw)>25*1024*1024:
                         raise ValueError('E-Mail konnte nicht gelesen werden oder ist größer als 25 MB.')
                     _,created=self._add_email(raw,account['label'])
                     report['imported' if created else 'duplicates']+=1
                 except Exception:
                     report['errors']+=1
-        except imaplib.IMAP4.error:
-            raise ValueError('IMAP-Anmeldung fehlgeschlagen. Zugangsdaten und IMAP-Freigabe prüfen.') from None
         finally:
-            if client:
-                try: client.logout()
-                except Exception: pass
+            try: client.logout()
+            except Exception: pass
         return report
+
+    def import_imap(self,account_id,folder='INBOX',limit=100,client_factory=None):
+        account=self.accounts.get(account_id)
+        if account['provider']=='microsoft':
+            return self.import_microsoft(account_id,limit)
+        items=self.preview_imap(account_id,folder,limit,client_factory)
+        return self.import_imap_ids(account_id,folder,[item['id'] for item in items],client_factory)
 
     def _graph_get(self,url,token):
         parsed=urllib.parse.urlparse(url)
@@ -279,35 +318,72 @@ class Importer:
         except (urllib.error.URLError,TimeoutError,OSError):
             raise ValueError('Microsoft Graph ist nicht erreichbar.') from None
 
-    def import_microsoft(self,account_id,limit=100,transport=None):
-        account=self.accounts.get(account_id)
+    def preview_microsoft(self,account_id,limit=100,transport=None):
         limit=self._limit(limit,1000)
         token=self.accounts.microsoft_token(account_id)
         get=transport or self._graph_get
-        fields='id,subject,from,toRecipients,ccRecipients,receivedDateTime,body,internetMessageId'
+        fields='id,subject,from,receivedDateTime'
         url='https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?'+urllib.parse.urlencode({'$top':min(limit,100),'$select':fields,'$orderby':'receivedDateTime desc'})
-        report={'found':0,'imported':0,'duplicates':0,'errors':0}
-        while url and report['found']<limit:
+        items=[]
+        while url and len(items)<limit:
             page=get(url,token)
             for item in page.get('value',[]):
-                if report['found']>=limit: break
-                report['found']+=1
-                try:
-                    sender=item.get('from',{}).get('emailAddress',{}).get('address','')
-                    recipients=', '.join(x.get('emailAddress',{}).get('address','') for x in item.get('toRecipients',[]))
-                    body=item.get('body',{}).get('content','')
-                    if item.get('body',{}).get('contentType','').lower()=='html': body=html_text(body)
-                    subject=item.get('subject') or '(Ohne Betreff)'
-                    content='\n'.join(filter(None,['Betreff: '+subject,'Von: '+sender,'An: '+recipients,
-                        'Datum: '+item.get('receivedDateTime',''),'Nachrichten-ID: '+item.get('internetMessageId',''),'',body]))
-                    if not body.strip(): raise ValueError('Kein Nachrichtentext')
-                    raw=json.dumps(item,ensure_ascii=False).encode()
-                    _,created=self.store.add(subject,content,'E-Mail · '+account['label'],subject+'.json',raw)
-                    report['imported' if created else 'duplicates']+=1
-                except Exception:
-                    report['errors']+=1
+                if len(items)>=limit: break
+                message_id=str(item.get('id',''))
+                if not message_id: continue
+                items.append({'id':message_id,'subject':item.get('subject') or '(Ohne Betreff)',
+                              'sender':item.get('from',{}).get('emailAddress',{}).get('address',''),
+                              'date':item.get('receivedDateTime','')})
             url=page.get('@odata.nextLink')
+        return items
+
+    def _add_graph_item(self,item,label):
+        sender=item.get('from',{}).get('emailAddress',{}).get('address','')
+        recipients=', '.join(x.get('emailAddress',{}).get('address','') for x in item.get('toRecipients',[]))
+        body=item.get('body',{}).get('content','')
+        if item.get('body',{}).get('contentType','').lower()=='html': body=html_text(body)
+        subject=item.get('subject') or '(Ohne Betreff)'
+        content='\n'.join(filter(None,['Betreff: '+subject,'Von: '+sender,'An: '+recipients,
+            'Datum: '+item.get('receivedDateTime',''),'Nachrichten-ID: '+item.get('internetMessageId',''),'',body]))
+        if not body.strip(): raise ValueError('Kein Nachrichtentext')
+        raw=json.dumps(item,ensure_ascii=False).encode()
+        return self.store.add(subject,content,'E-Mail · '+label,subject+'.json',raw)
+
+    def import_microsoft_ids(self,account_id,message_ids,transport=None):
+        account=self.accounts.get(account_id)
+        message_ids=list(dict.fromkeys(str(value) for value in message_ids))
+        if not message_ids or len(message_ids)>1000 or any(not value or len(value)>1000 or any(ord(c)<32 for c in value) for value in message_ids):
+            raise ValueError('Keine gültige E-Mail-Auswahl vorhanden.')
+        token=self.accounts.microsoft_token(account_id)
+        get=transport or self._graph_get
+        fields='id,subject,from,toRecipients,ccRecipients,receivedDateTime,body,internetMessageId'
+        report={'found':len(message_ids),'imported':0,'duplicates':0,'errors':0}
+        for message_id in message_ids:
+            try:
+                url='https://graph.microsoft.com/v1.0/me/messages/'+urllib.parse.quote(message_id,safe='')+'?'+urllib.parse.urlencode({'$select':fields})
+                item=get(url,token)
+                _,created=self._add_graph_item(item,account['label'])
+                report['imported' if created else 'duplicates']+=1
+            except Exception:
+                report['errors']+=1
         return report
+
+    def import_microsoft(self,account_id,limit=100,transport=None):
+        items=self.preview_microsoft(account_id,limit,transport)
+        return self.import_microsoft_ids(account_id,[item['id'] for item in items],transport)
+
+    def preview_account(self,account_id,folder='INBOX',limit=100):
+        account=self.accounts.get(account_id)
+        if account['provider']=='microsoft':
+            return self.preview_microsoft(account_id,limit)
+        return self.preview_imap(account_id,folder,limit)
+
+    def import_selected(self,account_id,folder,items):
+        account=self.accounts.get(account_id)
+        ids=[item['id'] for item in items]
+        if account['provider']=='microsoft':
+            return self.import_microsoft_ids(account_id,ids)
+        return self.import_imap_ids(account_id,folder,ids)
 
     def import_pst(self,path,limit=500,archive_factory=None):
         path=Path(path)

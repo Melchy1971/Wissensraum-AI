@@ -86,4 +86,19 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn('Privat',window.import_account_value.get())
         self.assertEqual(self.vault.get('mail:'+account_id),'synthetic-app-password')
 
+    def test_email_preview_requires_explicit_activation(self):
+        items=[{'id':'101','date':'15.10.2026','sender':'a@example.com','subject':'Freigabe'},
+               {'id':'202','date':'14.10.2026','sender':'b@example.com','subject':'Protokoll'}]
+        preview=self.window.show_mail_preview(items,'synthetic-account','INBOX','Testkonto')
+        preview.update()
+        self.assertTrue(all(not row['active'] for row in preview.preview_items.values()))
+        first=next(iter(preview.preview_items))
+        preview.preview_tree.selection_set(first)
+        self.window.toggle_preview_selected(preview)
+        self.assertTrue(preview.preview_items[first]['active'])
+        self.assertIn('1 von 2',preview.preview_status.get())
+        self.window.set_preview_active(preview,False)
+        self.assertTrue(all(not row['active'] for row in preview.preview_items.values()))
+        self.window.close_mail_preview(preview)
+
 if __name__=='__main__': unittest.main()

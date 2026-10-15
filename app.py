@@ -336,8 +336,93 @@ class App(tk.Tk):
         except ValueError:
             messagebox.showerror('E-Mail-Import','Gültige maximale Anzahl eingeben.',parent=self); return
         folder=self.import_folder.get().strip() or 'INBOX'
-        self.work(lambda:self.importer.import_imap(account_id,folder,limit),
-                  lambda result:(self.refresh(),self.import_message.set('Postfach: '+self.report_text(result))))
+        account_name=self.import_account_value.get()
+        self.import_message.set('E-Mail-Vorschau wird geladen …')
+        self.work(lambda:self.importer.preview_account(account_id,folder,limit),
+                  lambda items:self.show_mail_preview(items,account_id,folder,account_name))
+
+    def show_mail_preview(self,items,account_id,folder,account_name='E-Mail-Konto'):
+        window=tk.Toplevel(self)
+        window.title('E-Mails für Import auswählen')
+        window.geometry('1080x650')
+        window.minsize(820,480)
+        window.transient(self)
+        ttk.Label(window,text='E-Mails für Import auswählen',font=('Segoe UI',18,'bold'),padding=(18,16,18,0)).pack(anchor='w')
+        ttk.Label(window,text=account_name+' · '+folder+' · Vollständige Inhalte werden erst nach der Freigabe geladen.',
+                  padding=(18,5,18,12)).pack(anchor='w')
+        body=ttk.Frame(window,padding=(18,0,18,8)); body.pack(fill='both',expand=True)
+        columns=('active','date','sender','subject')
+        tree=ttk.Treeview(body,columns=columns,show='headings',selectmode='extended')
+        for col,title,width in [('active','Import',80),('date','Datum',180),('sender','Absender',270),('subject','Betreff',430)]:
+            tree.heading(col,text=title); tree.column(col,width=width,stretch=col!='active')
+        scroll=ttk.Scrollbar(body,orient='vertical',command=tree.yview); tree.configure(yscrollcommand=scroll.set)
+        scroll.pack(side='right',fill='y'); tree.pack(fill='both',expand=True)
+        window.preview_tree=tree
+        window.preview_items={}
+        for index,item in enumerate(items):
+            iid='mail-'+str(index)
+            window.preview_items[iid]={'item':item,'active':False}
+            tree.insert('','end',iid=iid,values=('NEIN',item.get('date',''),item.get('sender',''),item.get('subject','')))
+        tree.tag_configure('active',foreground='#185b50',font=('Segoe UI',11,'bold'))
+        tree.bind('<Double-1>',lambda event:self.toggle_preview_at(window,event))
+        controls=ttk.Frame(window,padding=(18,4,18,4)); controls.pack(fill='x')
+        ttk.Button(controls,text='Alle aktivieren',command=lambda:self.set_preview_active(window,True)).pack(side='left',padx=(0,8))
+        ttk.Button(controls,text='Alle deaktivieren',command=lambda:self.set_preview_active(window,False)).pack(side='left',padx=(0,8))
+        ttk.Button(controls,text='Markierte umschalten',command=lambda:self.toggle_preview_selected(window)).pack(side='left')
+        window.preview_status=tk.StringVar()
+        ttk.Label(window,textvariable=window.preview_status,padding=(18,6,18,4)).pack(anchor='w')
+        actions=ttk.Frame(window,padding=(18,4,18,16)); actions.pack(fill='x')
+        window.import_button=ttk.Button(actions,text='Aktivierte E-Mails importieren',style='Accent.TButton',
+                                        command=lambda:self.authorize_mail_import(window,account_id,folder))
+        window.import_button.pack(side='right')
+        ttk.Button(actions,text='Abbrechen',command=lambda:self.close_mail_preview(window)).pack(side='right',padx=(0,8))
+        self.buttons.append(window.import_button)
+        window.protocol('WM_DELETE_WINDOW',lambda:self.close_mail_preview(window))
+        self.update_preview_status(window)
+        self.import_message.set(f'{len(items)} E-Mails zur Auswahl geladen; noch keine E-Mail ist zum Import aktiviert.')
+        return window
+
+    def update_preview_status(self,window):
+        active=sum(row['active'] for row in window.preview_items.values())
+        window.preview_status.set(f'{active} von {len(window.preview_items)} E-Mails zum Import aktiviert.')
+
+    def set_preview_active(self,window,active):
+        for iid,row in window.preview_items.items():
+            row['active']=active
+            values=list(window.preview_tree.item(iid,'values')); values[0]='JA' if active else 'NEIN'
+            window.preview_tree.item(iid,values=values,tags=('active',) if active else ())
+        self.update_preview_status(window)
+
+    def toggle_preview_selected(self,window,iids=None):
+        for iid in (iids or window.preview_tree.selection()):
+            row=window.preview_items.get(iid)
+            if not row: continue
+            row['active']=not row['active']
+            values=list(window.preview_tree.item(iid,'values')); values[0]='JA' if row['active'] else 'NEIN'
+            window.preview_tree.item(iid,values=values,tags=('active',) if row['active'] else ())
+        self.update_preview_status(window)
+
+    def toggle_preview_at(self,window,event):
+        iid=window.preview_tree.identify_row(event.y)
+        if iid:
+            self.toggle_preview_selected(window,(iid,))
+
+    def authorize_mail_import(self,window,account_id,folder):
+        selected=[row['item'] for row in window.preview_items.values() if row['active']]
+        if not selected:
+            messagebox.showinfo('E-Mail-Import','Mindestens eine E-Mail für den Import aktivieren.',parent=window); return
+        self.work(lambda:self.importer.import_selected(account_id,folder,selected),
+                  lambda result:self.finish_mail_import(window,result))
+
+    def finish_mail_import(self,window,result):
+        self.refresh()
+        self.import_message.set('Postfach: '+self.report_text(result))
+        self.close_mail_preview(window)
+
+    def close_mail_preview(self,window):
+        button=getattr(window,'import_button',None)
+        if button in self.buttons: self.buttons.remove(button)
+        if window.winfo_exists(): window.destroy()
 
     def open_mail_settings(self):
         self.tabs.select(self.settings_tab)

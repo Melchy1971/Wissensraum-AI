@@ -44,4 +44,5 @@ jobs:
             settings-preview.png
             import-preview.png
             accounts-preview.png
+            email-preview.png
           retention-days: 7
