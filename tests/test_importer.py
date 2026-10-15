@@ -81,6 +81,14 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(self.store.search('Freigabe')[0]['title'],'Projektstatus')
         doc=self.store.get(1)
         self.assertEqual(doc['original'],RAW_MAIL)
+        refreshed=self.importer.preview_imap(account_id,'INBOX',100,factory)
+        self.assertTrue(next(item for item in refreshed if item['id']=='202')['imported'])
+        self.assertFalse(next(item for item in refreshed if item['id']=='101')['imported'])
+        other_folder=self.importer.preview_imap(account_id,'Archive',100,factory)
+        self.assertTrue(all(not item['imported'] for item in other_folder))
+        self.store.delete(doc['id'])
+        with self.store.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM email_imports').fetchone()[0],0)
 
     def test_pst_import_uses_local_archive_and_limit(self):
         path=self.base/'archive.pst'; path.write_bytes(b'test')
@@ -102,7 +110,9 @@ class ImportTests(unittest.TestCase):
             return item
         with patch.object(self.accounts,'microsoft_token',return_value='synthetic-token'):
             report=self.importer.import_microsoft(account_id,10,graph)
+            refreshed=self.importer.preview_microsoft(account_id,10,graph)
         self.assertEqual(report['imported'],1)
+        self.assertTrue(refreshed[0]['imported'])
         self.assertEqual(self.store.search('Graph Inhalt')[0]['title'],'Graph Nachricht')
         with self.store.connect() as db:
             self.assertNotIn('synthetic-token',str([tuple(r) for r in db.execute('SELECT * FROM email_accounts')]))

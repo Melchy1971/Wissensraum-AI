@@ -31,7 +31,7 @@ with tempfile.TemporaryDirectory() as directory:
         ImageGrab.grab().crop((0,0,window.winfo_width(),window.winfo_height())).save('accounts-preview.png')
         preview=window.show_mail_preview([
             {'id':'101','date':'15.10.2026 09:30','sender':'projekt@example.com','subject':'Freigabe zum Projektstart'},
-            {'id':'102','date':'14.10.2026 16:10','sender':'team@example.com','subject':'Protokoll und offene Punkte'},
+            {'id':'102','date':'14.10.2026 16:10','sender':'team@example.com','subject':'Protokoll und offene Punkte','imported':True},
             {'id':'103','date':'13.10.2026 11:45','sender':'lieferant@example.com','subject':'Angebot Version 2'}],
             'synthetic-account','INBOX','Beispielkonto · beispiel@example.com')
         preview.geometry('1080x650+0+0')

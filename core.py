@@ -48,7 +48,13 @@ CREATE TABLE IF NOT EXISTS email_accounts (
  client_id TEXT NOT NULL DEFAULT '', tenant TEXT NOT NULL DEFAULT 'common',
  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-PRAGMA user_version = 3;
+CREATE TABLE IF NOT EXISTS email_imports (
+ account_id TEXT NOT NULL REFERENCES email_accounts(id) ON DELETE CASCADE,
+ remote_id TEXT NOT NULL, document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+ imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ PRIMARY KEY(account_id,remote_id)
+);
+PRAGMA user_version = 4;
 '''
 
 
@@ -65,7 +71,7 @@ class Store:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as db:
             version = db.execute('PRAGMA user_version').fetchone()[0]
-            if version > 3:
+            if version > 4:
                 raise ValueError('Datenbankversion ist neuer als diese Anwendung.')
             db.executescript(SCHEMA)
 

@@ -224,6 +224,30 @@ class Importer:
             '',body]))
         return self.store.add(subject,content,'E-Mail · '+label,subject+'.eml',raw)
 
+    def _imported_ids(self,account_id,remote_ids):
+        remote_ids=list(dict.fromkeys(str(value) for value in remote_ids))
+        if not remote_ids: return set()
+        placeholders=','.join('?' for _ in remote_ids)
+        with self.store.connect() as db:
+            rows=db.execute(f'SELECT remote_id FROM email_imports WHERE account_id=? AND remote_id IN ({placeholders})',
+                            (account_id,*remote_ids)).fetchall()
+        return {row['remote_id'] for row in rows}
+
+    def _record_import(self,account_id,remote_id,document_id):
+        with self.store.connect() as db:
+            db.execute('''INSERT INTO email_imports(account_id,remote_id,document_id) VALUES(?,?,?)
+                          ON CONFLICT(account_id,remote_id) DO UPDATE SET
+                          document_id=excluded.document_id,imported_at=CURRENT_TIMESTAMP''',
+                       (account_id,str(remote_id),document_id))
+
+    @staticmethod
+    def _imap_import_key(folder,uid):
+        return 'imap:'+str(folder or 'INBOX')+':'+str(uid)
+
+    @staticmethod
+    def _microsoft_import_key(message_id):
+        return 'graph:'+str(message_id)
+
     def _imap_login(self,account_id,folder,client_factory=None):
         account=self.accounts.get(account_id)
         secret=self.accounts.vault.get(self.accounts.secret_name(account_id))
@@ -272,6 +296,8 @@ class Importer:
         finally:
             try: client.logout()
             except Exception: pass
+        imported=self._imported_ids(account_id,[self._imap_import_key(folder,item['id']) for item in items])
+        for item in items: item['imported']=self._imap_import_key(folder,item['id']) in imported
         return items
 
     def import_imap_ids(self,account_id,folder,uids,client_factory=None):
@@ -287,7 +313,8 @@ class Importer:
                     raw=self._imap_raw(payload)
                     if status!='OK' or not raw or len(raw)>25*1024*1024:
                         raise ValueError('E-Mail konnte nicht gelesen werden oder ist größer als 25 MB.')
-                    _,created=self._add_email(raw,account['label'])
+                    document_id,created=self._add_email(raw,account['label'])
+                    self._record_import(account_id,self._imap_import_key(folder,uid),document_id)
                     report['imported' if created else 'duplicates']+=1
                 except Exception:
                     report['errors']+=1
@@ -335,6 +362,8 @@ class Importer:
                               'sender':item.get('from',{}).get('emailAddress',{}).get('address',''),
                               'date':item.get('receivedDateTime','')})
             url=page.get('@odata.nextLink')
+        imported=self._imported_ids(account_id,[self._microsoft_import_key(item['id']) for item in items])
+        for item in items: item['imported']=self._microsoft_import_key(item['id']) in imported
         return items
 
     def _add_graph_item(self,item,label):
@@ -362,7 +391,8 @@ class Importer:
             try:
                 url='https://graph.microsoft.com/v1.0/me/messages/'+urllib.parse.quote(message_id,safe='')+'?'+urllib.parse.urlencode({'$select':fields})
                 item=get(url,token)
-                _,created=self._add_graph_item(item,account['label'])
+                document_id,created=self._add_graph_item(item,account['label'])
+                self._record_import(account_id,self._microsoft_import_key(message_id),document_id)
                 report['imported' if created else 'duplicates']+=1
             except Exception:
                 report['errors']+=1

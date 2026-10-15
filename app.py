@@ -351,19 +351,22 @@ class App(tk.Tk):
         ttk.Label(window,text=account_name+' · '+folder+' · Vollständige Inhalte werden erst nach der Freigabe geladen.',
                   padding=(18,5,18,12)).pack(anchor='w')
         body=ttk.Frame(window,padding=(18,0,18,8)); body.pack(fill='both',expand=True)
-        columns=('active','date','sender','subject')
+        columns=('active','status','date','sender','subject')
         tree=ttk.Treeview(body,columns=columns,show='headings',selectmode='extended')
-        for col,title,width in [('active','Import',80),('date','Datum',180),('sender','Absender',270),('subject','Betreff',430)]:
-            tree.heading(col,text=title); tree.column(col,width=width,stretch=col!='active')
+        for col,title,width in [('active','Auswahl',75),('status','Status',120),('date','Datum',165),('sender','Absender',245),('subject','Betreff',380)]:
+            tree.heading(col,text=title); tree.column(col,width=width,stretch=col not in ('active','status'))
         scroll=ttk.Scrollbar(body,orient='vertical',command=tree.yview); tree.configure(yscrollcommand=scroll.set)
         scroll.pack(side='right',fill='y'); tree.pack(fill='both',expand=True)
         window.preview_tree=tree
         window.preview_items={}
         for index,item in enumerate(items):
             iid='mail-'+str(index)
-            window.preview_items[iid]={'item':item,'active':False}
-            tree.insert('','end',iid=iid,values=('NEIN',item.get('date',''),item.get('sender',''),item.get('subject','')))
+            imported=bool(item.get('imported'))
+            window.preview_items[iid]={'item':item,'active':False,'imported':imported}
+            tree.insert('','end',iid=iid,values=('NEIN','✓ Importiert' if imported else '',item.get('date',''),item.get('sender',''),item.get('subject','')),
+                        tags=('imported',) if imported else ())
         tree.tag_configure('active',foreground='#185b50',font=('Segoe UI',11,'bold'))
+        tree.tag_configure('imported',foreground='#168044',font=('Segoe UI',11,'bold'))
         tree.bind('<Double-1>',lambda event:self.toggle_preview_at(window,event))
         controls=ttk.Frame(window,padding=(18,4,18,4)); controls.pack(fill='x')
         ttk.Button(controls,text='Alle aktivieren',command=lambda:self.set_preview_active(window,True)).pack(side='left',padx=(0,8))
@@ -384,19 +387,21 @@ class App(tk.Tk):
 
     def update_preview_status(self,window):
         active=sum(row['active'] for row in window.preview_items.values())
-        window.preview_status.set(f'{active} von {len(window.preview_items)} E-Mails zum Import aktiviert.')
+        imported=sum(row['imported'] for row in window.preview_items.values())
+        window.preview_status.set(f'{active} zum Import aktiviert · {imported} bereits importiert · {len(window.preview_items)} angezeigt.')
 
     def set_preview_active(self,window,active):
         for iid,row in window.preview_items.items():
-            row['active']=active
-            values=list(window.preview_tree.item(iid,'values')); values[0]='JA' if active else 'NEIN'
-            window.preview_tree.item(iid,values=values,tags=('active',) if active else ())
+            row['active']=active and not row['imported']
+            values=list(window.preview_tree.item(iid,'values')); values[0]='JA' if row['active'] else 'NEIN'
+            tags=('imported',) if row['imported'] else (('active',) if row['active'] else ())
+            window.preview_tree.item(iid,values=values,tags=tags)
         self.update_preview_status(window)
 
     def toggle_preview_selected(self,window,iids=None):
         for iid in (iids or window.preview_tree.selection()):
             row=window.preview_items.get(iid)
-            if not row: continue
+            if not row or row['imported']: continue
             row['active']=not row['active']
             values=list(window.preview_tree.item(iid,'values')); values[0]='JA' if row['active'] else 'NEIN'
             window.preview_tree.item(iid,values=values,tags=('active',) if row['active'] else ())

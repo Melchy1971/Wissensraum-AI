@@ -1,4 +1,4 @@
--- Schema SQLite / FTS5 · Version 3
+-- Schema SQLite / FTS5 · Version 4
 
 PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS documents (
@@ -36,4 +36,10 @@ CREATE TABLE IF NOT EXISTS email_accounts (
  client_id TEXT NOT NULL DEFAULT '', tenant TEXT NOT NULL DEFAULT 'common',
  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-PRAGMA user_version = 3;
+CREATE TABLE IF NOT EXISTS email_imports (
+ account_id TEXT NOT NULL REFERENCES email_accounts(id) ON DELETE CASCADE,
+ remote_id TEXT NOT NULL, document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+ imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ PRIMARY KEY(account_id,remote_id)
+);
+PRAGMA user_version = 4;

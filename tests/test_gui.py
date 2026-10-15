@@ -88,7 +88,7 @@ class InterfaceTests(unittest.TestCase):
 
     def test_email_preview_requires_explicit_activation(self):
         items=[{'id':'101','date':'15.10.2026','sender':'a@example.com','subject':'Freigabe'},
-               {'id':'202','date':'14.10.2026','sender':'b@example.com','subject':'Protokoll'}]
+               {'id':'202','date':'14.10.2026','sender':'b@example.com','subject':'Protokoll','imported':True}]
         preview=self.window.show_mail_preview(items,'synthetic-account','INBOX','Testkonto')
         preview.update()
         self.assertTrue(all(not row['active'] for row in preview.preview_items.values()))
@@ -96,7 +96,16 @@ class InterfaceTests(unittest.TestCase):
         preview.preview_tree.selection_set(first)
         self.window.toggle_preview_selected(preview)
         self.assertTrue(preview.preview_items[first]['active'])
-        self.assertIn('1 von 2',preview.preview_status.get())
+        imported='mail-1'
+        self.assertIn('✓ Importiert',preview.preview_tree.item(imported,'values'))
+        self.assertIn('imported',preview.preview_tree.item(imported,'tags'))
+        preview.preview_tree.selection_set(imported)
+        self.window.toggle_preview_selected(preview)
+        self.assertFalse(preview.preview_items[imported]['active'])
+        self.window.set_preview_active(preview,True)
+        self.assertTrue(preview.preview_items[first]['active'])
+        self.assertFalse(preview.preview_items[imported]['active'])
+        self.assertIn('1 zum Import aktiviert · 1 bereits importiert',preview.preview_status.get())
         self.window.set_preview_active(preview,False)
         self.assertTrue(all(not row['active'] for row in preview.preview_items.values()))
         self.window.close_mail_preview(preview)

@@ -115,7 +115,8 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(restored.search('Migrationsbeleg')[0]['title'],'Altdokument')
         self.assertEqual(Settings(restored,self.base,self.vault,{}).active(),'openai')
         with restored.connect() as db:
-            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0],3)
+            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0],4)
+            self.assertIsNotNone(db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='email_imports'").fetchone())
 
     def test_short_secrets_never_show_in_mask(self):
         for key in ('x','secret','12345678'):
