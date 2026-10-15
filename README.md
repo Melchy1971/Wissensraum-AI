@@ -9,7 +9,7 @@ Dokumente, Notizen, Originaldateien und KI-Verlauf werden in einer SQLite-SQL-Da
 1. ZIP vollständig in einen beschreibbaren Ordner entpacken, beispielsweise `H:\Wissensraum`. Nicht direkt aus der ZIP starten und nicht unter `Programme` ablegen.
 2. Python 3.11 oder neuer von https://www.python.org/downloads/ mit Tcl/Tk installieren.
 3. `start_windows.bat` doppelt anklicken. Beim ersten Start werden die Python-Bibliotheken für PDF und Word installiert; dafür ist Internetzugang erforderlich.
-4. **Einstellungen** öffnen. Vorhandene Schlüssel aus Umgebung und `.env.local`/`.env` werden automatisch maskiert angezeigt. Anbieter auswählen, Modell prüfen und **Speichern & aktivieren** anklicken. Neue Schlüssel im maskierten Eingabefeld hinterlegen oder über **Schlüsseldatei importieren** übernehmen.
+4. **Einstellungen** öffnen. Vorhandene Schlüssel aus Umgebung und `.env.local`/`.env` werden automatisch maskiert angezeigt. Anbieter auswählen, Modell prüfen und **Als aktive KI verwenden** anklicken. Neue Schlüssel im maskierten Eingabefeld hinterlegen oder über **Schlüsseldatei importieren** übernehmen.
 5. **Dateien importieren** anklicken oder über **Notiz erfassen** eigene Inhalte eingeben.
 6. **Dokumente & Suche** durchsuchen. Unter **Wissen befragen** eine Frage eingeben; **Quellen suchen & antworten** startet die KI-Anfrage.
 
@@ -130,8 +130,9 @@ Die CI-Tests rufen keine kostenpflichtige KI-API auf. API-Verträge werden mit k
 2. In der Tabelle OpenAI, Claude, Gemini oder Ollama auswählen. Dies allein ändert die aktive KI noch nicht.
 3. Die Modell-ID kann aus Vorschlägen gewählt oder direkt eingegeben werden. Der Anbieter muss das Modell für den verwendeten API-Zugang freigeschaltet haben.
 4. Vorhandene Schlüssel sind maskiert vorausgefüllt. Die Übersicht zeigt nur die letzten vier Zeichen bei längeren Schlüsseln sowie die Herkunft. Neue Schlüssel ersetzen den bisherigen Wert im Eingabefeld.
-5. **Speichern & aktivieren** setzt den Anbieter für Fragen, Zusammenfassungen und CLI. Eine Überschrift nennt den tatsächlich aktiven Anbieter; eine abweichende Auswahl in der Tabelle ist nur eine Bearbeitungsauswahl.
-6. **Verbindung testen** prüft die ausgewählten Formwerte ohne Dokumente zu senden und ohne automatisch zu speichern oder den Anbieter zu wechseln. Der Test kann API-Kosten verursachen.
+5. **Einstellungen speichern** speichert Modell und einen neu eingegebenen Schlüssel, ohne die aktive KI zu wechseln.
+6. **Als aktive KI verwenden** speichert die Formwerte und setzt den Anbieter für Fragen, Zusammenfassungen und CLI. Die Spalte **Verwendung** markiert ihn mit **AKTIV**; eine abweichende Auswahl in der Tabelle ist nur eine Bearbeitungsauswahl.
+7. **Verbindung testen** prüft die ausgewählten Formwerte ohne Dokumente zu senden und ohne automatisch zu speichern oder den Anbieter zu wechseln. Der Test kann API-Kosten verursachen.
 
 | Anbieter | Erkannte Schlüsselvariablen | Ausführung |
 |---|---|---|

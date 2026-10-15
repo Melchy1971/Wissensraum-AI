@@ -51,6 +51,9 @@ class SettingsTests(unittest.TestCase):
     def test_switch_to_claude_and_ollama(self):
         self.settings.save('anthropic','claude-sonnet-5-5','claude-test-secret')
         self.assertEqual(self.settings.ai().provider,'anthropic')
+        rows={row['provider']:row for row in self.settings.overview()}
+        self.assertTrue(rows['anthropic']['active'])
+        self.assertFalse(rows['openai']['active'])
         self.settings.save('ollama','qwen3:8b')
         ai=self.settings.ai()
         self.assertEqual(ai.provider,'ollama')

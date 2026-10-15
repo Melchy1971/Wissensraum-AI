@@ -42,8 +42,9 @@ class InterfaceTests(unittest.TestCase):
         self.assertEqual(window.key_value.get(),'synthetic-existing-1234567890')
         self.assertEqual(window.key_entry.cget('show'),'*')
         values=window.provider_tree.item('openai','values')
-        self.assertIn('7890',values[1])
-        self.assertNotIn('synthetic-existing',values[1])
+        self.assertEqual(values[0],'AKTIV')
+        self.assertIn('7890',values[3])
+        self.assertNotIn('synthetic-existing',values[3])
         window.open_settings()
         self.assertEqual(window.tabs.select(),str(window.settings_tab))
 
@@ -53,7 +54,11 @@ class InterfaceTests(unittest.TestCase):
         window.update()
         window.key_value.set('synthetic-claude-abcdefgh')
         window.save_provider()
+        self.assertEqual(window.settings.active(),'openai')
+        window.activate_provider()
         self.assertEqual(window.settings.active(),'anthropic')
+        self.assertEqual(window.provider_tree.item('anthropic','values')[0],'AKTIV')
+        self.assertEqual(window.provider_tree.item('openai','values')[0],'')
         self.assertIn('Claude',window.provider_notice.get())
         self.assertEqual(window.settings.ai().provider,'anthropic')
         with patch('app.messagebox.askyesno',return_value=True):
@@ -61,7 +66,7 @@ class InterfaceTests(unittest.TestCase):
         self.assertEqual(window.key_value.get(),'')
         window.provider_tree.selection_set('ollama')
         window.update()
-        window.save_provider()
+        window.activate_provider()
         self.assertEqual(window.settings.active(),'ollama')
         self.assertEqual(str(window.key_entry.cget('state')),'disabled')
 

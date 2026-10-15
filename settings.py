@@ -126,11 +126,12 @@ class Settings:
 
     def overview(self):
         rows=[]
+        active=self.active()
         for provider,info in PROVIDERS.items():
             key,source=self.credential(provider)
             rows.append({'provider':provider,'name':info['name'],
                          'masked':masked_key(key) if info['env'] else 'Nicht erforderlich',
-                         'source':source,'model':self.model(provider)})
+                         'source':source,'model':self.model(provider),'active':provider==active})
         return rows
 
     def save(self,provider,model,key=None,activate=True):

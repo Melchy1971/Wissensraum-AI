@@ -270,11 +270,13 @@ class App(tk.Tk):
         ttk.Label(frame,text='KI-Anbieter & API-Schlüssel',font=('Segoe UI',18,'bold')).pack(anchor='w')
         self.active_notice=tk.StringVar()
         ttk.Label(frame,textvariable=self.active_notice).pack(anchor='w',pady=(6,12))
-        columns=('name','key','source')
+        columns=('active','name','model','key','source')
         self.provider_tree=ttk.Treeview(frame,columns=columns,show='headings',height=4,selectmode='browse')
-        for col,title,width in [('name','KI-Anbieter',190),('key','API-Schlüssel (maskiert)',170),('source','Herkunft / Status',300)]:
+        for col,title,width in [('active','Verwendung',90),('name','KI-Anbieter',175),('model','Modell',150),
+                                ('key','API-Schlüssel (maskiert)',165),('source','Herkunft / Status',255)]:
             self.provider_tree.heading(col,text=title)
             self.provider_tree.column(col,width=width)
+        self.provider_tree.tag_configure('active',foreground='#185b50',font=('Segoe UI',11,'bold'))
         self.provider_tree.pack(fill='x')
         self.provider_tree.bind('<<TreeviewSelect>>',lambda _:self.load_provider_form())
         form=ttk.Frame(frame,padding=(0,12,0,6))
@@ -295,7 +297,8 @@ class App(tk.Tk):
         self.key_hint.grid(row=3,column=1,sticky='w',pady=(2,5))
         actions=ttk.Frame(frame)
         actions.pack(fill='x',pady=(2,6))
-        for title,command,style in [('Speichern & aktivieren',self.save_provider,'Accent.TButton'),
+        for title,command,style in [('Einstellungen speichern',self.save_provider,'TButton'),
+                                   ('Als aktive KI verwenden',self.activate_provider,'Accent.TButton'),
                                    ('Verbindung testen',self.test_provider,'TButton'),
                                    ('Schlüssel entfernen',self.remove_provider_key,'TButton'),
                                    ('Schlüsseldatei importieren',self.select_key,'TButton')]:
@@ -326,7 +329,9 @@ class App(tk.Tk):
         selected=provider or (self.provider_tree.selection()[0] if self.provider_tree.selection() else self.settings.active())
         self.provider_tree.delete(*self.provider_tree.get_children())
         for row in self.settings.overview():
-            self.provider_tree.insert('','end',iid=row['provider'],values=(row['name'],row['masked'],row['source']))
+            self.provider_tree.insert('','end',iid=row['provider'],
+                                      values=('AKTIV' if row['active'] else '',row['name'],row['model'],row['masked'],row['source']),
+                                      tags=('active',) if row['active'] else ())
         self.provider_tree.selection_set(selected)
         self.load_provider_form()
         active=self.settings.active()
@@ -350,12 +355,22 @@ class App(tk.Tk):
     def save_provider(self):
         try:
             provider=self.selected_provider()
-            key=self.key_value.get().strip() if PROVIDERS[provider]['env'] else None
+            key=(self.key_value.get().strip() or None) if PROVIDERS[provider]['env'] else None
+            self.settings.save(provider,self.model_value.get(),key,activate=False)
+            self.refresh_settings(provider)
+            self.settings_message.set('Einstellungen gespeichert: '+PROVIDERS[provider]['name']+'. Die aktive KI bleibt unverändert.')
+        except Exception as e:
+            messagebox.showerror('Einstellungen',str(e),parent=self)
+
+    def activate_provider(self):
+        try:
+            provider=self.selected_provider()
+            key=(self.key_value.get().strip() or None) if PROVIDERS[provider]['env'] else None
             if PROVIDERS[provider]['env'] and not key:
                 raise ValueError('Für diesen Anbieter einen API-Schlüssel hinterlegen.')
-            self.settings.save(provider,self.model_value.get(),key)
+            self.settings.save(provider,self.model_value.get(),key,activate=True)
             self.refresh_settings(provider)
-            self.settings_message.set('Gespeichert und aktiviert: '+PROVIDERS[provider]['name'])
+            self.settings_message.set('Aktive KI: '+PROVIDERS[provider]['name']+' / '+self.settings.model(provider))
         except Exception as e:
             messagebox.showerror('Einstellungen',str(e),parent=self)
 
@@ -374,7 +389,7 @@ class App(tk.Tk):
         def run():
             AI(self.store,key,model,provider=provider).generate('Bestätige den Verbindungstest kurz mit Quellenverweis.',sources)
         def done(_):
-            self.settings_message.set('Verbindung erfolgreich: '+PROVIDERS[provider]['name']+' / '+model+'. Die aktive KI bleibt bis zum Speichern unverändert.')
+            self.settings_message.set('Verbindung erfolgreich: '+PROVIDERS[provider]['name']+' / '+model+'. Die aktive KI bleibt bis zur Aktivierung unverändert.')
         self.work(run,done)
 
     def remove_provider_key(self):
