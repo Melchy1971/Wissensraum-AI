@@ -7,9 +7,11 @@ import threading
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
 from tkinter.scrolledtext import ScrolledText
+from PIL import Image, ImageTk
 from core import Store, discover_documents, import_documents
 from settings import Settings, SystemVault, PROVIDERS
 from database import DatabaseSettings
+from design import DesignSettings, THEMES
 from importer import Importer, MailAccounts, MAIL_PROVIDERS
 
 BASE = Path(__file__).resolve().parent
@@ -33,23 +35,24 @@ class App(tk.Tk):
         self.queue = queue.Queue()
         self.busy = False
         self.settings = Settings(self.store, BASE, self.vault)
+        self.design_settings = DesignSettings(BASE)
+        self.theme_mode = self.design_settings.theme()
         self.mail_accounts = MailAccounts(self.store, self.settings.vault)
         self.importer = Importer(self.store, self.mail_accounts)
         self.docs = {}
         self.style = ttk.Style(self)
         self.style.theme_use('clam')
-        self.style.configure('.', font=('Segoe UI', 11), background='#f3f4f0', foreground='#182c2a')
-        self.style.configure('TButton', padding=(12,8))
-        self.style.configure('Accent.TButton', background='#185b50', foreground='white')
-        self.style.map('Accent.TButton', background=[('active','#12483e'),('disabled','#65736e')])
-        self.style.configure('Exit.TButton', background='#a52a2a', foreground='white')
-        self.style.map('Exit.TButton', background=[('active','#7f1d1d')])
-        self.style.configure('Treeview', rowheight=32, fieldbackground='white', background='white')
-        self.style.map('Treeview', background=[('selected','#185b50')], foreground=[('selected','white')])
-        header = ttk.Frame(self, padding=(24,18))
+        self.apply_theme(self.theme_mode)
+        self.brand_bar=tk.Frame(self,height=6,bg=THEMES[self.theme_mode]['accent'])
+        self.brand_bar.pack(fill='x')
+        header = ttk.Frame(self, padding=(24,14))
         header.pack(fill='x')
-        ttk.Label(header, text='Wissensraum', font=('Segoe UI',24,'bold')).pack(side='left')
-        ttk.Label(header, text='Dokumente verstehen. Wissen wiederfinden.').pack(side='left', padx=24)
+        self.logo_label=ttk.Label(header)
+        self.logo_label.pack(side='left',padx=(0,14))
+        ttk.Label(header,text='Wissensraum',style='BrandTitle.TLabel').pack(side='left')
+        ttk.Label(header,text='Dokumente verstehen. Wissen wiederfinden.',style='Muted.TLabel').pack(side='left',padx=24)
+        self.logo_image=None
+        self.refresh_logo()
         tools = ttk.Frame(self, padding=(24,0,24,12))
         tools.pack(fill='x')
         self.buttons = []
@@ -130,9 +133,76 @@ class App(tk.Tk):
         ttk.Label(self,textvariable=self.status,padding=(24,0,24,12)).pack(fill='x')
         self.build_import()
         self.build_settings()
+        self.apply_theme(self.theme_mode)
         self.refresh()
         self.show_history()
         self.after(100,self.poll)
+
+    def apply_theme(self,theme):
+        """Apply the selected Telekom-oriented palette to existing and future widgets."""
+        palette=THEMES[theme]
+        self.theme_mode=theme
+        self.palette=palette
+        self.configure(bg=palette['background'])
+        style=self.style
+        style.configure('.',font=('Segoe UI',11),background=palette['background'],foreground=palette['text'])
+        style.configure('TFrame',background=palette['background'])
+        style.configure('TLabel',background=palette['background'],foreground=palette['text'])
+        style.configure('Muted.TLabel',background=palette['background'],foreground=palette['muted'])
+        style.configure('BrandTitle.TLabel',background=palette['background'],foreground=palette['accent'],font=('Segoe UI',24,'bold'))
+        style.configure('Warning.TLabel',background=palette['background'],foreground=palette['danger'])
+        style.configure('TLabelframe',background=palette['background'],foreground=palette['text'],bordercolor=palette['border'])
+        style.configure('TLabelframe.Label',background=palette['background'],foreground=palette['text'])
+        style.configure('TButton',padding=(12,8),background=palette['surface'],foreground=palette['text'],bordercolor=palette['border'])
+        style.map('TButton',background=[('active',palette['input']),('disabled',palette['background'])],
+                  foreground=[('disabled',palette['muted'])])
+        style.configure('Accent.TButton',background=palette['accent'],foreground='white',bordercolor=palette['accent'])
+        style.map('Accent.TButton',background=[('active',palette['accent_active']),('disabled',palette['disabled'])],
+                  foreground=[('disabled','#eeeeee')])
+        style.configure('Exit.TButton',background=palette['danger'],foreground='white',bordercolor=palette['danger'])
+        style.map('Exit.TButton',background=[('active',palette['danger_active'])])
+        style.configure('TEntry',fieldbackground=palette['input'],foreground=palette['text'],insertcolor=palette['text'])
+        style.configure('TCombobox',fieldbackground=palette['input'],background=palette['input'],foreground=palette['text'],arrowcolor=palette['text'])
+        style.map('TCombobox',fieldbackground=[('readonly',palette['input'])],foreground=[('readonly',palette['text'])])
+        style.configure('TSpinbox',fieldbackground=palette['input'],background=palette['input'],foreground=palette['text'],arrowcolor=palette['text'])
+        style.configure('TRadiobutton',background=palette['background'],foreground=palette['text'])
+        style.map('TRadiobutton',background=[('active',palette['background'])],foreground=[('active',palette['text'])])
+        style.configure('Treeview',rowheight=32,fieldbackground=palette['surface'],background=palette['surface'],foreground=palette['text'])
+        style.configure('Treeview.Heading',background=palette['background'],foreground=palette['text'],bordercolor=palette['border'])
+        style.map('Treeview',background=[('selected',palette['accent'])],foreground=[('selected','white')])
+        style.configure('TNotebook',background=palette['background'],bordercolor=palette['border'])
+        style.configure('TNotebook.Tab',padding=(10,6),background=palette['background'],foreground=palette['text'])
+        style.map('TNotebook.Tab',background=[('selected',palette['accent']),('active',palette['surface'])],
+                  foreground=[('selected','white'),('active',palette['text'])])
+        if hasattr(self,'brand_bar'):
+            self.brand_bar.configure(bg=palette['accent'])
+        for name in ('detail','answer','history'):
+            widget=getattr(self,name,None)
+            if widget:
+                self.configure_text_widget(widget)
+        if hasattr(self,'provider_tree'):
+            self.provider_tree.tag_configure('active',foreground=palette['accent'],font=('Segoe UI',11,'bold'))
+
+    def configure_text_widget(self,widget):
+        widget.configure(background=self.palette['surface'],foreground=self.palette['text'],
+                         insertbackground=self.palette['text'],selectbackground=self.palette['accent'],
+                         selectforeground='white')
+
+    def refresh_logo(self):
+        self.logo_image=None
+        if self.design_settings.logo_path.is_file():
+            try:
+                with Image.open(self.design_settings.logo_path) as source:
+                    image=source.convert('RGBA')
+                    image.thumbnail((180,60),Image.Resampling.LANCZOS)
+                    self.logo_image=ImageTk.PhotoImage(image)
+            except OSError:
+                self.logo_image=None
+        if hasattr(self,'logo_label'):
+            self.logo_label.configure(image=self.logo_image or '')
+        preview=getattr(self,'design_logo_preview',None)
+        if preview:
+            preview.configure(image=self.logo_image or '',text='' if self.logo_image else 'Kein Logo hinterlegt')
 
     def exit_application(self):
         """End the desktop application immediately from every close control."""
@@ -249,6 +319,7 @@ class App(tk.Tk):
         category.insert(0,'Allgemein')
         category.pack(fill='x',padx=16)
         content = ScrolledText(window,wrap='word',font=('Segoe UI',11))
+        self.configure_text_widget(content)
         content.pack(fill='both',expand=True,padx=16,pady=16)
         def save():
             try:
@@ -398,8 +469,8 @@ class App(tk.Tk):
             window.preview_items[iid]={'item':item,'active':False,'imported':imported}
             tree.insert('','end',iid=iid,values=('NEIN','✓ Importiert' if imported else '',item.get('date',''),item.get('sender',''),item.get('subject','')),
                         tags=('imported',) if imported else ())
-        tree.tag_configure('active',foreground='#185b50',font=('Segoe UI',11,'bold'))
-        tree.tag_configure('imported',foreground='#168044',font=('Segoe UI',11,'bold'))
+        tree.tag_configure('active',foreground=self.palette['accent'],font=('Segoe UI',11,'bold'))
+        tree.tag_configure('imported',foreground=self.palette['success'],font=('Segoe UI',11,'bold'))
         tree.bind('<Double-1>',lambda event:self.toggle_preview_at(window,event))
         controls=ttk.Frame(window,padding=(18,4,18,4)); controls.pack(fill='x')
         ttk.Button(controls,text='Alle aktivieren',command=lambda:self.set_preview_active(window,True)).pack(side='left',padx=(0,8))
@@ -472,15 +543,22 @@ class App(tk.Tk):
         self.settings_sections.select(self.database_settings_frame)
         self.load_database_settings()
 
+    def open_design_settings(self):
+        self.tabs.select(self.settings_tab)
+        self.settings_sections.select(self.design_settings_frame)
+        self.refresh_design_settings()
+
     def build_settings(self):
         self.settings_sections=ttk.Notebook(self.settings_tab)
         self.settings_sections.pack(fill='both',expand=True)
         self.ai_settings_frame=ttk.Frame(self.settings_sections,padding=12)
         self.database_settings_frame=ttk.Frame(self.settings_sections,padding=12)
         self.mail_settings_frame=ttk.Frame(self.settings_sections,padding=12)
+        self.design_settings_frame=ttk.Frame(self.settings_sections,padding=12)
         self.settings_sections.add(self.ai_settings_frame,text='KI-Anbieter')
         self.settings_sections.add(self.database_settings_frame,text='Datenbank')
         self.settings_sections.add(self.mail_settings_frame,text='E-Mail-Konten')
+        self.settings_sections.add(self.design_settings_frame,text='Design')
         frame=self.ai_settings_frame
         ttk.Label(frame,text='KI-Anbieter & API-Schlüssel',font=('Segoe UI',18,'bold')).pack(anchor='w')
         self.active_notice=tk.StringVar()
@@ -530,6 +608,70 @@ class App(tk.Tk):
         self.refresh_settings()
         self.build_database_settings()
         self.build_mail_settings()
+        self.build_design_settings()
+
+    def build_design_settings(self):
+        frame=self.design_settings_frame
+        ttk.Label(frame,text='Design & Branding',font=('Segoe UI',18,'bold')).pack(anchor='w')
+        ttk.Label(frame,text='Telekom CI',style='BrandTitle.TLabel').pack(anchor='w',pady=(8,2))
+        ttk.Label(frame,text='Telekom Magenta wird für Markenleiste, aktive Registerkarten, Auswahlzustände und primäre Aktionen verwendet.',
+                  wraplength=940).pack(anchor='w',pady=(0,16))
+        mode=ttk.LabelFrame(frame,text='Darstellung',padding=14)
+        mode.pack(fill='x',pady=(0,12))
+        self.design_theme=tk.StringVar(value=self.theme_mode)
+        ttk.Radiobutton(mode,text='Hellmodus',value='light',variable=self.design_theme,
+                        command=self.save_design_theme).pack(side='left',padx=(0,24))
+        ttk.Radiobutton(mode,text='Dunkelmodus',value='dark',variable=self.design_theme,
+                        command=self.save_design_theme).pack(side='left')
+        logo=ttk.LabelFrame(frame,text='Logo auf der Hauptseite',padding=14)
+        logo.pack(fill='x',pady=(0,12))
+        logo.columnconfigure(1,weight=1)
+        self.design_logo_preview=ttk.Label(logo,text='Kein Logo hinterlegt',anchor='center')
+        self.design_logo_preview.grid(row=0,column=0,rowspan=2,sticky='w',padx=(0,24))
+        ttk.Label(logo,text='PNG, JPG oder WebP · maximal 5 MB · automatische Skalierung auf maximal 320 × 96 Pixel',
+                  wraplength=700).grid(row=0,column=1,sticky='w')
+        actions=ttk.Frame(logo)
+        actions.grid(row=1,column=1,sticky='w',pady=(10,0))
+        for title,command,style in [('Logo auswählen',self.select_design_logo,'Accent.TButton'),
+                                   ('Logo entfernen',self.remove_design_logo,'TButton')]:
+            button=ttk.Button(actions,text=title,command=command,style=style)
+            button.pack(side='left',padx=(0,8)); self.buttons.append(button)
+        self.design_message=tk.StringVar()
+        ttk.Label(frame,textvariable=self.design_message,style='Muted.TLabel').pack(anchor='w',pady=(4,0))
+        self.refresh_design_settings()
+
+    def refresh_design_settings(self):
+        if hasattr(self,'design_theme'):
+            self.design_theme.set(self.design_settings.theme())
+            state='Logo hinterlegt und auf der Hauptseite sichtbar.' if self.design_settings.logo_path.is_file() else 'Kein eigenes Logo hinterlegt.'
+            self.design_message.set(state+' Designmodus: '+('Dunkel' if self.design_settings.theme()=='dark' else 'Hell')+'.')
+        self.refresh_logo()
+
+    def save_design_theme(self):
+        try:
+            theme=self.design_theme.get()
+            self.design_settings.save_theme(theme)
+            self.apply_theme(theme)
+            self.design_message.set('Designmodus gespeichert: '+('Dunkel.' if theme=='dark' else 'Hell.'))
+        except Exception as error:
+            messagebox.showerror('Design',str(error),parent=self)
+
+    def select_design_logo(self):
+        path=filedialog.askopenfilename(title='Logo auswählen',
+                filetypes=[('Bilddateien','*.png *.jpg *.jpeg *.webp'),('Alle Dateien','*')])
+        if not path:
+            return
+        try:
+            self.design_settings.save_logo(path)
+            self.refresh_logo()
+            self.design_message.set('Logo gespeichert und auf der Hauptseite aktiviert.')
+        except Exception as error:
+            messagebox.showerror('Logo',str(error),parent=self)
+
+    def remove_design_logo(self):
+        self.design_settings.remove_logo()
+        self.refresh_logo()
+        self.design_message.set('Logo entfernt. Die Hauptseite verwendet wieder die Wortmarke Wissensraum.')
 
     def build_database_settings(self):
         frame=self.database_settings_frame
@@ -564,7 +706,7 @@ class App(tk.Tk):
         reset_actions=ttk.Frame(frame); reset_actions.pack(fill='x',pady=(4,2))
         button=ttk.Button(reset_actions,text='Anwendungsschema zurücksetzen',command=self.reset_postgresql)
         button.pack(side='left'); self.buttons.append(button)
-        ttk.Label(reset_actions,text='Löscht alle Wissensraum-Daten in PostgreSQL.',foreground='#8a2e2e').pack(side='left',padx=12)
+        ttk.Label(reset_actions,text='Löscht alle Wissensraum-Daten in PostgreSQL.',style='Warning.TLabel').pack(side='left',padx=12)
         self.database_message=tk.StringVar()
         ttk.Label(frame,textvariable=self.database_message,wraplength=950).pack(anchor='w',pady=(5,4))
         ttk.Label(frame,text='Eine Aktivierung gilt ab dem nächsten Programmstart. Vorhandene SQLite-Dokumente werden nicht automatisch '

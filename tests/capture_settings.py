@@ -9,7 +9,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parent))
 import app
 from settings import Settings
 from test_settings import FakeVault
-from PIL import ImageGrab
+from PIL import Image, ImageDraw, ImageGrab
 
 with tempfile.TemporaryDirectory() as directory:
     base=Path(directory)
@@ -36,6 +36,19 @@ with tempfile.TemporaryDirectory() as directory:
         window.database_message.set('Kennwort: Betriebssystem-Schlüsselspeicher')
         window.update()
         ImageGrab.grab().crop((0,0,window.winfo_width(),window.winfo_height())).save('database-preview.png')
+        synthetic_logo=base/'synthetic-logo.png'
+        logo=Image.new('RGBA',(560,150),'#e20074')
+        ImageDraw.Draw(logo).text((28,52),'WISSENSRAUM',fill='white')
+        logo.save(synthetic_logo)
+        window.design_settings.save_logo(synthetic_logo)
+        window.refresh_logo()
+        window.open_design_settings()
+        window.design_theme.set('dark')
+        window.save_design_theme()
+        window.update()
+        ImageGrab.grab().crop((0,0,window.winfo_width(),window.winfo_height())).save('design-preview.png')
+        window.design_theme.set('light')
+        window.save_design_theme()
         preview=window.show_mail_preview([
             {'id':'101','date':'15.10.2026 09:30','sender':'projekt@example.com','subject':'Freigabe zum Projektstart'},
             {'id':'102','date':'14.10.2026 16:10','sender':'team@example.com','subject':'Protokoll und offene Punkte','imported':True},

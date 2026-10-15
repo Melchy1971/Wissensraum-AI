@@ -43,6 +43,7 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn('Import',[window.tabs.tab(t,'text') for t in window.tabs.tabs()])
         self.assertIn('E-Mail-Konten',[window.settings_sections.tab(t,'text') for t in window.settings_sections.tabs()])
         self.assertIn('Datenbank',[window.settings_sections.tab(t,'text') for t in window.settings_sections.tabs()])
+        self.assertIn('Design',[window.settings_sections.tab(t,'text') for t in window.settings_sections.tabs()])
         self.assertEqual(window.folder_import_button.cget('text'),'Ordner inkl. Unterordner')
         self.assertEqual(window.key_value.get(),'synthetic-existing-1234567890')
         self.assertEqual(window.key_entry.cget('show'),'*')
@@ -59,6 +60,22 @@ class InterfaceTests(unittest.TestCase):
         with patch.object(window,'destroy') as destroy:
             window.exit_button.invoke()
         destroy.assert_called_once_with()
+
+    def test_design_mode_and_logo_are_applied(self):
+        window=self.window
+        logo=self.base/'brand.png'
+        from PIL import Image
+        Image.new('RGBA',(480,120),'#e20074').save(logo)
+        with patch('app.filedialog.askopenfilename',return_value=str(logo)):
+            window.select_design_logo()
+        self.assertTrue(window.design_settings.logo_path.is_file())
+        self.assertIsNotNone(window.logo_image)
+        window.design_theme.set('dark')
+        window.save_design_theme()
+        self.assertEqual(window.design_settings.theme(),'dark')
+        self.assertEqual(window.cget('background'),'#121212')
+        window.remove_design_logo()
+        self.assertFalse(window.design_settings.logo_path.exists())
 
     def test_save_switch_reload_and_remove(self):
         window=self.window
