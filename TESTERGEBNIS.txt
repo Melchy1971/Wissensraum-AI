@@ -37,6 +37,6 @@ test_switch_to_claude_and_ollama (test_settings.SettingsTests.test_switch_to_cla
 test_vault_failure_does_not_change_preferences (test_settings.SettingsTests.test_vault_failure_does_not_change_preferences) ... ok
 
 ----------------------------------------------------------------------
-Ran 37 tests in 0.202s
+Ran 37 tests in 0.182s
 
 OK (skipped=3)

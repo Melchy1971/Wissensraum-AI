@@ -433,6 +433,7 @@ class App(tk.Tk):
         for title,command,style in [('Neues Konto',self.new_mail_account,'TButton'),('Konto speichern',self.save_mail_account,'Accent.TButton'),
                                    ('Microsoft verbinden',self.connect_microsoft,'TButton'),('Konto löschen',self.delete_mail_account,'TButton')]:
             b=ttk.Button(actions,text=title,command=command,style=style); b.pack(side='left',padx=(0,8)); self.buttons.append(b)
+            if command==self.connect_microsoft: self.microsoft_connect_button=b
         self.mail_message=tk.StringVar()
         ttk.Label(frame,textvariable=self.mail_message,wraplength=950).pack(anchor='w',pady=(5,0))
         self.refresh_mail_accounts()
@@ -475,9 +476,14 @@ class App(tk.Tk):
             self.mail_fields.get(name,self.mail_secret).configure(state='disabled' if provider=='microsoft' else 'normal')
         for name in ('client_id','tenant'):
             self.mail_fields[name].configure(state='normal' if provider=='microsoft' else 'disabled')
+        self.microsoft_connect_button.configure(state='normal' if provider=='microsoft' else 'disabled')
 
     def select_mail_provider(self):
-        self.mail_vars['provider'].set(self.mail_provider_names[self.mail_provider_value.get()])
+        previous=self.mail_vars['provider'].get()
+        provider=self.mail_provider_names[self.mail_provider_value.get()]
+        self.mail_vars['provider'].set(provider)
+        if provider=='imap' and previous!='imap':
+            self.mail_vars['host'].set(''); self.mail_vars['port'].set('993')
         self.apply_mail_provider()
 
     def mail_form(self):
