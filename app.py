@@ -277,7 +277,7 @@ class App(tk.Tk):
             self.provider_tree.column(col,width=width)
         self.provider_tree.pack(fill='x')
         self.provider_tree.bind('<<TreeviewSelect>>',lambda _:self.load_provider_form())
-        form=ttk.Frame(frame,padding=(0,18,0,10))
+        form=ttk.Frame(frame,padding=(0,12,0,6))
         form.pack(fill='x')
         form.columnconfigure(1,weight=1)
         ttk.Label(form,text='Ausgewählter Anbieter').grid(row=0,column=0,sticky='w',padx=(0,20),pady=6)
@@ -291,10 +291,10 @@ class App(tk.Tk):
         self.key_value=tk.StringVar()
         self.key_entry=ttk.Entry(form,textvariable=self.key_value,show='*')
         self.key_entry.grid(row=2,column=1,sticky='ew',pady=6)
-        ttk.Label(form,text='Vorhandene Schlüssel sind vorausgefüllt und maskiert. Zum Ersetzen einen neuen Schlüssel eintragen.',
-                  wraplength=780).grid(row=3,column=1,sticky='w',pady=(2,8))
+        self.key_hint=ttk.Label(form,text='Vorhandene Schlüssel sind vorausgefüllt und maskiert. Zum Ersetzen einen neuen Schlüssel eintragen.')
+        self.key_hint.grid(row=3,column=1,sticky='w',pady=(2,5))
         actions=ttk.Frame(frame)
-        actions.pack(fill='x',pady=(4,10))
+        actions.pack(fill='x',pady=(2,6))
         for title,command,style in [('Speichern & aktivieren',self.save_provider,'Accent.TButton'),
                                    ('Verbindung testen',self.test_provider,'TButton'),
                                    ('Schlüssel entfernen',self.remove_provider_key,'TButton'),
@@ -303,11 +303,20 @@ class App(tk.Tk):
             b.pack(side='left',padx=(0,8))
             self.buttons.append(b)
         self.settings_message=tk.StringVar()
-        ttk.Label(frame,textvariable=self.settings_message,wraplength=850).pack(anchor='w',pady=(6,8))
-        ttk.Label(frame,text='Modell-IDs sind bearbeitbar; Modellzugriff hängt vom Anbieter ab. Verbindungstests können API-Kosten verursachen. '
-                  'Schlüssel werden nicht in der Wissensdatenbank gespeichert. Entfernen deaktiviert auch vorhandene Datei-/Umgebungsschlüssel für diese Anwendung.',
-                  wraplength=850).pack(anchor='w',pady=(8,0))
+        self.settings_status=ttk.Label(frame,textvariable=self.settings_message)
+        self.settings_status.pack(anchor='w',pady=(4,5))
+        self.settings_help=ttk.Label(frame,text='Modell-IDs sind bearbeitbar; Modellzugriff hängt vom Anbieter ab. Verbindungstests können API-Kosten verursachen. '
+                  'Schlüssel werden nicht in der Wissensdatenbank gespeichert. Entfernen deaktiviert auch vorhandene Datei-/Umgebungsschlüssel für diese Anwendung.')
+        self.settings_help.pack(anchor='w',fill='x',pady=(5,0))
+        frame.bind('<Configure>',self.resize_settings_text,add='+')
         self.refresh_settings()
+
+    def resize_settings_text(self,event):
+        """Keep explanatory text readable without wasting vertical space."""
+        width=max(420,event.width-20)
+        self.settings_status.configure(wraplength=width)
+        self.settings_help.configure(wraplength=width)
+        self.key_hint.configure(wraplength=max(360,width-195))
 
     def selected_provider(self):
         selected=self.provider_tree.selection()
