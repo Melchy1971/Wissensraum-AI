@@ -7,6 +7,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 
 from core import PostgresStore
+from database import DatabaseSettings
 from importer import MailAccounts
 from settings import Settings
 from test_settings import FakeVault
@@ -55,6 +56,12 @@ class PostgresStoreTests(unittest.TestCase):
             self.assertEqual(db.execute('SELECT COUNT(*) AS count FROM email_imports').fetchone()['count'],0)
         self.assertEqual(accounts.get(account_id)['label'],'Testkonto')
         with self.assertRaises(ValueError): store.backup('not-used.db')
+        reset=DatabaseSettings(Path.cwd(),vault,environ={}).reset_postgresql(
+            self.profile,self.password,self.profile['database'])
+        self.assertEqual(reset['tables'],['ai_runs','chunks','documents','email_accounts','email_imports','settings'])
+        with PostgresStore(self.profile,self.password).connect() as db:
+            self.assertTrue(all(db.execute('SELECT count(*) AS count FROM '+table).fetchone()['count']==0
+                                for table in reset['tables']))
 
 
 if __name__=='__main__': unittest.main()

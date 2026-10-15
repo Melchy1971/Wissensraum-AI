@@ -17,6 +17,7 @@ test_connection_test_uses_tls_and_redacts_password (test_database.DatabaseSettin
 test_invalid_connection_values_are_rejected (test_database.DatabaseSettingsTests.test_invalid_connection_values_are_rejected) ... ok
 test_postgres_adapter_translates_parameters (test_database.DatabaseSettingsTests.test_postgres_adapter_translates_parameters) ... ok
 test_profile_is_saved_without_password (test_database.DatabaseSettingsTests.test_profile_is_saved_without_password) ... ok
+test_reset_requires_exact_database_confirmation (test_database.DatabaseSettingsTests.test_reset_requires_exact_database_confirmation) ... ok
 test_database_profile_is_stored_without_password (test_gui.InterfaceTests.test_database_profile_is_stored_without_password) ... skipped 'Keine grafische Anzeige verfügbar'
 test_email_account_is_managed_in_settings (test_gui.InterfaceTests.test_email_account_is_managed_in_settings) ... skipped 'Keine grafische Anzeige verfügbar'
 test_email_preview_requires_explicit_activation (test_gui.InterfaceTests.test_email_preview_requires_explicit_activation) ... skipped 'Keine grafische Anzeige verfügbar'
@@ -45,6 +46,6 @@ test_switch_to_claude_and_ollama (test_settings.SettingsTests.test_switch_to_cla
 test_vault_failure_does_not_change_preferences (test_settings.SettingsTests.test_vault_failure_does_not_change_preferences) ... ok
 
 ----------------------------------------------------------------------
-Ran 45 tests in 0.222s
+Ran 46 tests in 0.214s
 
 OK (skipped=6)

@@ -61,7 +61,8 @@ class DatabaseSettings:
         for label,value in (('Datenbankname',database),('Benutzername',username)):
             if not value or len(value)>128 or any(ord(c)<32 for c in value):
                 raise ValueError(label+' vollständig und ohne Steuerzeichen eingeben.')
-        if sslmode not in ('require','verify-ca','verify-full'):
+        allowed_ssl=('require','verify-ca','verify-full')+(("disable",) if host in ('127.0.0.1','localhost') else ())
+        if sslmode not in allowed_ssl:
             raise ValueError('TLS-Modus require, verify-ca oder verify-full auswählen.')
         password=str(password or '')
         if not password or len(password)>4096 or any(ord(c)<32 for c in password):
@@ -132,6 +133,32 @@ class DatabaseSettings:
         profile['backend']='sqlite'
         self._write(profile)
         return profile
+
+    def reset_postgresql(self,values,password,confirmation):
+        profile,password=self.connection_values(values,password or self.password()[0])
+        if str(confirmation) != profile['database']:
+            raise ValueError('Bestätigung stimmt nicht mit dem Datenbanknamen überein. Es wurde nichts gelöscht.')
+        connection=self._connect(profile,password)
+        try:
+            from core import POSTGRES_SCHEMA
+            with connection.transaction():
+                connection.execute('DROP SCHEMA IF EXISTS wissensraum CASCADE')
+                for statement in (part.strip() for part in POSTGRES_SCHEMA.split(';')):
+                    if statement:
+                        connection.execute(statement)
+        except Exception:
+            raise ValueError('Anwendungsschema konnte nicht zurückgesetzt werden. Datenbankrechte und Verbindung prüfen.') from None
+        finally:
+            connection.close()
+        from core import PostgresStore
+        store=PostgresStore(profile,password)
+        with store.connect() as db:
+            tables=[row['table_name'] for row in db.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema='wissensraum' ORDER BY table_name").fetchall()]
+        required={'documents','chunks','ai_runs','settings','email_accounts','email_imports'}
+        if set(tables)!=required:
+            raise ValueError('Anwendungsschema ist unvollständig. Datenbankadministrator prüfen lassen.')
+        return {'database':profile['database'],'tables':tables}
 
     def open_store(self,sqlite_path):
         profile=self.profile()

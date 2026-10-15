@@ -5,7 +5,7 @@ import json
 import queue
 import threading
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox, simpledialog
 from tkinter.scrolledtext import ScrolledText
 from core import Store, import_document
 from settings import Settings, SystemVault, PROVIDERS
@@ -534,7 +534,8 @@ class App(tk.Tk):
         for title,command,style in [('Einstellungen speichern',self.save_database_settings,'TButton'),
                                    ('Verbindung testen',self.test_database_connection,'TButton'),
                                    ('PostgreSQL aktivieren',self.activate_postgresql,'Accent.TButton'),
-                                   ('Lokales SQLite aktivieren',self.activate_sqlite,'TButton')]:
+                                   ('Lokales SQLite aktivieren',self.activate_sqlite,'TButton'),
+                                   ('Anwendungsschema zurücksetzen',self.reset_postgresql,'TButton')]:
             button=ttk.Button(actions,text=title,command=command,style=style)
             button.pack(side='left',padx=(0,8)); self.buttons.append(button)
         self.database_message=tk.StringVar()
@@ -588,6 +589,20 @@ class App(tk.Tk):
             self.database_message.set('Lokales SQLite ist aktiviert. Programm neu starten, um die Datenquelle zu wechseln.')
         except Exception as error:
             messagebox.showerror('Datenbank',str(error),parent=self)
+
+    def reset_postgresql(self):
+        database=self.database_vars['database'].get().strip()
+        confirmation=simpledialog.askstring('Anwendungsschema zurücksetzen',
+            'Alle Wissensraum-Dokumente, KI-Verläufe, Einstellungen, E-Mail-Konten und Importmarkierungen in PostgreSQL werden gelöscht.\n\n'
+            'Zum Bestätigen den Datenbanknamen eingeben:',parent=self)
+        if confirmation is None:
+            return
+        values=self.database_form(); password=self.database_vars['password'].get()
+        def done(result):
+            self.refresh(); self.show_history(); self.refresh_mail_accounts()
+            self.database_message.set('Schema wissensraum in '+result['database']+' wurde zurückgesetzt und mit '
+                                      +str(len(result['tables']))+' Tabellen neu angelegt.')
+        self.work(lambda:self.database_settings.reset_postgresql(values,password,confirmation),done)
 
     def build_mail_settings(self):
         frame=self.mail_settings_frame

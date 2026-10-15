@@ -69,6 +69,10 @@ class DatabaseSettingsTests(unittest.TestCase):
             with self.subTest(change=change),self.assertRaises(ValueError):
                 self.settings.connection_values({**self.values,**change},'synthetic-db-password')
 
+    def test_reset_requires_exact_database_confirmation(self):
+        with self.assertRaisesRegex(ValueError,'nichts gelöscht'):
+            self.settings.reset_postgresql(self.values,'synthetic-db-password','falsche_datenbank')
+
     def test_postgres_adapter_translates_parameters(self):
         calls=[]
         fake=type('Connection',(),{'execute':lambda _,query,parameters:calls.append((query,parameters))})()
