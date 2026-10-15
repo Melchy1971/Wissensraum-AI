@@ -22,15 +22,17 @@ class InterfaceTests(unittest.TestCase):
         self.base=Path(self.temp.name)
         self.base.joinpath('.env.local').write_text('OPENAI_API_KEY=synthetic-existing-1234567890',encoding='utf-8')
         self.vault=FakeVault()
-        self.patches=[patch.object(app,'BASE',self.base),patch.dict(os.environ,{},clear=True),
+        self.patches=[patch.object(app,'BASE',self.base),patch.dict(os.environ,{k:os.environ[k] for k in ('DISPLAY','XAUTHORITY','PATH','SYSTEMROOT','SystemRoot','WINDIR','HOME','USERPROFILE','TCL_LIBRARY','TK_LIBRARY') if k in os.environ},clear=True),
                       patch.object(app,'Settings',lambda store,base:Settings(store,base,self.vault,environ={}))]
         for p in self.patches: p.start()
+        self.window=None
+        self.addCleanup(self.cleanup)
         self.window=app.App()
         self.window.update()
-        self.addCleanup(self.cleanup)
 
     def cleanup(self):
-        self.window.destroy()
+        if self.window is not None:
+            self.window.destroy()
         for p in reversed(self.patches): p.stop()
         self.temp.cleanup()
 
