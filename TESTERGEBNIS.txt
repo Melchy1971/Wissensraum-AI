@@ -1,0 +1,19 @@
+test_api_errors_redacted (test_core.KnowledgeTests.test_api_errors_redacted) ... ok
+test_backup_includes_originals_and_index (test_core.KnowledgeTests.test_backup_includes_originals_and_index) ... ok
+test_chunk_overlap_coverage (test_core.KnowledgeTests.test_chunk_overlap_coverage) ... ok
+test_delete_removes_fts_and_preserves_other_document (test_core.KnowledgeTests.test_delete_removes_fts_and_preserves_other_document) ... ok
+test_docx_tables (test_core.KnowledgeTests.test_docx_tables) ... ok
+test_empty_pdf_rejected (test_core.KnowledgeTests.test_empty_pdf_rejected) ... ok
+test_invalid_citation_not_saved (test_core.KnowledgeTests.test_invalid_citation_not_saved) ... ok
+test_invalid_input (test_core.KnowledgeTests.test_invalid_input) ... ok
+test_no_sources_never_calls_api (test_core.KnowledgeTests.test_no_sources_never_calls_api) ... ok
+test_question_sends_only_retrieved_sources_and_logs_snapshot (test_core.KnowledgeTests.test_question_sends_only_retrieved_sources_and_logs_snapshot) ... ok
+test_search_fts_and_special_characters (test_core.KnowledgeTests.test_search_fts_and_special_characters) ... ok
+test_store_original_and_deduplicate (test_core.KnowledgeTests.test_store_original_and_deduplicate) ... ok
+test_summary_and_length_guard (test_core.KnowledgeTests.test_summary_and_length_guard) ... ok
+test_utf8_and_cp1252_import (test_core.KnowledgeTests.test_utf8_and_cp1252_import) ... ok
+
+----------------------------------------------------------------------
+Ran 14 tests in 0.125s
+
+OK
