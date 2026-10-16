@@ -2,18 +2,36 @@
 cd /d "%~dp0"
 where py >nul 2>nul
 if errorlevel 1 (
- echo Python 3.11 oder neuer wird benoetigt. Installation: https://www.python.org/downloads/
+ echo Eine stabile Python-Version 3.11 oder neuer wird benoetigt. Installation: https://www.python.org/downloads/
  pause
  exit /b 1
 )
+py -3 -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 11) and sys.version_info.releaselevel == 'final' else 1)" >nul 2>nul
+if errorlevel 1 (
+ echo Eine stabile Python-Version 3.11 oder neuer wird benoetigt. Vorabversionen werden nicht unterstuetzt.
+ pause
+ exit /b 1
+)
+if exist .venv\Scripts\python.exe (
+ .venv\Scripts\python.exe -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 11) and sys.version_info.releaselevel == 'final' else 1)" >nul 2>nul
+ if errorlevel 1 (
+  echo Veraltete oder nicht unterstuetzte Python-Umgebung erkannt. Virtuelle Umgebung wird neu aufgebaut.
+  rmdir /s /q .venv
+ )
+)
 if not exist .venv\Scripts\python.exe py -3 -m venv .venv
+if errorlevel 1 (
+ echo Virtuelle Python-Umgebung konnte nicht erstellt werden.
+ pause
+ exit /b 1
+)
 .venv\Scripts\python.exe -m pip install -r requirements.txt
 if errorlevel 1 (
  echo Installation fehlgeschlagen. Internetverbindung pruefen.
  pause
  exit /b 1
 )
-.venv\Scripts\python.exe -c "from PIL import Image, ImageTk" >nul 2>nul
+.venv\Scripts\python.exe -c "from PIL import Image, ImageTk" >nul
 if errorlevel 1 (
  echo Beschaedigte Python-Umgebung erkannt. Virtuelle Umgebung wird neu aufgebaut.
  rmdir /s /q .venv
@@ -25,7 +43,7 @@ if errorlevel 1 (
   pause
   exit /b 1
  )
- .venv\Scripts\python.exe -c "from PIL import Image, ImageTk" >nul 2>nul
+ .venv\Scripts\python.exe -c "from PIL import Image, ImageTk" >nul
  if errorlevel 1 (
   echo Pillow konnte nicht korrekt geladen werden.
   pause
