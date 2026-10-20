@@ -149,7 +149,7 @@ class PostgresStoreTests(unittest.TestCase):
                 with self._raw_connect() as connection:
                     metadata, actual = connection.execute("""SELECT
                         to_regclass('wissensraum.schema_migrations'),
-                        ARRAY(SELECT table_name FROM information_schema.tables
+                        ARRAY(SELECT table_name::text FROM information_schema.tables
                               WHERE table_schema='wissensraum' ORDER BY table_name)""").fetchone()
                     self.assertIsNone(metadata)
                     self.assertEqual(actual, sorted(tables))

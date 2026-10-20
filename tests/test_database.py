@@ -6,6 +6,7 @@ import sys
 from contextlib import contextmanager
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0,str(Path(__file__).resolve().parent))  # test_settings, also for `-m unittest tests.test_database`
 
 from core import _PostgresConnection
 from database import DatabaseSettings
@@ -114,8 +115,9 @@ class DatabaseSettingsTests(unittest.TestCase):
     def test_reset_recreates_and_validates_on_same_locked_transaction(self):
         connection=FakeResetConnection(tuple_rows=True)
 
-        def migrate(adapter):
+        def migrate(adapter,*,acquire_lock):
             self.assertIs(adapter.connection,connection)
+            self.assertFalse(acquire_lock)
             connection.schema='new'
 
         with patch.object(self.settings,'_connect',return_value=connection), \
@@ -136,8 +138,7 @@ class DatabaseSettingsTests(unittest.TestCase):
     def test_failed_reset_rolls_back_and_preserves_previous_schema(self):
         connection=FakeResetConnection()
 
-        def fail_after_recreation(adapter):
-            adapter.execute('SELECT pg_advisory_xact_lock(87031904)')
+        def fail_after_recreation(adapter,*,acquire_lock):
             connection.schema='partial-new'
             raise RuntimeError('synthetic migration failure')
 

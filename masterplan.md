@@ -1,6 +1,6 @@
 # Masterplan Wissensraum-AI
 
-**Dokumentversion:** 1.1
+**Dokumentversion:** 1.2
 
 **Stand:** 20.10.2026
 
@@ -8,7 +8,7 @@
 
 **Repository:** `Melchy1971/Wissensraum-AI`
 
-**Geprüfter Hermes-Stand:** Commit `717db89525945016eaf7cb97f37e5530356ef676`
+**Geprüfter Hermes-Stand:** Commit `717db89525945016eaf7cb97f37e5530356ef676`; erneut geprüft auf `297339b` (Code unverändert, nur `masterplan.md` ergänzt)
 
 **Status:** Phasen- und Testplan
 
@@ -112,11 +112,13 @@ Die Annahmen werden vor Beginn eines Mehrbenutzer- oder Serverbetriebs neu bewer
 |---|---|
 | ✅ Stabiler Stand 1.8.1 | 51 Tests; Windows/Linux und Python 3.11/3.13 waren vollständig grün |
 | 🟡 Hermes-Stand 1.9 | Neue Migrationsschicht und 38 zusätzliche Tests; insgesamt 89 Tests |
-| ❌ Lokale Prüfung des Hermes-Stands | 74 bestanden, 12 umgebungsbedingt übersprungen, 3 Fehler |
-| ❌ GitHub Actions | Alle fünf Jobs fehlgeschlagen: Windows 3.11/3.13, Linux 3.11/3.13 und PostgreSQL 18 |
+| ❌ Lokale Prüfung des Hermes-Stands | Erstprüfung: 74 bestanden, 12 umgebungsbedingt übersprungen, 3 Fehler |
+| ❌ Lokale Nachprüfung 20.10.2026 (Windows, Python 3.13.8, `297339b`) | 81 bestanden, 5 übersprungen, 3 Fehler; übersprungen sind die fünf PostgreSQL-Tests (kein Testdienst konfiguriert), GUI-Tests liefen |
+| 🟡 Lokale Prüfung nach Testkorrektur 20.10.2026 (Windows, Python 3.13.8) | 84 bestanden, 5 übersprungen (PostgreSQL-Testdienst nicht konfiguriert), 0 Fehler; CI-Nachweis ausstehend |
+| ❌ GitHub Actions | Alle fünf Jobs fehlgeschlagen: Windows 3.11/3.13, Linux 3.11/3.13 und PostgreSQL 18; bestätigt in Lauf `39380439985` (`717db89`) und `39381519764` (`297339b`) |
 | ✅ Testdatenschutz | CI verwendet synthetische Daten und ruft keine kostenpflichtigen KI-, E-Mail- oder Microsoft-Dienste auf |
 
-Aktueller CI-Nachweis: [GitHub Actions Lauf 39380439985](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39380439985).
+Aktueller CI-Nachweis: [GitHub Actions Lauf 39381519764](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39381519764); vorheriger Lauf [39380439985](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39380439985).
 
 ### 4.4 Vom Hermes Agent neu implementiert
 
@@ -325,13 +327,14 @@ python -m unittest discover -s tests -v
 
 PostgreSQL-Destruktivtests dürfen ausschließlich gegen eine Wegwerfdatenbank mit Namen `*_test` und gesetztem `PGTEST_ALLOW_DESTRUCTIVE=1` laufen. Die produktive VPS-Datenbank ist kein Testziel.
 
-**Aktuell nachgewiesene Fehler:**
+**Nachgewiesene Fehler** (am 20.10.2026 auf `297339b` erneut reproduziert; Korrekturstand siehe jeweils am Ende):
 
-1. Der Reset-Unit-Test verwendet einen Mock ohne den neuen Parameter `acquire_lock=False`.
-2. Ein SQLite-Rollback-Test ersetzt den Migrationskatalog unvollständig; die Schema-Prüfung greift anschließend auf fehlende DDL-Einträge zu.
-3. Ein Store-Test setzt nur `PRAGMA user_version` auf 3 zurück, lässt aber ein Version-4-Schema bestehen; die neue strikte Prüfung verwirft diese inkonsistente Testdatenbank.
-4. Der reale PostgreSQL-Test vergleicht ein zurückgegebenes PostgreSQL-Array als Zeichenkette mit einer Python-Liste.
-5. Der GitHub-Lauf `39380439985` ist in allen fünf Jobs rot.
+1. Der Reset-Unit-Test verwendet einen Mock ohne den neuen Parameter `acquire_lock=False` (`test_database.DatabaseSettingsTests.test_reset_recreates_and_validates_on_same_locked_transaction`, `ValueError` aus `database.py:162`). **Korrigiert:** Mocks akzeptieren `acquire_lock` und prüfen `acquire_lock=False`; lokal grün.
+2. Ein SQLite-Rollback-Test ersetzt den Migrationskatalog unvollständig; die Schema-Prüfung greift anschließend auf fehlende DDL-Einträge zu (`test_failed_sqlite_migration_rolls_back_schema_and_version`, `IndexError` in `migrations.py:346`). **Korrigiert:** Test behält die echte Migration 1 und ersetzt nur Migration 2; lokal grün.
+3. Ein Store-Test setzt nur `PRAGMA user_version` auf 3 zurück, lässt aber ein Version-4-Schema bestehen; die neue strikte Prüfung verwirft diese inkonsistente Testdatenbank (`test_store_initialization_uses_migration_layer`, `ValueError` in `migrations.py:318`). **Korrigiert:** Test verwendet die historische Version-3-Fixture und prüft das Ergebnis auf Version 4; lokal grün.
+4. Der reale PostgreSQL-Test vergleicht ein zurückgegebenes PostgreSQL-Array als Zeichenkette mit einer Python-Liste (`test_unversioned_unexpected_table_sets_are_rejected_without_metadata`, drei Subtests, z. B. `'{unrelated}' != ['unrelated']`); nur im CI-Job `postgres` reproduziert, lokal mangels Testdienst übersprungen. Ursache: `table_name` hat den Domänentyp `sql_identifier`, dessen Array psycopg nicht dekodiert. **Korrigiert, aber nicht verifiziert:** Abfrage castet auf `table_name::text`; Nachweis nur über CI-Job `postgres` oder isolierte `*_test`-Datenbank.
+5. Die GitHub-Läufe `39380439985` und `39381519764` sind in allen fünf Jobs rot. Offen bis zum nächsten CI-Lauf.
+6. `python -m unittest tests.test_database` scheiterte beim Import von `test_settings`, weil nur `discover` den Ordner `tests/` in den Suchpfad legt. **Korrigiert:** `tests/test_database.py` ergänzt den eigenen Ordner im Suchpfad; lokal grün.
 
 **Manueller Test nach Fehlerkorrektur:**
 
@@ -517,7 +520,7 @@ Erforderlicher Mindestumfang:
 | Priorität | Arbeitspaket | Nutzen | Abhängigkeit |
 |---|---|---|---|
 | P0 | Veröffentlichtes Datenbankkennwort ändern | Schließt unmittelbares Zugangsrisiko | VPS-Zugriff |
-| P0 | Vier nachgewiesene Migrations-Testfehler korrigieren | Stellt ein belastbares Phase-4-Gate her | Hermes-Commit `717db895` |
+| P0 | Vier nachgewiesene Migrations-Testfehler korrigieren (lokal korrigiert, PostgreSQL-Nachweis offen) | Stellt ein belastbares Phase-4-Gate her | Hermes-Commit `717db895` |
 | P0 | Alle fünf CI-Jobs wieder auf Grün bringen | Verhindert Freigabe eines nicht abgenommenen Datenbankumbaus | Korrigierte Migrationstests |
 | P0 | README und Ist-Stand synchronisieren | Verhindert Fehlbedienung und falsche Annahmen | Keine |
 | P0 | Manuellen Migrations- und Wiederherstellungstest protokollieren | Reduziert Datenverlustrisiko | Isolierte SQLite-/PostgreSQL-Testdatenbanken |
@@ -637,4 +640,4 @@ Der nächste Release ist **1.9 – Stabilisierung und Betriebsfähigkeit**. Neue
 - SQLite- und PostgreSQL-Wiederherstellung geprüft
 - strukturierte, geheimnisfreie Diagnose vorhanden
 
-Der aktuell geprüfte Hermes-Commit `717db89525945016eaf7cb97f37e5530356ef676` erfüllt dieses Gate noch nicht. Damit wird zuerst die Betriebs- und Datensicherheit des vorhandenen Funktionsumfangs abgesichert. Danach folgen Importausbau und Hybrid-RAG in getrennten Phasen.
+Der aktuell geprüfte Hermes-Commit `717db89525945016eaf7cb97f37e5530356ef676` und der Folgestand `297339b` erfüllen dieses Gate noch nicht. Damit wird zuerst die Betriebs- und Datensicherheit des vorhandenen Funktionsumfangs abgesichert. Danach folgen Importausbau und Hybrid-RAG in getrennten Phasen.

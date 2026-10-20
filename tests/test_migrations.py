@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import PostgresStore, Store
 from migrations import (CURRENT_SCHEMA_VERSION, POSTGRES_LEGACY_COLUMNS,
-                        _database_file_lock, migrate_postgres,
+                        SQLITE_MIGRATIONS, _database_file_lock, migrate_postgres,
                         migrate_sqlite)
 
 
@@ -318,7 +318,9 @@ class SQLiteMigrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'wissen.db'
             self.create_version_fixture(path, 1)
-            broken = ((2, ('CREATE TABLE partial_change(value TEXT)', 'NOT VALID SQL')),)
+            # Keep migration 1: validate_sqlite reads the search DDL from it.
+            broken = (SQLITE_MIGRATIONS[0],
+                      (2, ('CREATE TABLE partial_change(value TEXT)', 'NOT VALID SQL')))
             with patch('migrations.SQLITE_MIGRATIONS', broken), \
                  self.assertRaises(sqlite3.DatabaseError):
                 migrate_sqlite(path)
@@ -347,11 +349,11 @@ class SQLiteMigrationTests(unittest.TestCase):
     def test_store_initialization_uses_migration_layer(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'wissen.db'
-            migrate_sqlite(path)
-            with closing(sqlite3.connect(path)) as db:
-                db.execute('PRAGMA user_version=3')
+            self.create_version_fixture(path, 3)
             Store(path)
             self.assertTrue(path.with_name(path.name + '.pre-migration-v3.bak').is_file())
+            with closing(sqlite3.connect(path)) as db:
+                self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], CURRENT_SCHEMA_VERSION)
 
 
 class PostgresMigrationTests(unittest.TestCase):
