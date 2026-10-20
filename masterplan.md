@@ -114,11 +114,12 @@ Die Annahmen werden vor Beginn eines Mehrbenutzer- oder Serverbetriebs neu bewer
 | 🟡 Hermes-Stand 1.9 | Neue Migrationsschicht und 38 zusätzliche Tests; insgesamt 89 Tests |
 | ❌ Lokale Prüfung des Hermes-Stands | Erstprüfung: 74 bestanden, 12 umgebungsbedingt übersprungen, 3 Fehler |
 | ❌ Lokale Nachprüfung 20.10.2026 (Windows, Python 3.13.8, `297339b`) | 81 bestanden, 5 übersprungen, 3 Fehler; übersprungen sind die fünf PostgreSQL-Tests (kein Testdienst konfiguriert), GUI-Tests liefen |
-| 🟡 Lokale Prüfung nach Testkorrektur 20.10.2026 (Windows, Python 3.13.8) | 84 bestanden, 5 übersprungen (PostgreSQL-Testdienst nicht konfiguriert), 0 Fehler; CI-Nachweis ausstehend |
-| ❌ GitHub Actions | Alle fünf Jobs fehlgeschlagen: Windows 3.11/3.13, Linux 3.11/3.13 und PostgreSQL 18; bestätigt in Lauf `39380439985` (`717db89`) und `39381519764` (`297339b`) |
+| ✅ Lokale Prüfung nach Testkorrektur 20.10.2026 (Windows, Python 3.13.8, `55bc4ca`) | 84 bestanden, 5 übersprungen (PostgreSQL-Testdienst nicht konfiguriert), 0 Fehler |
+| ❌ GitHub Actions vor Korrektur | Alle fünf Jobs fehlgeschlagen in Lauf `39380439985` (`717db89`) und `39381519764` (`297339b`) |
+| ✅ GitHub Actions nach Korrektur | Lauf `39410112241` (`55bc4ca`): alle fünf Jobs grün; Windows/Linux × Python 3.11/3.13 je 89 Tests, 84 bestanden, 5 PostgreSQL-Tests übersprungen; Job `postgres` (PostgreSQL 18) 8 von 8 bestanden, 0 übersprungen |
 | ✅ Testdatenschutz | CI verwendet synthetische Daten und ruft keine kostenpflichtigen KI-, E-Mail- oder Microsoft-Dienste auf |
 
-Aktueller CI-Nachweis: [GitHub Actions Lauf 39381519764](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39381519764); vorheriger Lauf [39380439985](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39380439985).
+Aktueller CI-Nachweis: [GitHub Actions Lauf 39410112241](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39410112241); rote Vorläufe [39381519764](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39381519764) und [39380439985](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39380439985).
 
 ### 4.4 Vom Hermes Agent neu implementiert
 
@@ -134,7 +135,7 @@ Aktueller CI-Nachweis: [GitHub Actions Lauf 39381519764](https://github.com/Melc
 - 🟡 Windows-Starter priorisiert stabile Python-Versionen und baut eine ungültige virtuelle Umgebung neu auf
 - 🟡 Testumfang von 51 auf 89 Tests erweitert
 
-Die Funktionen sind im Code vorhanden. Sie erhalten erst nach einem vollständig grünen Phase-4-Testlauf den Status ✅.
+Die Funktionen sind im Code vorhanden und automatisch in der vollständigen CI-Matrix geprüft. Sie erhalten erst nach dem protokollierten manuellen Migrationstest den Status ✅.
 
 ## 5. Verbindliche Produktprinzipien
 
@@ -144,7 +145,7 @@ Die Funktionen sind im Code vorhanden. Sie erhalten erst nach einem vollständig
 4. ✅ **Keine stillen Datenwechsel:** Ein Wechsel zwischen SQLite und PostgreSQL migriert keine Daten automatisch.
 5. ✅ **Nachvollziehbare Quellen:** Jede gespeicherte KI-Antwort enthält die tatsächlich verwendeten Textstellen als Quellen-Snapshot.
 6. ✅ **Fail closed:** Ungültige Konfigurationen, fehlende Rechte und unsichere TLS-Einstellungen führen in den implementierten Verbindungs- und Schlüsselpfaden zum Abbruch.
-7. 🟡 **Abwärtsgerichtete Migrationen:** Migrationen 1 bis 4, Vorab-Sicherung, Sperren und Schema-Prüfungen sind implementiert. Die Abnahme ist wegen der roten Testmatrix offen.
+7. 🟡 **Abwärtsgerichtete Migrationen:** Migrationen 1 bis 4, Vorab-Sicherung, Sperren und Schema-Prüfungen sind implementiert und automatisch geprüft. Die Abnahme ist wegen des ausstehenden manuellen Migrationstests offen.
 8. **Unvertrauenswürdige Inhalte:** Importierte Texte gelten als Daten, niemals als ausführbare Anweisung.
 9. ✅ **Reproduzierbarkeit:** Unterstützte Python-Versionen und Abhängigkeiten bleiben fest versioniert und durch CI geprüft.
 10. ✅ **Löschtransparenz:** Für den aktuellen Dokumentlöschpfad sind Original, Suchindex, Importmarkierung und erhaltener KI-Quellen-Snapshot dokumentiert und getestet.
@@ -183,7 +184,7 @@ Die Phasen werden in der angegebenen Reihenfolge getestet. Eine Phase wird erst 
 | 1 | Dokumente, Notizen, Suche und SQLite-Sicherung | ✅ | freigegeben |
 | 2 | KI-Anbieter, Aktivierung und Quellenantworten | ✅ | freigegeben; Live-Anbieter einzeln prüfen |
 | 3 | Ordner-, PST- und E-Mail-Import | ✅ | freigegeben; PST bleibt optional |
-| 4 | Versionierte SQLite-/PostgreSQL-Migrationen | ❌ | Hermes-Commit vorhanden, CI rot |
+| 4 | Versionierte SQLite-/PostgreSQL-Migrationen | 🟡 | CI grün (`39410112241`), manueller Migrationstest offen |
 | 5 | Release 1.9 Betriebsfähigkeit | ⬜ | nach Phase 4 |
 | 6 | Release 2.0 Importplattform | ⬜ | nach Phase 5 |
 | 7 | Release 2.1 Hybrid-RAG | ⬜ | nach Phase 6 |
@@ -304,7 +305,7 @@ Die Phasen werden in der angegebenen Reihenfolge getestet. Eine Phase wird erst 
 
 **Gate:** Alle Zähler stimmen mit dem Testordner überein; die Testnachricht existiert genau einmal.
 
-### Phase 4 – Versionierte Datenbankmigrationen ❌
+### Phase 4 – Versionierte Datenbankmigrationen 🟡
 
 **Hermes-Umsetzung:**
 
@@ -332,8 +333,8 @@ PostgreSQL-Destruktivtests dürfen ausschließlich gegen eine Wegwerfdatenbank m
 1. Der Reset-Unit-Test verwendet einen Mock ohne den neuen Parameter `acquire_lock=False` (`test_database.DatabaseSettingsTests.test_reset_recreates_and_validates_on_same_locked_transaction`, `ValueError` aus `database.py:162`). **Korrigiert:** Mocks akzeptieren `acquire_lock` und prüfen `acquire_lock=False`; lokal grün.
 2. Ein SQLite-Rollback-Test ersetzt den Migrationskatalog unvollständig; die Schema-Prüfung greift anschließend auf fehlende DDL-Einträge zu (`test_failed_sqlite_migration_rolls_back_schema_and_version`, `IndexError` in `migrations.py:346`). **Korrigiert:** Test behält die echte Migration 1 und ersetzt nur Migration 2; lokal grün.
 3. Ein Store-Test setzt nur `PRAGMA user_version` auf 3 zurück, lässt aber ein Version-4-Schema bestehen; die neue strikte Prüfung verwirft diese inkonsistente Testdatenbank (`test_store_initialization_uses_migration_layer`, `ValueError` in `migrations.py:318`). **Korrigiert:** Test verwendet die historische Version-3-Fixture und prüft das Ergebnis auf Version 4; lokal grün.
-4. Der reale PostgreSQL-Test vergleicht ein zurückgegebenes PostgreSQL-Array als Zeichenkette mit einer Python-Liste (`test_unversioned_unexpected_table_sets_are_rejected_without_metadata`, drei Subtests, z. B. `'{unrelated}' != ['unrelated']`); nur im CI-Job `postgres` reproduziert, lokal mangels Testdienst übersprungen. Ursache: `table_name` hat den Domänentyp `sql_identifier`, dessen Array psycopg nicht dekodiert. **Korrigiert, aber nicht verifiziert:** Abfrage castet auf `table_name::text`; Nachweis nur über CI-Job `postgres` oder isolierte `*_test`-Datenbank.
-5. Die GitHub-Läufe `39380439985` und `39381519764` sind in allen fünf Jobs rot. Offen bis zum nächsten CI-Lauf.
+4. Der reale PostgreSQL-Test vergleicht ein zurückgegebenes PostgreSQL-Array als Zeichenkette mit einer Python-Liste (`test_unversioned_unexpected_table_sets_are_rejected_without_metadata`, drei Subtests, z. B. `'{unrelated}' != ['unrelated']`); nur im CI-Job `postgres` reproduziert, lokal mangels Testdienst übersprungen. Ursache: `table_name` hat den Domänentyp `sql_identifier`, dessen Array psycopg nicht dekodiert. **Korrigiert:** Abfrage castet auf `table_name::text`; im CI-Job `postgres` von Lauf `39410112241` grün.
+5. Die GitHub-Läufe `39380439985` und `39381519764` waren in allen fünf Jobs rot. **Behoben:** Lauf `39410112241` ist in allen fünf Jobs grün.
 6. `python -m unittest tests.test_database` scheiterte beim Import von `test_settings`, weil nur `discover` den Ordner `tests/` in den Suchpfad legt. **Korrigiert:** `tests/test_database.py` ergänzt den eigenen Ordner im Suchpfad; lokal grün.
 
 **Manueller Test nach Fehlerkorrektur:**
@@ -354,7 +355,7 @@ PostgreSQL-Destruktivtests dürfen ausschließlich gegen eine Wegwerfdatenbank m
 - parallele Starts führen genau eine Migration aus
 - unversionierte oder manipulierte Schemas werden ohne Änderung abgelehnt
 
-**Gate:** 89 von 89 Tests grün, alle fünf CI-Jobs grün, PostgreSQL-18-Test grün und dokumentierter manueller Migrationstest bestanden. Bis dahin bleibt Phase 4 ❌ und Release 1.9 ist nicht freigegeben.
+**Gate:** 89 von 89 Tests grün, alle fünf CI-Jobs grün, PostgreSQL-18-Test grün und dokumentierter manueller Migrationstest bestanden. Automatischer Teil erfüllt: Die Matrix-Jobs überspringen nur die fünf PostgreSQL-Tests, die der Job `postgres` vollständig ausführt. Offen ist der manuelle Migrationstest; bis dahin bleibt Phase 4 🟡 und Release 1.9 ist nicht freigegeben.
 
 ### Phase 5 – Release 1.9 Stabilisierung und Betriebsfähigkeit ⬜
 
@@ -520,8 +521,8 @@ Erforderlicher Mindestumfang:
 | Priorität | Arbeitspaket | Nutzen | Abhängigkeit |
 |---|---|---|---|
 | P0 | Veröffentlichtes Datenbankkennwort ändern | Schließt unmittelbares Zugangsrisiko | VPS-Zugriff |
-| P0 | Vier nachgewiesene Migrations-Testfehler korrigieren (lokal korrigiert, PostgreSQL-Nachweis offen) | Stellt ein belastbares Phase-4-Gate her | Hermes-Commit `717db895` |
-| P0 | Alle fünf CI-Jobs wieder auf Grün bringen | Verhindert Freigabe eines nicht abgenommenen Datenbankumbaus | Korrigierte Migrationstests |
+| ✅ P0 | Vier nachgewiesene Migrations-Testfehler korrigieren (`55bc4ca`) | Stellt ein belastbares Phase-4-Gate her | Hermes-Commit `717db895` |
+| ✅ P0 | Alle fünf CI-Jobs wieder auf Grün bringen (Lauf `39410112241`) | Verhindert Freigabe eines nicht abgenommenen Datenbankumbaus | Korrigierte Migrationstests |
 | P0 | README und Ist-Stand synchronisieren | Verhindert Fehlbedienung und falsche Annahmen | Keine |
 | P0 | Manuellen Migrations- und Wiederherstellungstest protokollieren | Reduziert Datenverlustrisiko | Isolierte SQLite-/PostgreSQL-Testdatenbanken |
 | P1 | Importaufträge und Fehlerjournal | Beherrscht große Datenmengen | Schema-Migration |
@@ -583,7 +584,7 @@ Für jede Schemaänderung gilt:
 
 SQLite und PostgreSQL müssen denselben fachlichen Speichervertrag erfüllen. Backendspezifische Indizes und Suchfunktionen dürfen unterschiedliche Technik verwenden, aber keine unterschiedlichen Produktfunktionen erzeugen.
 
-🟡 Im Hermes-Stand implementiert: Erkennung der Schemaversion, Migration von Schema 1 bis 3 auf Schema 4, Vorab-Sicherung, Sperren, Rollback-Logik und PostgreSQL-Migrationshistorie. Die Testmatrix ist noch rot; deshalb ist die Migrationsschicht nicht freigegeben.
+🟡 Im Hermes-Stand implementiert: Erkennung der Schemaversion, Migration von Schema 1 bis 3 auf Schema 4, Vorab-Sicherung, Sperren, Rollback-Logik und PostgreSQL-Migrationshistorie. Die Testmatrix ist grün; die Migrationsschicht ist bis zum manuellen Migrationstest nicht freigegeben.
 
 ## 12. Definition of Done
 
@@ -632,12 +633,12 @@ Ein Arbeitspaket ist abgeschlossen, wenn:
 
 Der nächste Release ist **1.9 – Stabilisierung und Betriebsfähigkeit**. Neue Großfunktionen wie OCR, E-Mail-Anhänge und Vektorsuche beginnen erst, wenn folgende Gates erfüllt sind:
 
-- Phase 4 mit 89 von 89 bestandenen Tests
-- alle fünf GitHub-CI-Jobs grün
+- ✅ Phase 4 mit 89 von 89 bestandenen Tests (Matrix plus Job `postgres`)
+- ✅ alle fünf GitHub-CI-Jobs grün
 - SQLite-Migrationen 1, 2 und 3 auf 4 mit unveränderten Dokument-Hashes geprüft
 - PostgreSQL-Migration und atomarer Reset ausschließlich gegen eine isolierte `*_test`-Datenbank geprüft
 - Dokumentation widerspruchsfrei
 - SQLite- und PostgreSQL-Wiederherstellung geprüft
 - strukturierte, geheimnisfreie Diagnose vorhanden
 
-Der aktuell geprüfte Hermes-Commit `717db89525945016eaf7cb97f37e5530356ef676` und der Folgestand `297339b` erfüllen dieses Gate noch nicht. Damit wird zuerst die Betriebs- und Datensicherheit des vorhandenen Funktionsumfangs abgesichert. Danach folgen Importausbau und Hybrid-RAG in getrennten Phasen.
+Der Stand `55bc4ca` erfüllt die automatischen Gates; die manuellen Migrations- und Wiederherstellungstests sowie die übrigen Punkte stehen noch aus. Damit wird zuerst die Betriebs- und Datensicherheit des vorhandenen Funktionsumfangs abgesichert. Danach folgen Importausbau und Hybrid-RAG in getrennten Phasen.
