@@ -73,4 +73,6 @@ jobs:
       - name: PostgreSQL contract test
         env:
           PGTEST_PASSWORD: synthetic-ci-password
+          PGTEST_DATABASE: wissensraum_test
+          PGTEST_ALLOW_DESTRUCTIVE: '1'
         run: python -m unittest tests.test_postgres -v

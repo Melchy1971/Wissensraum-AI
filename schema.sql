@@ -1,4 +1,5 @@
--- Schema SQLite / FTS5 · Version 4
+-- SQLite / FTS5 schema snapshot · Release 1.9 · Version 4
+-- Runtime upgrades are defined as ordered migrations in migrations.py.
 
 PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS documents (

@@ -3,6 +3,8 @@ from pathlib import Path
 import tempfile
 import unittest
 import sys
+from contextlib import contextmanager
+from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 
 from core import _PostgresConnection
@@ -21,6 +23,42 @@ class FakeCursor:
 class FakeConnection:
     def __init__(self): self.closed=False; self.cursor_value=FakeCursor()
     def cursor(self): return self.cursor_value
+    def close(self): self.closed=True
+
+
+class FakeResetConnection:
+    def __init__(self, tuple_rows=False):
+        self.closed=False
+        self.calls=[]
+        self.schema='old'
+        self.rolled_back=False
+        self.tuple_rows=tuple_rows
+
+    @contextmanager
+    def transaction(self):
+        before=self.schema
+        try:
+            yield
+        except Exception:
+            self.schema=before
+            self.rolled_back=True
+            raise
+
+    def execute(self,query,parameters=()):
+        self.calls.append((query,parameters))
+        if query.startswith('DROP SCHEMA'):
+            self.schema=None
+        if 'FROM information_schema.tables' in query:
+            tables=['ai_runs','chunks','documents','email_accounts','email_imports',
+                    'schema_migrations','settings'] if self.schema == 'new' else []
+            rows=[(name,) for name in tables] if self.tuple_rows else [{'table_name':name} for name in tables]
+            return type('Result',(),{'fetchall':lambda _:rows})()
+        if 'SELECT MAX(version)' in query:
+            version=4 if self.schema == 'new' else None
+            row=(version,) if self.tuple_rows else {'version':version}
+            return type('Result',(),{'fetchone':lambda _:row})()
+        return type('Result',(),{'fetchall':lambda _:[]})()
+
     def close(self): self.closed=True
 
 
@@ -72,6 +110,44 @@ class DatabaseSettingsTests(unittest.TestCase):
     def test_reset_requires_exact_database_confirmation(self):
         with self.assertRaisesRegex(ValueError,'nichts gelöscht'):
             self.settings.reset_postgresql(self.values,'synthetic-db-password','falsche_datenbank')
+
+    def test_reset_recreates_and_validates_on_same_locked_transaction(self):
+        connection=FakeResetConnection(tuple_rows=True)
+
+        def migrate(adapter):
+            self.assertIs(adapter.connection,connection)
+            connection.schema='new'
+
+        with patch.object(self.settings,'_connect',return_value=connection), \
+             patch('migrations.migrate_postgres',side_effect=migrate) as migration:
+            result=self.settings.reset_postgresql(
+                self.values,'synthetic-db-password',self.values['database'])
+        migration.assert_called_once()
+        queries=[query for query,_ in connection.calls]
+        self.assertLess(next(i for i,q in enumerate(queries) if 'pg_advisory_xact_lock' in q),
+                        next(i for i,q in enumerate(queries) if q.startswith('DROP SCHEMA')))
+        self.assertEqual(sum('pg_advisory_xact_lock' in q for q in queries),1)
+        self.assertLess(next(i for i,q in enumerate(queries) if q.startswith('SET LOCAL lock_timeout')),
+                        next(i for i,q in enumerate(queries) if 'pg_advisory_xact_lock' in q))
+        self.assertEqual(result['tables'],['ai_runs','chunks','documents','email_accounts',
+                                           'email_imports','schema_migrations','settings'])
+        self.assertTrue(connection.closed)
+
+    def test_failed_reset_rolls_back_and_preserves_previous_schema(self):
+        connection=FakeResetConnection()
+
+        def fail_after_recreation(adapter):
+            adapter.execute('SELECT pg_advisory_xact_lock(87031904)')
+            connection.schema='partial-new'
+            raise RuntimeError('synthetic migration failure')
+
+        with patch.object(self.settings,'_connect',return_value=connection), \
+             patch('migrations.migrate_postgres',side_effect=fail_after_recreation), \
+             self.assertRaisesRegex(ValueError,'zurückgesetzt'):
+            self.settings.reset_postgresql(
+                self.values,'synthetic-db-password',self.values['database'])
+        self.assertTrue(connection.rolled_back)
+        self.assertEqual(connection.schema,'old')
 
     def test_postgres_adapter_translates_parameters(self):
         calls=[]

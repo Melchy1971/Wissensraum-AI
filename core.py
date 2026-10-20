@@ -1,64 +1,20 @@
 """Local SQL knowledge store and source-grounded AI operations. Python 3.11+."""
 from __future__ import annotations
+
 import hashlib
-from contextlib import contextmanager, closing
 import io
 import json
 import os
-from pathlib import Path
 import re
 import sqlite3
 import urllib.error
 import urllib.request
+from contextlib import closing, contextmanager
+from pathlib import Path
+
+from migrations import migrate_postgres, migrate_sqlite
 
 SUPPORTED_DOCUMENT_SUFFIXES = frozenset({'.txt', '.md', '.pdf', '.docx'})
-
-SCHEMA = '''
-PRAGMA foreign_keys = ON;
-CREATE TABLE IF NOT EXISTS documents (
- id INTEGER PRIMARY KEY, title TEXT NOT NULL, category TEXT NOT NULL,
- filename TEXT, original BLOB, content TEXT NOT NULL,
- sha256 TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE TABLE IF NOT EXISTS chunks (
- id INTEGER PRIMARY KEY, document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
- ordinal INTEGER NOT NULL, content TEXT NOT NULL, UNIQUE(document_id, ordinal)
-);
-CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
- title, category, content, content='chunks_search', content_rowid='id',
- tokenize='unicode61 remove_diacritics 2'
-);
-CREATE VIEW IF NOT EXISTS chunks_search AS
- SELECT c.id, d.title, d.category, c.content FROM chunks c JOIN documents d ON d.id=c.document_id;
-CREATE TRIGGER IF NOT EXISTS chunk_insert AFTER INSERT ON chunks BEGIN
- INSERT INTO search_index(rowid,title,category,content)
- SELECT NEW.id,title,category,NEW.content FROM documents WHERE id=NEW.document_id;
-END;
-CREATE TRIGGER IF NOT EXISTS chunk_delete AFTER DELETE ON chunks BEGIN
- INSERT INTO search_index(search_index,rowid,title,category,content)
- SELECT 'delete',OLD.id,title,category,OLD.content FROM documents WHERE id=OLD.document_id;
-END;
-CREATE TABLE IF NOT EXISTS ai_runs (
- id INTEGER PRIMARY KEY, kind TEXT NOT NULL, question TEXT NOT NULL, answer TEXT NOT NULL,
- sources_json TEXT NOT NULL, model TEXT NOT NULL,
- created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS email_accounts (
- id TEXT PRIMARY KEY, label TEXT NOT NULL, provider TEXT NOT NULL,
- email TEXT NOT NULL, username TEXT NOT NULL, host TEXT NOT NULL DEFAULT '', port INTEGER NOT NULL DEFAULT 0,
- client_id TEXT NOT NULL DEFAULT '', tenant TEXT NOT NULL DEFAULT 'common',
- created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE TABLE IF NOT EXISTS email_imports (
- account_id TEXT NOT NULL REFERENCES email_accounts(id) ON DELETE CASCADE,
- remote_id TEXT NOT NULL, document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
- imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
- PRIMARY KEY(account_id,remote_id)
-);
-PRAGMA user_version = 4;
-'''
-
 
 def chunks(text: str, size: int = 1800, overlap: int = 200):
     for start in range(0, len(text), size-overlap):
@@ -72,12 +28,7 @@ class Store:
 
     def __init__(self, path: Path | str):
         self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.connect() as db:
-            version = db.execute('PRAGMA user_version').fetchone()[0]
-            if version > 4:
-                raise ValueError('Datenbankversion ist neuer als diese Anwendung.')
-            db.executescript(SCHEMA)
+        migrate_sqlite(self.path)
 
     @contextmanager
     def connect(self):
@@ -157,43 +108,6 @@ class Store:
                 source.backup(dest)
 
 
-POSTGRES_SCHEMA = '''
-CREATE SCHEMA IF NOT EXISTS wissensraum;
-SET search_path TO wissensraum, public;
-CREATE TABLE IF NOT EXISTS documents (
- id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, title TEXT NOT NULL, category TEXT NOT NULL,
- filename TEXT, original BYTEA, content TEXT NOT NULL,
- sha256 TEXT NOT NULL UNIQUE, created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE TABLE IF NOT EXISTS chunks (
- id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
- document_id BIGINT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
- ordinal INTEGER NOT NULL, content TEXT NOT NULL, UNIQUE(document_id,ordinal)
-);
-CREATE INDEX IF NOT EXISTS chunks_document_id_idx ON chunks(document_id);
-CREATE INDEX IF NOT EXISTS chunks_search_idx ON chunks USING GIN (to_tsvector('simple',content));
-CREATE TABLE IF NOT EXISTS ai_runs (
- id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, kind TEXT NOT NULL, question TEXT NOT NULL,
- answer TEXT NOT NULL, sources_json TEXT NOT NULL, model TEXT NOT NULL,
- created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS email_accounts (
- id TEXT PRIMARY KEY, label TEXT NOT NULL, provider TEXT NOT NULL,
- email TEXT NOT NULL, username TEXT NOT NULL, host TEXT NOT NULL DEFAULT '', port INTEGER NOT NULL DEFAULT 0,
- client_id TEXT NOT NULL DEFAULT '', tenant TEXT NOT NULL DEFAULT 'common',
- created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
- updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE TABLE IF NOT EXISTS email_imports (
- account_id TEXT NOT NULL REFERENCES email_accounts(id) ON DELETE CASCADE,
- remote_id TEXT NOT NULL, document_id BIGINT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
- imported_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
- PRIMARY KEY(account_id,remote_id)
-);
-'''
-
-
 class _PostgresConnection:
     def __init__(self,connection):
         self.connection=connection
@@ -219,9 +133,7 @@ class PostgresStore:
         self.password=password
         self.connector=connector
         with self.connect() as db:
-            for statement in (part.strip() for part in POSTGRES_SCHEMA.split(';')):
-                if statement:
-                    db.execute(statement)
+            migrate_postgres(db)
 
     def _connect(self):
         if self.connector is None:

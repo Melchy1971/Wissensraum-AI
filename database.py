@@ -140,24 +140,28 @@ class DatabaseSettings:
             raise ValueError('Bestätigung stimmt nicht mit dem Datenbanknamen überein. Es wurde nichts gelöscht.')
         connection=self._connect(profile,password)
         try:
-            from core import POSTGRES_SCHEMA
+            from core import _PostgresConnection
+            from migrations import (CURRENT_SCHEMA_VERSION,
+                                    _acquire_postgres_migration_lock,
+                                    migrate_postgres)
             with connection.transaction():
-                connection.execute('DROP SCHEMA IF EXISTS wissensraum CASCADE')
-                for statement in (part.strip() for part in POSTGRES_SCHEMA.split(';')):
-                    if statement:
-                        connection.execute(statement)
+                db=_PostgresConnection(connection)
+                _acquire_postgres_migration_lock(db)
+                db.execute('DROP SCHEMA IF EXISTS wissensraum CASCADE')
+                migrate_postgres(db,acquire_lock=False)
+                rows=db.execute(
+                    "SELECT table_name FROM information_schema.tables WHERE table_schema='wissensraum' ORDER BY table_name").fetchall()
+                tables=[row['table_name'] if isinstance(row,dict) else row[0] for row in rows]
+                required={'documents','chunks','ai_runs','settings','email_accounts','email_imports','schema_migrations'}
+                version_row=db.execute(
+                    'SELECT MAX(version) AS version FROM wissensraum.schema_migrations').fetchone()
+                version=version_row['version'] if isinstance(version_row,dict) else version_row[0]
+                if set(tables)!=required or version!=CURRENT_SCHEMA_VERSION:
+                    raise ValueError('Anwendungsschema ist unvollständig.')
         except Exception:
             raise ValueError('Anwendungsschema konnte nicht zurückgesetzt werden. Datenbankrechte und Verbindung prüfen.') from None
         finally:
             connection.close()
-        from core import PostgresStore
-        store=PostgresStore(profile,password)
-        with store.connect() as db:
-            tables=[row['table_name'] for row in db.execute(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema='wissensraum' ORDER BY table_name").fetchall()]
-        required={'documents','chunks','ai_runs','settings','email_accounts','email_imports'}
-        if set(tables)!=required:
-            raise ValueError('Anwendungsschema ist unvollständig. Datenbankadministrator prüfen lassen.')
         return {'database':profile['database'],'tables':tables}
 
     def open_store(self,sqlite_path):

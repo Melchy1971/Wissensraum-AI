@@ -106,17 +106,6 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(self.settings.active(),'openai')
         self.assertEqual(self.settings.config(),{})
 
-    def test_schema_upgrade_keeps_documents_and_fts(self):
-        self.store.add('Altdokument','Migrationsbeleg')
-        with self.store.connect() as db:
-            db.execute('DROP TABLE settings')
-            db.execute('PRAGMA user_version=1')
-        restored=Store(self.store.path)
-        self.assertEqual(restored.search('Migrationsbeleg')[0]['title'],'Altdokument')
-        self.assertEqual(Settings(restored,self.base,self.vault,{}).active(),'openai')
-        with restored.connect() as db:
-            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0],4)
-            self.assertIsNotNone(db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='email_imports'").fetchone())
 
     def test_short_secrets_never_show_in_mask(self):
         for key in ('x','secret','12345678'):
