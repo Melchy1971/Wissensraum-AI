@@ -1,18 +1,18 @@
 # Masterplan Wissensraum-AI
 
-**Dokumentversion:** 1.2
+**Dokumentversion:** 1.3
 
-**Stand:** 20.10.2026
+**Stand:** 21.10.2026
 
 **Produktstand:** 1.8.1 stabil · 1.9 in Entwicklung
 
 **Repository:** `Melchy1971/Wissensraum-AI`
 
-**Geprüfter Hermes-Stand:** Commit `717db89525945016eaf7cb97f37e5530356ef676`; erneut geprüft auf `297339b` (Code unverändert, nur `masterplan.md` ergänzt)
+**Geprüfter Stand:** Commit `ad7cf0e` (Hermes-Code aus `717db89`, Testkorrekturen aus `55bc4ca`, danach nur Dokumentation)
 
 **Status:** Phasen- und Testplan
 
-**Legende:** ✅ umgesetzt und Test-Gate grün · 🟡 implementiert, aber Test-Gate noch nicht grün · ❌ Test-Gate fehlgeschlagen · ⬜ geplant
+**Legende:** ✅ vollständig implementiert und gesamtes Gate nachweislich bestanden · 🟡 implementiert oder teilweise geprüft, aber noch nicht vollständig abgenommen · ❌ Gate fehlgeschlagen oder Freigabe blockiert · ⬜ geplant und noch nicht begonnen
 
 ## 1. Zweck
 
@@ -117,9 +117,11 @@ Die Annahmen werden vor Beginn eines Mehrbenutzer- oder Serverbetriebs neu bewer
 | ✅ Lokale Prüfung nach Testkorrektur 20.10.2026 (Windows, Python 3.13.8, `55bc4ca`) | 84 bestanden, 5 übersprungen (PostgreSQL-Testdienst nicht konfiguriert), 0 Fehler |
 | ❌ GitHub Actions vor Korrektur | Alle fünf Jobs fehlgeschlagen in Lauf `39380439985` (`717db89`) und `39381519764` (`297339b`) |
 | ✅ GitHub Actions nach Korrektur | Lauf `39410112241` (`55bc4ca`): alle fünf Jobs grün; Windows/Linux × Python 3.11/3.13 je 89 Tests, 84 bestanden, 5 PostgreSQL-Tests übersprungen; Job `postgres` (PostgreSQL 18) 8 von 8 bestanden, 0 übersprungen |
+| ✅ Lokale Nachprüfung 21.10.2026 (Windows, Python 3.13.8, `ad7cf0e`) | 89 Tests: 84 bestanden, 5 übersprungen (PostgreSQL-Testdienst nicht konfiguriert), 0 Fehler |
+| ✅ GitHub Actions aktueller Stand | Lauf `39410785307` (`ad7cf0e`): alle fünf Jobs grün |
 | ✅ Testdatenschutz | CI verwendet synthetische Daten und ruft keine kostenpflichtigen KI-, E-Mail- oder Microsoft-Dienste auf |
 
-Aktueller CI-Nachweis: [GitHub Actions Lauf 39410112241](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39410112241); rote Vorläufe [39381519764](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39381519764) und [39380439985](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39380439985).
+Aktueller CI-Nachweis: [GitHub Actions Lauf 39410785307](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39410785307) (`ad7cf0e`); Korrekturlauf [39410112241](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39410112241) (`55bc4ca`); rote Vorläufe [39381519764](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39381519764) und [39380439985](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39380439985).
 
 ### 4.4 Vom Hermes Agent neu implementiert
 
@@ -184,7 +186,7 @@ Die Phasen werden in der angegebenen Reihenfolge getestet. Eine Phase wird erst 
 | 1 | Dokumente, Notizen, Suche und SQLite-Sicherung | ✅ | freigegeben |
 | 2 | KI-Anbieter, Aktivierung und Quellenantworten | ✅ | freigegeben; Live-Anbieter einzeln prüfen |
 | 3 | Ordner-, PST- und E-Mail-Import | ✅ | freigegeben; PST bleibt optional |
-| 4 | Versionierte SQLite-/PostgreSQL-Migrationen | 🟡 | CI grün (`39410112241`), manueller Migrationstest offen |
+| 4 | Versionierte SQLite-/PostgreSQL-Migrationen | 🟡 | CI grün (`39410785307`), manueller Migrationstest offen |
 | 5 | Release 1.9 Betriebsfähigkeit | ⬜ | nach Phase 4 |
 | 6 | Release 2.0 Importplattform | ⬜ | nach Phase 5 |
 | 7 | Release 2.1 Hybrid-RAG | ⬜ | nach Phase 6 |
@@ -369,7 +371,7 @@ PostgreSQL-Destruktivtests dürfen ausschließlich gegen eine Wegwerfdatenbank m
 - Konfigurationsexport und -import ohne Schlüssel, Kennwörter und Token
 - SQLite-Wiederherstellung als geführter Ablauf
 - dokumentierter und automatisiert geprüfter PostgreSQL-Backup-/Restore-Prozess
-- 🟡 Schema-Migrationsrahmen ist implementiert; Phase-4-Testfehler müssen vor der Abnahme korrigiert werden
+- 🟡 Schema-Migrationsrahmen ist implementiert und automatisch geprüft; Abnahme wartet auf den manuellen Migrationstest aus Phase 4
 - Gesundheitsanzeige für aktive Datenbank, KI-Anbieter und E-Mail-Konten
 - negative Tests für beschädigte Konfigurationen und unterbrochene Schreibvorgänge
 
@@ -641,4 +643,4 @@ Der nächste Release ist **1.9 – Stabilisierung und Betriebsfähigkeit**. Neue
 - SQLite- und PostgreSQL-Wiederherstellung geprüft
 - strukturierte, geheimnisfreie Diagnose vorhanden
 
-Der Stand `55bc4ca` erfüllt die automatischen Gates; die manuellen Migrations- und Wiederherstellungstests sowie die übrigen Punkte stehen noch aus. Damit wird zuerst die Betriebs- und Datensicherheit des vorhandenen Funktionsumfangs abgesichert. Danach folgen Importausbau und Hybrid-RAG in getrennten Phasen.
+Der Stand `ad7cf0e` erfüllt die automatischen Gates; die manuellen Migrations- und Wiederherstellungstests sowie die übrigen Punkte stehen noch aus. Damit wird zuerst die Betriebs- und Datensicherheit des vorhandenen Funktionsumfangs abgesichert. Danach folgen Importausbau und Hybrid-RAG in getrennten Phasen.
