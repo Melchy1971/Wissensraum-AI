@@ -192,5 +192,44 @@ class CliConfigurationExportTests(unittest.TestCase):
             self.assertIn('Konfigurationswiederherstellung ist unvollständig', error.getvalue())
 
 
+class CliRestoreTests(unittest.TestCase):
+    def test_restore_requires_exact_target_name_and_restores_sqlite(self):
+        from core import Store
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            path = base / 'ziel.db'
+            backup = base / 'sicherung.db'
+            store = Store(path)
+            store.add('Gesichert', 'Inhalt A')
+            store.backup(backup)
+            store.add('Später', 'Inhalt B')
+            with patch.object(cli, 'BASE', base):
+                for confirm in ([], ['--confirm', 'falsch.db']):
+                    error = io.StringIO()
+                    with self.subTest(confirm=confirm), patch('sys.stderr', error), \
+                            self.assertRaises(SystemExit) as raised:
+                        cli.main(['--db', str(path), 'restore', str(backup), *confirm])
+                    self.assertEqual(raised.exception.code, 1)
+                    self.assertIn('--confirm ziel.db', error.getvalue())
+                self.assertEqual(len(store.list()), 2)
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    self.assertEqual(cli.main(['--db', str(path), 'restore', str(backup),
+                                               '--confirm', 'ziel.db']), 0)
+            self.assertEqual(json.loads(output.getvalue())['documents'], 1)
+            self.assertEqual([doc['title'] for doc in store.list()], ['Gesichert'])
+
+    def test_restore_rejects_configured_postgresql(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            (base / 'data').mkdir()
+            (base / 'data' / 'database.json').write_text('{"backend":"postgresql"}', encoding='utf-8')
+            error = io.StringIO()
+            with patch.object(cli, 'BASE', base), patch('sys.stderr', error), \
+                    self.assertRaises(SystemExit):
+                cli.main(['restore', str(base / 'x.db'), '--confirm', 'wissen.db'])
+            self.assertIn('nur für SQLite', error.getvalue())
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -289,8 +289,8 @@ def _database_file_lock(path, timeout: float = 20):
             path_lock.close()
 
 
-def _verified_sqlite_backup(db, path, version):
-    backup = path.with_name(path.name + f'.pre-migration-v{version}.bak')
+def _verified_sqlite_backup(db, path, version, suffix=None):
+    backup = path.with_name(path.name + (suffix or f'.pre-migration-v{version}.bak'))
     temporary = backup.with_name(backup.name + f'.{os.getpid()}.{uuid.uuid4().hex}.tmp')
     try:
         with closing(sqlite3.connect(temporary)) as destination:
@@ -398,6 +398,85 @@ def migrate_sqlite(path):
                 if target > version:
                     _apply_sqlite_migration(db, target, statements)
             validate_sqlite(db, CURRENT_SCHEMA_VERSION)
+
+
+def _document_hashes(db):
+    return db.execute('SELECT id, sha256 FROM documents ORDER BY id').fetchall()
+
+
+def _check_restored_sqlite(db, version, hashes):
+    if db.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
+        raise ValueError('Wiederhergestellte Datenbank ist beschädigt.')
+    if _sqlite_version(db) != version:
+        raise ValueError('Wiederhergestellte Datenbank hat eine falsche Version.')
+    validate_sqlite(db, version)
+    db.rollback()  # FTS integrity-check opens a read/write transaction.
+    if _document_hashes(db) != hashes:
+        raise ValueError('Dokument-Prüfsummen weichen von der Sicherung ab.')
+
+
+def restore_sqlite(path, backup):
+    """Replace the SQLite database at path with a validated backup.
+
+    The current database is first copied to a verified pre-restore backup.
+    Older schema versions are restored as-is and migrated on the next start.
+    """
+    path, backup = Path(path), Path(backup)
+    if not backup.is_file():
+        raise ValueError('Sicherungsdatei wurde nicht gefunden.')
+    if path.exists() and os.path.samefile(path, backup):
+        raise ValueError('Sicherung und Zieldatenbank müssen verschiedene Dateien sein.')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    staging = path.with_name(f'{path.name}.restore.{os.getpid()}.{uuid.uuid4().hex}.tmp')
+    try:
+        try:
+            # Read-only copy first: validate_sqlite writes an FTS check and
+            # must never touch the user's backup file.
+            with closing(sqlite3.connect(backup.resolve().as_uri() + '?mode=ro',
+                                         uri=True)) as source, \
+                    closing(sqlite3.connect(staging)) as copy:
+                source.backup(copy)
+            with closing(sqlite3.connect(staging)) as check:
+                version = _sqlite_version(check)
+                if version < 1 or version > CURRENT_SCHEMA_VERSION:
+                    raise ValueError('Sicherung hat keine unterstützte Schemaversion.')
+                if check.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
+                    raise ValueError('Sicherung ist beschädigt.')
+                validate_sqlite(check, version)
+                check.rollback()
+                hashes = _document_hashes(check)
+        except sqlite3.DatabaseError:
+            raise ValueError('Sicherung ist keine lesbare SQLite-Datenbank.') from None
+        with _database_file_lock(path):
+            existed = path.exists()
+            with closing(sqlite3.connect(path, timeout=20)) as target:
+                safety = None
+                if existed:
+                    try:
+                        safety = _verified_sqlite_backup(
+                            target, path, _sqlite_version(target),
+                            f'.pre-restore-{time.strftime("%Y%m%d-%H%M%S")}'
+                            f'-{uuid.uuid4().hex[:8]}.bak')
+                    except (sqlite3.DatabaseError, ValueError):
+                        # ponytail: a damaged target is not overwritten; the user
+                        # renames it and restores into a fresh path instead.
+                        raise ValueError('Aktuelle Datenbank ist nicht lesbar und wird nicht '
+                                         'überschrieben. Datei umbenennen und Wiederherstellung '
+                                         'erneut ausführen.') from None
+                try:
+                    with closing(sqlite3.connect(staging)) as source:
+                        source.backup(target)
+                    _check_restored_sqlite(target, version, hashes)
+                except Exception:
+                    if safety is not None:
+                        with closing(sqlite3.connect(safety)) as previous:
+                            previous.backup(target)
+                    raise
+    finally:
+        for suffix in ('', '-wal', '-shm', '-journal'):
+            Path(str(staging) + suffix).unlink(missing_ok=True)
+    return {'version': version, 'documents': len(hashes),
+            'safety_backup': str(safety) if safety else None}
 
 
 def _value(row, name, index=0):

@@ -19,6 +19,7 @@ from design import DesignSettings, THEMES
 from configuration import (APPLY_ERROR, EXPORT_ERROR, ConfigurationTransfer,
                            ConfigurationTransferError, recover_pending_configuration)
 from importer import Importer, MailAccounts, MAIL_PROVIDERS
+from migrations import migrate_sqlite, restore_sqlite
 from local_logging import (create_operational_logger, known_runtime_secrets,
                            safe_exception_class, warn_operational_logging_failure)
 
@@ -172,7 +173,9 @@ class App(tk.Tk if tk is not None else object):
         tools.pack(fill='x')
         self.buttons = []
         for label, command in [('Import',self.open_import),('Notiz erfassen',self.note),
-                               ('Datenbank sichern',self.backup),('Einstellungen',self.open_settings)]:
+                               ('Datenbank sichern',self.backup),
+                               ('Sicherung wiederherstellen',self.restore),
+                               ('Einstellungen',self.open_settings)]:
             b = ttk.Button(tools,text=label,command=command)
             b.pack(side='left',padx=(0,8))
             self.buttons.append(b)
@@ -1232,6 +1235,40 @@ class App(tk.Tk if tk is not None else object):
         target = filedialog.asksaveasfilename(defaultextension='.db',initialfile='wissen_sicherung.db')
         if target:
             self.work(lambda:self.store.backup(target),lambda _:self.status.set('SQL-Sicherung erstellt'))
+
+    def restore(self):
+        if self.store.backend != 'sqlite':
+            messagebox.showinfo('Sicherung wiederherstellen',
+                'Die Wiederherstellung in der Anwendung gilt nur für SQLite. '
+                'PostgreSQL wird auf dem Server mit pg_restore wiederhergestellt.',parent=self)
+            return
+        source = filedialog.askopenfilename(parent=self,title='Sicherung auswählen',
+            filetypes=[('SQLite-Sicherung','*.db *.bak *.sqlite'),('Alle Dateien','*.*')])
+        if not source:
+            return
+        path = Path(self.store.path)
+        confirmation = simpledialog.askstring('Sicherung wiederherstellen',
+            'Der aktuelle Stand wird zuerst als geprüfte Sicherung abgelegt und dann '
+            'vollständig durch die gewählte Sicherung ersetzt.\n\n'
+            f'Zur Bestätigung den Dateinamen eingeben: {path.name}',parent=self)
+        if confirmation is None:
+            return
+        if confirmation != path.name:
+            messagebox.showerror('Sicherung wiederherstellen',
+                'Dateiname stimmt nicht überein. Es wurde nichts geändert.',parent=self)
+            return
+        def run():
+            result = restore_sqlite(path,source)
+            migrate_sqlite(path)  # Older backups reach the current schema before use.
+            return result
+        def done(result):
+            self.configuration_transfer.synchronize_authority()
+            self.refresh()
+            self.status.set(f"Sicherung wiederhergestellt: {result['documents']} Dokumente")
+            messagebox.showinfo('Sicherung wiederherstellen',
+                f"{result['documents']} Dokumente wiederhergestellt.\n"
+                f"Vorheriger Stand: {result['safety_backup'] or 'keiner'}",parent=self)
+        self.work(run,done)
 
 
 def main():

@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from core import PostgresStore, Store
 from migrations import (CURRENT_SCHEMA_VERSION, POSTGRES_LEGACY_COLUMNS,
                         SQLITE_MIGRATIONS, _database_file_lock, migrate_postgres,
-                        migrate_sqlite)
+                        migrate_sqlite, restore_sqlite)
 
 
 SQLITE_HISTORICAL_MIGRATIONS = (
@@ -669,6 +669,94 @@ class PostgresMigrationTests(unittest.TestCase):
              patch('core.migrate_postgres') as migrate:
             PostgresStore(profile, 'password')
         migrate.assert_called_once_with(sentinel)
+
+
+class SQLiteRestoreTests(unittest.TestCase):
+    @staticmethod
+    def titles(path):
+        with closing(sqlite3.connect(path)) as db:
+            return [row[0] for row in db.execute('SELECT title FROM documents ORDER BY id')]
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.folder = Path(self.directory.name)
+        self.path = self.folder / 'wissen.db'
+        self.backup = self.folder / 'sicherung.db'
+        self.store = Store(self.path)
+        self.store.add('Erste Fassung', 'Freigabeprozess Alpha')
+        self.store.backup(self.backup)
+        self.store.add('Nach Sicherung', 'Nachtrag Beta')
+
+    def tearDown(self):
+        self.directory.cleanup()
+
+    def leftovers(self):
+        return [p.name for p in self.folder.iterdir() if '.restore.' in p.name]
+
+    def test_restore_replaces_content_and_keeps_verified_safety_backup(self):
+        backup_bytes = self.backup.read_bytes()
+        result = restore_sqlite(self.path, self.backup)
+
+        self.assertEqual(self.titles(self.path), ['Erste Fassung'])
+        self.assertEqual([hit['title'] for hit in self.store.search('Alpha')], ['Erste Fassung'])
+        self.assertEqual(self.store.search('Beta'), [])
+        self.assertEqual(result['version'], CURRENT_SCHEMA_VERSION)
+        self.assertEqual(result['documents'], 1)
+        safety = Path(result['safety_backup'])
+        self.assertTrue(safety.name.startswith('wissen.db.pre-restore-'))
+        self.assertEqual(self.titles(safety), ['Erste Fassung', 'Nach Sicherung'])
+        self.assertEqual(self.backup.read_bytes(), backup_bytes)
+        self.assertEqual(self.leftovers(), [])
+
+    def test_older_backup_is_restored_as_is_and_migrated_on_next_start(self):
+        old = self.folder / 'alt.db'
+        SQLiteMigrationTests.create_version_fixture(old, 2)
+        self.assertEqual(restore_sqlite(self.path, old)['version'], 2)
+        Store(self.path)
+        with closing(sqlite3.connect(self.path)) as db:
+            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], CURRENT_SCHEMA_VERSION)
+        self.assertEqual(self.titles(self.path), ['Alt'])
+
+    def test_invalid_backups_are_rejected_without_changes(self):
+        not_sqlite = self.folder / 'kaputt.db'
+        not_sqlite.write_bytes(b'kein SQLite')
+        newer = self.folder / 'neu.db'
+        with closing(sqlite3.connect(newer)) as db:
+            db.execute(f'PRAGMA user_version={CURRENT_SCHEMA_VERSION + 1}')
+        manipulated = self.folder / 'manipuliert.db'
+        self.store.backup(manipulated)
+        with closing(sqlite3.connect(manipulated)) as db:
+            db.execute('DROP TABLE email_imports')
+            db.commit()
+        before = self.path.read_bytes()
+        for source in (not_sqlite, newer, manipulated, self.folder / 'fehlt.db', self.path):
+            with self.subTest(source=source.name), self.assertRaises(ValueError):
+                restore_sqlite(self.path, source)
+        self.assertEqual(self.path.read_bytes(), before)
+        self.assertEqual(self.titles(self.path), ['Erste Fassung', 'Nach Sicherung'])
+        self.assertEqual(self.leftovers(), [])
+        self.assertFalse(any('.pre-restore-' in p.name for p in self.folder.iterdir()))
+
+    def test_failed_verification_returns_to_previous_state(self):
+        with patch('migrations._check_restored_sqlite', side_effect=ValueError('Prüfung')):
+            with self.assertRaisesRegex(ValueError, 'Prüfung'):
+                restore_sqlite(self.path, self.backup)
+        self.assertEqual(self.titles(self.path), ['Erste Fassung', 'Nach Sicherung'])
+        self.assertEqual(self.leftovers(), [])
+
+    def test_damaged_target_is_not_overwritten(self):
+        damaged = self.folder / 'beschaedigt.db'
+        damaged.write_bytes(b'SQLite format 3\x00' + b'\xff' * 4080)
+        before = damaged.read_bytes()
+        with self.assertRaisesRegex(ValueError, 'nicht lesbar'):
+            restore_sqlite(damaged, self.backup)
+        self.assertEqual(damaged.read_bytes(), before)
+
+    def test_restore_into_missing_path_creates_database(self):
+        target = self.folder / 'neu' / 'wissen.db'
+        result = restore_sqlite(target, self.backup)
+        self.assertIsNone(result['safety_backup'])
+        self.assertEqual(self.titles(target), ['Erste Fassung'])
 
 
 if __name__ == '__main__':

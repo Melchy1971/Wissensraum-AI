@@ -3,6 +3,7 @@ import argparse
 import json
 from pathlib import Path
 from core import Store, import_document
+from migrations import restore_sqlite
 from settings import Settings
 from settings import SystemVault
 from database import DatabaseSettings, resolve_sqlite_path
@@ -52,6 +53,9 @@ def main(argv=None):
     summary.add_argument('id',type=int)
     backup = commands.add_parser('backup')
     backup.add_argument('target',type=Path)
+    restore = commands.add_parser('restore',help='SQLite-Datenbank aus einer Sicherung wiederherstellen')
+    restore.add_argument('source',type=Path)
+    restore.add_argument('--confirm',default='',help='Dateiname der Zieldatenbank zur Bestätigung')
     config_export = commands.add_parser('config-export')
     config_export.add_argument('target',type=Path)
     config_import = commands.add_parser('config-import')
@@ -76,6 +80,31 @@ def main(argv=None):
                     'Konfigurationswiederherstellung ist ausstehend; Anwendung normal starten.', {}))
             print(format_diagnostics(results))
             return 1 if any(result.status == 'FAIL' for result in results) else 0
+        if args.command == 'restore':
+            if recovery_pending:
+                raise ConfigurationTransferError(RECOVERY_ERROR,'CONFIG_IMPORT_RECOVERY_INCOMPLETE')
+            if args.db is None and database_settings.profile()['backend'] != 'sqlite':
+                raise ValueError('Wiederherstellung ist nur für SQLite verfügbar; '
+                                 'PostgreSQL wird auf dem Server mit pg_restore wiederhergestellt.')
+            if args.confirm != sqlite_path.name:
+                raise ValueError(f'Bestätigung erforderlich: --confirm {sqlite_path.name}')
+            logger = create_operational_logger(BASE,'cli')
+            metadata={'operation':args.command,'backend':'sqlite'}
+            _log_event(logger,'command_started',metadata=metadata)
+            try:
+                result = restore_sqlite(sqlite_path,args.source)
+                if args.db is None:
+                    # Restored settings and accounts replace the cached authority.
+                    ConfigurationAuthority(BASE).synchronize(Store(sqlite_path))
+                print(json.dumps(result,ensure_ascii=False,indent=2))
+                _log_event(logger,'command_completed',metadata=metadata)
+                return 0
+            except Exception as error:
+                _log_event(logger,'command_failed',severity='ERROR',metadata=metadata,
+                           exception_class=safe_exception_class(error),error_code='CLI_COMMAND_FAILED')
+                raise
+            finally:
+                _close_logger(logger)
         if args.command != 'config-export':
             recover_pending_configuration(BASE,database_settings,sqlite_path)
         if args.command == 'config-export':

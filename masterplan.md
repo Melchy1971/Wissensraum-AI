@@ -1,6 +1,6 @@
 # Masterplan Wissensraum-AI
 
-**Dokumentversion:** 1.5
+**Dokumentversion:** 1.7
 
 **Stand:** 22.10.2026
 
@@ -8,11 +8,30 @@
 
 **Repository:** `Melchy1971/Wissensraum-AI`
 
-**Geprüfter Repository-Stand:** `80e3807` (Merge PR #1, 22.10.2026); neuer Code seit `ad7cf0e`, Abnahme der neuen Änderungen nicht abschließend nachgewiesen.
+**Geprüfter Repository-Stand:** Head `c5503bc` plus nicht committete Änderungen vom 22.10.2026 (Linux-Identitätsbindung, geführte SQLite-Wiederherstellung). CI für diesen Stand nicht nachgewiesen.
+
+**Ablage:** Einziger Masterplan ist diese Datei `masterplan.md`. Die frühere Kopie `docs/masterplan.md` wurde am 22.10.2026 entfernt.
 
 **Status:** Phasen- und Testplan
 
 **Legende:** ✅ vollständig implementiert und gesamtes Gate nachweislich bestanden · 🟡 implementiert oder teilweise geprüft, aber noch nicht vollständig abgenommen · ❌ Gate fehlgeschlagen oder Freigabe blockiert · ⬜ geplant und noch nicht begonnen
+
+## Aktualisierung 22.10.2026 (Nachmittag) – Synchronisation, Linux-Identitätsbindung, geführte SQLite-Wiederherstellung
+
+**Synchronisation:** Der bisherige Root-Masterplan (Dokumentversion 1.5, 89 Tests, Phase 5 ⬜) war gegenüber `docs/masterplan.md` (Dokumentversion 1.0, 321 Tests, Release-1.9-Checkliste) veraltet. Beide Dateien wurden in dieser Datei zusammengeführt, `docs/masterplan.md` wurde danach gelöscht. Der Ist-Stand, die Release-1.9-Checkliste und die DoD-Nachweise stammen aus `docs/masterplan.md`. Phasenplan, Test-Gates und Phase-4-Historie stammen aus dem Root-Plan.
+
+**Testzahl:** `docs/masterplan.md` nannte 321 Tests. Nach diesem Stand ergänzte `e4a75ae` einen Test, der Head `c5503bc` hatte 322. Mit den acht neuen Wiederherstellungstests sind es jetzt 330.
+
+| Bereich | Ergebnis | Status |
+|---|---|---|
+| Neuer Fehler | `test_secret_free_sqlite_identity_rejects_replacement_at_same_path_without_sql` unter Linux deterministisch rot: ext4 vergibt nach dem Löschen dieselbe Inode-Nummer, die Bindung `device+inode` erkennt den Austausch der SQLite-Datei nicht. Die Linux-CI-Jobs für `c5503bc` sind damit sehr wahrscheinlich rot (CI-Lauf nicht einsehbar). | ❌ → behoben |
+| Korrektur | `configuration_authority._filesystem_binding` ergänzt unter Linux die `statx`-Erstellungszeit (`created_ns`). Windows-Format unverändert. Bestehende Linux-Identitätsdateien ohne `created_ns` werden fail-closed abgelehnt und beim nächsten normalen Start neu geschrieben. | 🟡 |
+| SQLite-Wiederherstellung | `migrations.restore_sqlite`, CLI `restore <sicherung> --confirm <dateiname>`, Desktop „Sicherung wiederherstellen“: Sicherung nur lesend, Vorprüfung (Integrität, Version 1–4, exaktes Schema), geprüfte Sicherung des aktuellen Stands, Einspielen unter Migrationssperre, Hash-Vergleich aller Dokumente, automatisches Zurückspielen bei Abweichung. Unlesbare Zieldatenbank wird nicht überschrieben. | 🟡 |
+| Tests Linux, Python 3.11 und 3.13 | 330 Tests: 322 bestanden, 8 übersprungen (2 Windows-Pfadfälle, 6 PostgreSQL ohne Testdienst), 0 Fehler | ✅ lokal |
+| Tests Windows, Python 3.13.8 | 330 Tests: 318 bestanden, 9 übersprungen (3 POSIX-Logging-Fälle, 6 PostgreSQL), 3 Fehler in `start.sh`-Launcher-Tests (kein `sh` im Suchpfad des Prüfrechners, umgebungsbedingt) | ❌ lokal umgebungsbedingt |
+| CI-Matrix | nicht nachgewiesen | offen |
+
+**Nächster kleinster Schritt:** Änderungen committen und pushen, CI-Matrix auf Grün prüfen. Danach manuellen Restore-Test protokollieren: SQLite-Sicherung erstellen, Dokument ergänzen, über Desktop wiederherstellen, Dokumentanzahl und SHA-256 vergleichen, Vorab-Sicherung öffnen.
 
 ## Aktualisierung 22.10.2026 – Release 1.9 nach Hermes-Merge
 
@@ -91,40 +110,49 @@ Die Annahmen werden vor Beginn eines Mehrbenutzer- oder Serverbetriebs neu bewer
 
 ### 4.1 Produktfunktionen
 
-| Bereich | Stand 1.8.1 | Reifegrad |
+| Bereich | Aktueller Stand 1.9-dev | Reifegrad |
 |---|---|---|
-| ✅ Desktop-Oberfläche | Deutsche Tkinter-Oberfläche mit Hauptnavigation und kontrolliertem Beenden | Produktiv nutzbar |
-| ✅ Lokale Dokumente | TXT, Markdown, textbasierte PDF und DOCX | Produktiv nutzbar |
-| ✅ Ordnerimport | Rekursiv, relative Pfade, keine Verfolgung symbolischer Links | Produktiv nutzbar |
-| ✅ PST | Optional über `libratom` | Eingeschränkt durch lokale Systemabhängigkeiten |
-| ✅ E-Mail | Gmail/IMAP sowie Microsoft Graph, zweistufige Importfreigabe | Funktionsfähig, keine Anhänge |
-| ✅ Dubletten | SHA-256 über normalisierten extrahierten Text | Exakte Inhaltsdubletten |
-| ✅ Suche | Lexikalische Volltextsuche mit BM25 | Funktionsfähig, keine Semantik |
-| ✅ KI | OpenAI, Claude, Gemini und Ollama; Anbieter und Modell aktivierbar | Adapter getestet, Live-Abdeckung unvollständig |
-| ✅ Quellen | KI-Kontext aus maximal acht Abschnitten, Quellenmarkierungen `[Qn]` | Technisch geprüft, keine fachliche Belegprüfung |
-| ✅ Datenbanken | SQLite oder PostgreSQL mit eigenem Schema `wissensraum` | Vertragstest gegen PostgreSQL 18 |
-| ✅ Schlüssel | Betriebssystem-Schlüsselspeicher; externe Variablen und Dateien lesbar | Sicherheitskritischer Kern vorhanden |
-| ✅ Design | Telekom-Magenta, Hell-/Dunkelmodus, eigenes Logo | Produktiv nutzbar |
-| ✅ SQLite-Sicherung | Konsistentes SQLite-Backup | Wiederherstellung noch nicht automatisiert getestet |
-| PostgreSQL-Sicherung | Serveradministrativer Prozess vorgesehen | Noch nicht als geprüfter Anwendungsablauf umgesetzt |
+| Desktop-Oberfläche | Deutsche Tkinter-Oberfläche mit Hauptnavigation und kontrolliertem Beenden | Produktiv nutzbar |
+| Lokale Dokumente | TXT, Markdown, textbasierte PDF und DOCX | Produktiv nutzbar |
+| Ordnerimport | Rekursiv, relative Pfade, keine Verfolgung symbolischer Links | Produktiv nutzbar |
+| PST | Optional über `libratom` | Eingeschränkt durch lokale Systemabhängigkeiten |
+| E-Mail | Gmail/IMAP sowie Microsoft Graph, zweistufige Importfreigabe | Funktionsfähig, keine Anhänge |
+| Dubletten | SHA-256 über normalisierten extrahierten Text | Exakte Inhaltsdubletten |
+| Suche | Lexikalische Volltextsuche: SQLite mit BM25, PostgreSQL mit `ts_rank_cd` | Funktionsfähig, keine Semantik |
+| KI | OpenAI, Claude, Gemini und Ollama; Anbieter und Modell aktivierbar | Adapter getestet, Live-Abdeckung unvollständig |
+| Quellen | KI-Kontext aus maximal acht Abschnitten, Quellenmarkierungen `[Qn]` | Technisch geprüft, keine fachliche Belegprüfung |
+| Datenbanken | SQLite oder PostgreSQL mit eigenem Schema `wissensraum`; beide über geordnete Migrationen bis Schema 4 verwaltet | Lokale Verträge getestet; PostgreSQL-Live-Abdeckung in CI noch nicht vollständig nachgewiesen |
+| Schlüssel | Betriebssystem-Schlüsselspeicher; externe Variablen und Dateien lesbar | Sicherheitskritischer Kern vorhanden |
+| Design | Telekom-Magenta, Hell-/Dunkelmodus, eigenes Logo | Produktiv nutzbar |
+| Sicherung | SQLite-Backup; PostgreSQL serverseitig mit `pg_dump` | 🟡 Geführte SQLite-Wiederherstellung implementiert und automatisch getestet; PostgreSQL-Backup/Restore offen |
 
 ### 4.2 Aktuelles Datenmodell
 
 | Tabelle/Objekt | Aufgabe |
 |---|---|
-| ✅ `documents` | Dokumentmetadaten, Original-BLOB, extrahierter Text, SHA-256 |
-| ✅ `chunks` | Nummerierte Textabschnitte je Dokument |
-| ✅ `search_index` | SQLite-FTS5-Index; PostgreSQL verwendet die jeweilige Backend-Implementierung |
-| ✅ `ai_runs` | Anfrage, Antwort, Modell und unveränderlicher Quellen-Snapshot |
-| ✅ `settings` | Nicht geheime Anwendungseinstellungen |
-| ✅ `email_accounts` | Kontometadaten ohne Kennwörter oder Token |
-| ✅ `email_imports` | Zuordnung importierter Servernachrichten zu Dokumenten |
-| 🟡 `schema_migrations` | Versionierte PostgreSQL-Migrationshistorie; im Hermes-Stand implementiert, aber noch nicht abgenommen |
-| ✅ `data/database.json` | Lokales Datenbankprofil ohne Kennwort |
-| ✅ `data/design.json` | Lokale Designkonfiguration |
-| ✅ `data/branding/logo.png` | Normalisiertes Anwendungslogo |
+| `documents` | Dokumentmetadaten, Original-BLOB, extrahierter Text, SHA-256 |
+| `chunks` | Nummerierte Textabschnitte je Dokument |
+| `search_index` | SQLite-FTS5-Index; PostgreSQL verwendet die jeweilige Backend-Implementierung |
+| `ai_runs` | Anfrage, Antwort, Modell und unveränderlicher Quellen-Snapshot |
+| `settings` | Nicht geheime Anwendungseinstellungen |
+| `email_accounts` | Kontometadaten ohne Kennwörter oder Token |
+| `email_imports` | Zuordnung importierter Servernachrichten zu Dokumenten |
+| `PRAGMA user_version` / `schema_migrations` | Versionsmetadaten für geordnete SQLite-/PostgreSQL-Migrationen |
+| `data/database.json` | Lokales Datenbankprofil ohne Kennwort |
+| `data/design.json` | Lokale Designkonfiguration |
+| `data/branding/logo.png` | Normalisiertes Anwendungslogo |
 
-### 4.3 Qualitätsbasis und Hermes-Prüfung
+### 4.3 Qualitätsbasis
+
+- Aktueller Stand 22.10.2026: 330 Tests: Linux (Python 3.11 und 3.13) 322 bestanden, 8 übersprungen; Windows (Python 3.13.8) 318 bestanden, 9 übersprungen, 3 umgebungsbedingte Fehler. Die Windows-Fehler betreffen nur die `start.sh`-Launcher-Tests auf einem Rechner ohne `sh` im Suchpfad.
+- Dokumentierter Vorstand `b117ac9`: 321 Tests auf Windows erfolgreich, 9 Übersprünge (3 plattformspezifische Logging-Dateisystemfälle, 6 nicht konfigurierte Live-PostgreSQL-Diensttests).
+- Unterstützte Python-Versionen 3.11, 3.12 und 3.13; CI-Matrix auf Windows und Linux mit den Endpunkten 3.11 und 3.13
+- grafische Tests unter virtuellem Linux-Bildschirm
+- PostgreSQL-18-Dienst in CI verdrahtet; erfolgreicher entfernter Lauf von `test_configuration_transfer_contract_on_real_postgresql` noch nicht nachgewiesen
+- CI ohne kostenpflichtige KI-, E-Mail- oder Microsoft-Aufrufe
+- API-Verträge über kontrollierte Testantworten
+
+#### Historie Phase 4 (Hermes-Prüfstand, 89 Tests)
 
 | Prüfstand | Ergebnis |
 |---|---|
@@ -162,11 +190,11 @@ Die Funktionen sind im Code vorhanden und automatisch in der vollständigen CI-M
 
 1. ✅ **Offline-Kern:** Import, Verwaltung, Suche und Export funktionieren ohne KI-API.
 2. ✅ **Explizite Autorisierung:** Vollständige E-Mails werden erst nach Auswahl durch den Benutzer abgerufen.
-3. ✅ **Keine Geheimnisse in SQL:** API-Schlüssel, Passwörter und OAuth-Token bleiben im Betriebssystem-Schlüsselspeicher oder in ausdrücklich gesetzten Umgebungsvariablen.
+3. ✅ **Keine Geheimnisse in SQL:** API-Schlüssel, Passwörter und OAuth-Token bleiben im Betriebssystem-Schlüsselspeicher oder in ausdrücklich konfigurierten externen Secret-Quellen außerhalb der Wissensdatenbank, etwa Umgebungsvariablen oder lokal ignorierten `.env`-Dateien.
 4. ✅ **Keine stillen Datenwechsel:** Ein Wechsel zwischen SQLite und PostgreSQL migriert keine Daten automatisch.
 5. ✅ **Nachvollziehbare Quellen:** Jede gespeicherte KI-Antwort enthält die tatsächlich verwendeten Textstellen als Quellen-Snapshot.
 6. ✅ **Fail closed:** Ungültige Konfigurationen, fehlende Rechte und unsichere TLS-Einstellungen führen in den implementierten Verbindungs- und Schlüsselpfaden zum Abbruch.
-7. 🟡 **Abwärtsgerichtete Migrationen:** Migrationen 1 bis 4, Vorab-Sicherung, Sperren und Schema-Prüfungen sind implementiert und automatisch geprüft. Die Abnahme ist wegen des ausstehenden manuellen Migrationstests offen.
+7. 🟡 **Versionierte Vorwärtsmigrationen mit Rückwärtskompatibilitätsprüfung:** Jede Schemaänderung wird als versionierte Vorwärtsmigration ausgeführt und besitzt eine Versionsprüfung, Vorab-Sicherung sowie automatisierte Migrations- und Rückwärtskompatibilitätstests. Abnahme offen bis zum manuellen Migrationstest.
 8. **Unvertrauenswürdige Inhalte:** Importierte Texte gelten als Daten, niemals als ausführbare Anweisung.
 9. ✅ **Reproduzierbarkeit:** Unterstützte Python-Versionen und Abhängigkeiten bleiben fest versioniert und durch CI geprüft.
 10. ✅ **Löschtransparenz:** Für den aktuellen Dokumentlöschpfad sind Original, Suchindex, Importmarkierung und erhaltener KI-Quellen-Snapshot dokumentiert und getestet.
@@ -180,7 +208,7 @@ Die Funktionen sind im Code vorhanden und automatisch in der vollständigen CI-M
 | ✅ Adapter | Dateiformate, PST, IMAP, Graph und vier KI-Anbieter sind angebunden | Einheitliche Schnittstellen und Timeouts weiter härten |
 | Retrieval | Volltext, Vektoren, Fusion, Reranking | Backendunabhängige Ergebnisstruktur |
 | ✅ Persistenz | SQLite und PostgreSQL mit gemeinsamem, getestetem Speichervertrag | Migrationen weiter versionieren und absichern |
-| ✅ Geheimnisse | API-, E-Mail- und Datenbankzugänge | Sicherer lokaler Speicher ist umgesetzt |
+| ✅ Geheimnisse | API-, E-Mail- und Datenbankzugänge | Sicherer lokaler Speicher oder ausdrücklich konfigurierte externe Secret-Quelle außerhalb der Wissensdatenbank |
 | Betrieb | Logs, Diagnose, Backup, Wiederherstellung | Datenschutzgerechte und prüfbare Abläufe |
 
 ### 6.1 Geplante Kernobjekte
@@ -206,7 +234,7 @@ Die Phasen werden in der angegebenen Reihenfolge getestet. Eine Phase wird erst 
 | 2 | KI-Anbieter, Aktivierung und Quellenantworten | ✅ | freigegeben; Live-Anbieter einzeln prüfen |
 | 3 | Ordner-, PST- und E-Mail-Import | ✅ | freigegeben; PST bleibt optional |
 | 4 | Versionierte SQLite-/PostgreSQL-Migrationen | 🟡 | CI grün (`39410785307`), manueller Migrationstest offen |
-| 5 | Release 1.9 Betriebsfähigkeit | ⬜ | nach Phase 4 |
+| 5 | Release 1.9 Betriebsfähigkeit | 🟡 | Teilumfang implementiert; Abnahme nach Phase 4 |
 | 6 | Release 2.0 Importplattform | ⬜ | nach Phase 5 |
 | 7 | Release 2.1 Hybrid-RAG | ⬜ | nach Phase 6 |
 | 8 | Wissensorganisation und Wissensgraph | ⬜ | nach Phase 7 |
@@ -378,21 +406,22 @@ PostgreSQL-Destruktivtests dürfen ausschließlich gegen eine Wegwerfdatenbank m
 
 **Gate:** 89 von 89 Tests grün, alle fünf CI-Jobs grün, PostgreSQL-18-Test grün und dokumentierter manueller Migrationstest bestanden. Automatischer Teil erfüllt: Die Matrix-Jobs überspringen nur die fünf PostgreSQL-Tests, die der Job `postgres` vollständig ausführt. Offen ist der manuelle Migrationstest; bis dahin bleibt Phase 4 🟡 und Release 1.9 ist nicht freigegeben.
 
-### Phase 5 – Release 1.9 Stabilisierung und Betriebsfähigkeit ⬜
+### Phase 5 – Release 1.9 Stabilisierung und Betriebsfähigkeit 🟡
 
 **Ziel:** Der bestehende Funktionsumfang wird konsistent installierbar, diagnostizierbar und wiederherstellbar.
 
 **Muss-Umfang:**
 
-- README-Widersprüche bereinigen; PostgreSQL-Funktionsumfang eindeutig dokumentieren
-- Startdiagnose für Python, Tcl/Tk, Pillow, Schlüsselbund, Datenbank und Schreibrechte
-- strukturierte lokale Logs mit Rotation und konsequenter Geheimnisfilterung
-- Konfigurationsexport und -import ohne Schlüssel, Kennwörter und Token
-- SQLite-Wiederherstellung als geführter Ablauf
-- dokumentierter und automatisiert geprüfter PostgreSQL-Backup-/Restore-Prozess
-- 🟡 Schema-Migrationsrahmen ist implementiert und automatisch geprüft; Abnahme wartet auf den manuellen Migrationstest aus Phase 4
-- Gesundheitsanzeige für aktive Datenbank, KI-Anbieter und E-Mail-Konten
-- negative Tests für beschädigte Konfigurationen und unterbrochene Schreibvorgänge
+- [x] README-Widersprüche bereinigt und PostgreSQL-Funktionsumfang einschließlich Suche, TLS-Ausnahme, Sicherungsgrenzen und versionierter Schema-Migration eindeutig dokumentiert
+- [x] Fail-closed-Startdiagnose für Python, Tcl/Tk, Pillow, sicheren Schlüsselbund, aktive SQLite-/PostgreSQL-Datenbank, Anwendungsschema und Schreibrechte; CLI `doctor` bleibt read-only und meldet ausstehende Konfigurationswiederherstellung redigiert, der Desktop verarbeitet sie erst nach erfolgreicher Diagnose und vor dem normalen Store-Öffnen
+- [x] strukturierte lokale Logs mit Rotation und konsequenter Geheimnisfilterung
+- [ ] Konfigurationsexport und -import ohne Schlüssel, Kennwörter und Token (Code und Tests lokal vollständig; Abschluss erst nach erfolgreichem entferntem CI-Lauf von `test_configuration_transfer_contract_on_real_postgresql`)
+- [ ] 🟡 SQLite-Wiederherstellung als geführter Ablauf (Desktop und CLI implementiert, automatisch geprüft; manueller Test und CI offen)
+- [ ] dokumentierter und automatisiert geprüfter PostgreSQL-Backup-/Restore-Prozess
+- [x] geordneter, versionierter Schema-Migrationsrahmen für SQLite und PostgreSQL mit Metadaten, Sperren, Sicherung/Validierung und Rollback-Tests; PostgreSQL-Reset migrationsbasiert und atomar
+- [ ] einheitliches Quellenmodell `sources` für Quelltyp und anwendbare Herkunftsangaben; bestehende Herkunftsangaben werden versioniert migriert
+- [ ] Gesundheitsanzeige für aktive Datenbank, KI-Anbieter und E-Mail-Konten
+- [ ] negative Tests für beschädigte Konfigurationen und unterbrochene Schreibvorgänge
 
 **Test und Abnahme:**
 
@@ -400,6 +429,7 @@ PostgreSQL-Destruktivtests dürfen ausschließlich gegen eine Wegwerfdatenbank m
 - Wiederherstellung einer Testdatenbank mit 100 % identischen Dokument-Hashes
 - kein Geheimnis in Log, Konfiguration, Testartefakt oder Git-Historie
 - alle bisherigen Funktionen unter SQLite und PostgreSQL ohne Regression
+- im Testbestand für lokale Dateien, Notizen, PST, IMAP und Microsoft Graph besitzt jedes neu importierte oder migrierte Dokument genau einen gültigen `sources`-Bezug; Quelltyp und anwendbare Herkunftsangaben entsprechen unter SQLite und PostgreSQL zu 100 % den erwarteten Werten
 
 **Gate:** Phase 5 ist erst freigegeben, wenn Phase 4 grün ist und Installation, Diagnose, Backup und Restore auf einem sauberen Windows-Testsystem protokolliert wurden.
 
@@ -544,7 +574,8 @@ Erforderlicher Mindestumfang:
 | P0 | Veröffentlichtes Datenbankkennwort ändern | Schließt unmittelbares Zugangsrisiko | VPS-Zugriff |
 | ✅ P0 | Vier nachgewiesene Migrations-Testfehler korrigieren (`55bc4ca`) | Stellt ein belastbares Phase-4-Gate her | Hermes-Commit `717db895` |
 | ✅ P0 | Alle fünf CI-Jobs wieder auf Grün bringen (Lauf `39410112241`) | Verhindert Freigabe eines nicht abgenommenen Datenbankumbaus | Korrigierte Migrationstests |
-| P0 | README und Ist-Stand synchronisieren | Verhindert Fehlbedienung und falsche Annahmen | Keine |
+| 🟡 P0 | Linux-Identitätsbindung korrigieren und CI-Matrix für den Head grün nachweisen | Stellt grünes Gate wieder her | Push |
+| 🟡 P0 | README und Ist-Stand synchronisieren (Masterplan-Dateien zusammengeführt) | Verhindert Fehlbedienung und falsche Annahmen | Keine |
 | P0 | Manuellen Migrations- und Wiederherstellungstest protokollieren | Reduziert Datenverlustrisiko | Isolierte SQLite-/PostgreSQL-Testdatenbanken |
 | P1 | Importaufträge und Fehlerjournal | Beherrscht große Datenmengen | Schema-Migration |
 | P1 | E-Mail-Anhänge mit Freigabe | Schließt wesentliche Inhaltslücke | Importaufträge |
@@ -622,6 +653,54 @@ Ein Arbeitspaket ist abgeschlossen, wenn:
 - CI auf allen unterstützten Plattformen grün ist
 - messbare Abnahmekriterien erfüllt und nachgewiesen sind
 
+### 12.1 DoD-Nachweis: strukturierte lokale Logs (Release 1.9)
+
+| Prüfaspekt | Bewertung und Nachweis |
+|---|---|
+| Anforderungen | Lokale UTF-8-JSONL-Datei `data/logs/wissensraum.jsonl`, festes sicheres Schema, 5-MiB-Rotation, fünf Sicherungen, Einzelwriter-Schutz, generische Ausfallmeldung und Defense-in-Depth-Filterung sind implementiert und in der Bedienungsanleitung beschrieben. |
+| Nicht-Ziele | Kein vollständiger Audit-Verlauf, keine Protokollierung fachlicher Inhalte, keine zeitbasierte Langzeitarchivierung, kein Remote-Logging und keine neuen Zugriffe auf Schlüsselbund, Umgebung oder Schlüsseldateien nur zum Zweck des Loggings. |
+| Fehler- und Abbruchverhalten | Einrichtungs-, Schreib-, Rotations-, Callback- und Schließfehler geben ausschließlich die generische Logging-Warnung aus und ändern weder Erfolg noch fachlichen Fehlerpfad von CLI oder Desktop. `doctor` startet kein Logging und erzeugt keinen Logordner. Konstruktorfehler geben die Ziel-Sperre frei; nach regulärem Schließen ist sie erneut erwerbbar. |
+| SQLite / PostgreSQL | Das Ereignisschema und die Dateirotation sind backendunabhängig. Beide Backends liefern nur die freigegebene Backend-Kennung. Ein bereits zum Öffnen eines PostgreSQL-Stores geladener Kennwortwert wird zusätzlich an den finalen Filter übergeben; SQLite besitzt keinen entsprechenden Laufzeitwert. Es werden keine Zugangsdaten eigens für Logging nachgeladen. |
+| Migration / Rückwärtskompatibilität | Keine SQL-Schema-, Daten- oder Konfigurationsmigration erforderlich. Bestehende SQLite- und PostgreSQL-Datenbanken bleiben unverändert; Logging-Ausfall ist nicht blockierend. Neue lokale Logdateien sind additive Betriebsartefakte und alte Programmversionen ignorieren sie. |
+| UI-Themes | Nicht anwendbar: Es gibt kein neues UI-Element und keine Änderung an Hell-/Dunkelmodus. Die einzige sichtbare Reaktion ist eine themenunabhängige generische Warnung auf dem bestehenden Fehlerkanal. |
+| Sicherheit | Nur exakte eingebaute Skalartypen und freigegebene Metadaten gelangen in das Schema; Ausnahmetexte, Tracebacks und nicht freigegebene Werte werden verworfen. Formbasierte und bekannte-Wert-Redaktion sind eine zusätzliche Grenze, ersetzen aber weder Dateirechte noch die Prüfung vor Weitergabe. Pfad-, Windows- und Hardlink-Aliasse eines vorhandenen Ziels teilen dieselbe Besitzsperre. |
+| Messbarer Testnachweis | Historischer fokussierter Abschlusslauf: `python -m unittest tests.test_logging tests.test_logging_integration -v` = 79 Tests, erfolgreich, 3 POSIX-Dateisystemtests plattformbedingt übersprungen. Vollständiger Windows-Lauf zum Nachweiszeitpunkt (`b117ac9`): `python -m unittest discover -s tests -v` = 321 Tests, erfolgreich, 9 Übersprünge (3 plattformspezifische Logging-Dateisystemfälle und 6 nicht konfigurierte Live-PostgreSQL-Diensttests). |
+
+### 12.2 DoD-Nachweis: sicherer Konfigurationstransfer (Release 1.9)
+
+| Prüfaspekt | Bewertung und Nachweis |
+|---|---|
+| Anforderungen | Versionierter JSON-Export und -Import sind über CLI und **Einstellungen → Konfiguration** verfügbar. Die feste Positivliste umfasst KI-Anbieter/Modelle/Deaktivierung, Datenbankprofil, Designmodus und E-Mail-Kontometadaten. |
+| Nicht-Ziele | Keine Dokumente, Originale, KI-Verläufe, Logs, Logo-Dateien, API-Schlüssel, Datenbank-/E-Mail-Kennwörter, OAuth-Token, Schlüsselbundinhalte, Umgebungswerte oder Inhalte beziehungsweise Pfade externer Schlüsseldateien. Keine Datenmigration zwischen SQLite und PostgreSQL. |
+| Fehler- und Abbruchverhalten | Format, Version, exakte Container- und Skalartypen, Feldlisten, Wertebereiche und Enumerationen werden vollständig vor der ersten Änderung geprüft. Unbekannte und geheimnisverdächtige Schlüssel werden abgelehnt. SQL-Änderungen laufen in einer Transaktion; atomar ersetzte lokale Konfigurationsdateien werden bei späterem Fehler aus ihren Snapshots zurückgesetzt. |
+| SQLite / PostgreSQL | Der Dienst nutzt den gemeinsamen `store.connect()`-Vertrag und backendneutrale SQL-Platzhalter. Die lokale Autoritätsdatei verhindert, dass ein PostgreSQL-Export versehentlich veraltete SQLite-Metadaten übernimmt. Crash-Tests decken SQLite→PostgreSQL, PostgreSQL→SQLite und geänderte PostgreSQL-Server-/Datenbankprofile ab. Der echte PostgreSQL-18-Dienst ist in CI verdrahtet; der erfolgreiche entfernte Lauf von `test_configuration_transfer_contract_on_real_postgresql` steht noch aus. |
+| Neustart / Kompatibilität | Ein importiertes Datenbankprofil wird gespeichert, aber der während des Imports geöffnete Store bleibt aktiv. Jede Profildifferenz, einschließlich Host- oder Datenbankwechsel innerhalb von PostgreSQL, meldet den erforderlichen Neustart. Bestehende Installationen erzeugen die Autoritätsdatei beim authentifizierten Desktop-Start oder ausdrücklich mit `config-sync`; der geheime-freie CLI-Export schlägt vorher fail-closed fehl. Formatversion 1 wird exakt akzeptiert; andere Versionen schlagen fail-closed fehl. Es ist keine SQL-Schemamigration erforderlich. |
+| Sicherheit | Der CLI-Export liest ausschließlich die validierte Autoritätsdatei sowie Datenbank- und Designprofil und öffnet weder SQL noch Schlüsselbund oder Kennwort-/Tokenquellen. Das Wiederherstellungsjournal speichert nur die nicht geheime Ursprungsidentität; die Verbindung wird vor normaler Store-Auswahl wiederhergestellt. Bestehende Zielsystem-Geheimnisse bleiben beim Import unverändert. Dateiausgaben, CLI-Status und Betriebslogs enthalten weder gewählte Pfade noch Konfigurationsinhalte. |
+| UI-Themes | Der Konfigurationsbereich verwendet bestehende ttk-Stile und ist damit in Hell- und Dunkelmodus eingebunden; Abbruch-, Fehler- und Erfolgspfade sind ohne Live-Anzeige getestet, die Auffindbarkeit im Einstellungs-Notebook im GUI-Vertragstest. |
+| Messbarer Testnachweis | Historischer fokussierter Abschlusslauf: `python -m unittest discover -s tests -p 'test_configuration.py' -v` = 53 Tests, erfolgreich. Vollständiger Windows-Lauf zum Nachweiszeitpunkt (`b117ac9`): `python -m unittest discover -s tests -v` = 321 Tests, erfolgreich, 9 Übersprünge (3 plattformspezifische Logging-Dateisystemfälle und 6 nicht konfigurierte Live-PostgreSQL-Diensttests). Der erfolgreiche entfernte CI-Lauf von `test_configuration_transfer_contract_on_real_postgresql` bleibt ausstehend. |
+
+### 12.3 DoD-Nachweis: Schema-Migrationsrahmen (Release 1.9)
+
+| Prüfaspekt | Bewertung und Nachweis |
+|---|---|
+| Anforderungen | `migrations.py` enthält geordnete Vorwärtsmigrationen bis Schema 4 für SQLite und PostgreSQL. SQLite verwendet `PRAGMA user_version`, PostgreSQL die Tabelle `wissensraum.schema_migrations`. Store-Initialisierung und PostgreSQL-Schema-Reset verwenden diesen Rahmen. |
+| Sicherheit und Parallelität | SQLite serialisiert Migrationen über Datei- und Identitätssperren; PostgreSQL verwendet eine transaktionale Advisory-Sperre. Neuere unbekannte Versionen und unvereinbare Bestandsschemata werden vor Änderungen abgelehnt. |
+| Sicherung, Validierung und Fehlerpfad | Vor SQLite-Upgrades wird eine per Integritäts- und Versionsprüfung validierte Sicherung erstellt. Beide Backends validieren den Schema-Vertrag; fehlgeschlagene Migrationen und Nachvalidierungen rollen zurück. Der PostgreSQL-Reset löscht und migriert das Anwendungsschema in einer Transaktion. |
+| Grenzen | Die Vor-Migrationssicherung ersetzt keinen geführten SQLite-Restore; dieser ist in 12.4 nachgewiesen. Ein dokumentierter und automatisiert geprüfter PostgreSQL-Backup-/Restore-Prozess bleibt offen. |
+| Messbarer Testnachweis | Der vollständige Windows-Lauf zum Nachweiszeitpunkt (`b117ac9`) umfasst Migrations-, Sperr-, Sicherungs-, Validierungs-, Rollback-, Legacy-Adoptions- und Reset-Tests: 321 Tests erfolgreich, 9 Übersprünge. Sechs Übersprünge betreffen den lokal nicht konfigurierten Live-PostgreSQL-Dienst; daraus wird kein grüner Live-CI-Status abgeleitet. |
+
+### 12.4 DoD-Nachweis: geführte SQLite-Wiederherstellung (Release 1.9) 🟡
+
+| Prüfaspekt | Bewertung und Nachweis |
+|---|---|
+| Anforderungen | Desktop „Sicherung wiederherstellen“ und CLI `restore <sicherung> --confirm <dateiname>`. Bestätigung über den exakten Dateinamen der aktiven Datenbank. |
+| Nicht-Ziele | Keine PostgreSQL-Wiederherstellung (bleibt `pg_restore` auf dem Server), kein Überschreiben einer unlesbaren Zieldatenbank, keine Übertragung zwischen Backends. |
+| Fehler- und Abbruchverhalten | Sicherung wird nur gelesen. Vorprüfung auf Integrität, Version 1 bis 4 und exaktes Schema vor jeder Änderung. Vorher geprüfte Sicherung `*.pre-restore-*.bak` des aktuellen Stands. Nach dem Einspielen Integritäts-, Schema- und Dokument-Hash-Vergleich, bei Abweichung automatisches Zurückspielen. Temporäre Dateien werden in jedem Fall entfernt. |
+| Migration / Kompatibilität | Ältere Sicherungen werden unverändert eingespielt und beim nächsten Öffnen regulär auf Schema 4 migriert. Neuere Versionen werden abgelehnt. Nach dem Einspielen wird die Konfigurationsautorität neu synchronisiert. |
+| UI-Themes | Nur bestehende Standarddialoge und ttk-Schaltfläche; manuelle Prüfung in Hell- und Dunkelmodus offen. |
+| Messbarer Testnachweis | `tests.test_migrations.SQLiteRestoreTests` (6) und `tests.test_cli.CliRestoreTests` (2) grün unter Linux Python 3.11/3.13 und Windows Python 3.13.8. Mutationsprobe: Entfernen des Zurückspielens lässt `test_failed_verification_returns_to_previous_state` fehlschlagen. |
+| Offen | CI-Matrix, manueller Test auf sauberem Windows-System. |
+
 ## 13. Entscheidungsregister
 
 | ID | Entscheidung | Status |
@@ -654,12 +733,12 @@ Ein Arbeitspaket ist abgeschlossen, wenn:
 
 Der nächste Release ist **1.9 – Stabilisierung und Betriebsfähigkeit**. Neue Großfunktionen wie OCR, E-Mail-Anhänge und Vektorsuche beginnen erst, wenn folgende Gates erfüllt sind:
 
-- ✅ Phase 4 mit 89 von 89 bestandenen Tests (Matrix plus Job `postgres`)
-- ✅ alle fünf GitHub-CI-Jobs grün
-- SQLite-Migrationen 1, 2 und 3 auf 4 mit unveränderten Dokument-Hashes geprüft
+- alle fünf GitHub-CI-Jobs für den aktuellen Head grün (historisch erfüllt für `ad7cf0e`, für den aktuellen Stand offen)
+- SQLite-Migrationen 1, 2 und 3 auf 4 mit unveränderten Dokument-Hashes manuell geprüft
 - PostgreSQL-Migration und atomarer Reset ausschließlich gegen eine isolierte `*_test`-Datenbank geprüft
 - Dokumentation widerspruchsfrei
 - SQLite- und PostgreSQL-Wiederherstellung geprüft
 - strukturierte, geheimnisfreie Diagnose vorhanden
+- vollständiger Gesamtlauf (aktuell 330 Tests) grün; plattform- oder dienstbedingte Übersprünge transparent ausgewiesen
 
-Historischer Nachweis: `ad7cf0e` erfüllte die damaligen automatischen Gates. Der aktuelle Merge-Head `80e3807` enthält weitere Codeänderungen; dessen vollständiger CI- und manueller Abnahmestatus muss separat bestätigt werden. Die manuellen Migrations- und Wiederherstellungstests sowie die übrigen Punkte stehen noch aus. Damit wird zuerst die Betriebs- und Datensicherheit des vorhandenen Funktionsumfangs abgesichert. Danach folgen Importausbau und Hybrid-RAG in getrennten Phasen.
+Damit wird zuerst die Betriebs- und Datensicherheit des vorhandenen Funktionsumfangs abgesichert. Danach folgen Importausbau und Hybrid-RAG in getrennten Phasen.
