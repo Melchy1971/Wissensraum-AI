@@ -1,7 +1,7 @@
 @echo off
 cd /d "%~dp0"
 if exist .venv\Scripts\python.exe (
- .venv\Scripts\python.exe -c "import sys; raise SystemExit(0 if sys.version_info[:2] in ((3, 11), (3, 13)) and sys.version_info.releaselevel == 'final' else 1)" >nul 2>nul
+ .venv\Scripts\python.exe -c "import sys; raise SystemExit(0 if (3, 11) <= sys.version_info[:2] <= (3, 13) and sys.version_info.releaselevel == 'final' else 1)" >nul 2>nul
  if not errorlevel 1 goto venv_ready
  echo Veraltete oder nicht unterstuetzte Python-Umgebung erkannt. Virtuelle Umgebung wird neu aufgebaut.
 )
@@ -55,14 +55,14 @@ if errorlevel 1 (
  exit /b 1
 )
 set "PYSEL="
-for %%V in (3.13 3.11) do (
+for %%V in (3.13 3.12 3.11) do (
  if not defined PYSEL (
   py -%%V -c "import sys; raise SystemExit(0 if sys.version_info[:2] == tuple(map(int, '%%V'.split('.'))) and sys.version_info.releaselevel == 'final' else 1)" >nul 2>nul
   if not errorlevel 1 set "PYSEL=%%V"
  )
 )
 if not defined PYSEL (
- echo Python 3.11 oder 3.13 wird benoetigt. Python 3.12, 3.14 und Vorabversionen werden nicht unterstuetzt.
+ echo Python 3.11 bis 3.13 wird benoetigt. Python 3.14 und Vorabversionen werden nicht unterstuetzt.
  pause
  exit /b 1
 )

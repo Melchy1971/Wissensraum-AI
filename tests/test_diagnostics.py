@@ -667,25 +667,60 @@ class DiagnosticTests(unittest.TestCase):
             self.assertNotIn('system-python-must-not-run', result.stderr)
             self.assertIn('virtuelle Umgebung', result.stderr)
 
-    def test_windows_launchers_validate_existing_venv_before_system_python(self):
+    def test_windows_launchers_share_supported_python_selection_contract(self):
         root = Path(__file__).resolve().parents[1]
-        windows = (root / 'start_windows.bat').read_text(encoding='utf-8')
-        pst = (root / 'install-pst-support.bat').read_text(encoding='utf-8')
+        launchers = {
+            name: (root / name).read_text(encoding='utf-8')
+            for name in ('start_windows.bat', 'install-pst-support.bat')
+        }
+        supported_range = (
+            "(3, 11) <= sys.version_info[:2] <= (3, 13) "
+            "and sys.version_info.releaselevel == 'final'"
+        )
 
-        for name, launcher in (('start_windows.bat', windows),
-                               ('install-pst-support.bat', pst)):
+        for name, launcher in launchers.items():
             with self.subTest(launcher=name):
-                self.assertIn('call :require_system_python', launcher)
+                self.assertIn(supported_range, launcher)
+                self.assertIn('for %%V in (3.13 3.12 3.11) do (', launcher)
+                self.assertIn('set "PYSEL=%%V"', launcher)
+                self.assertIn('py -%PYSEL% -m venv .venv', launcher)
+                commands = [line.strip().lower() for line in launcher.splitlines()
+                            if line.strip() and not line.strip().lower().startswith('rem ')]
+                self.assertFalse(any(line.startswith('py -3 ') for line in commands))
+
+    def test_windows_launchers_validate_before_deleting_or_creating_venv(self):
+        root = Path(__file__).resolve().parents[1]
+        launchers = {
+            name: (root / name).read_text(encoding='utf-8')
+            for name in ('start_windows.bat', 'install-pst-support.bat')
+        }
+
+        for name, launcher in launchers.items():
+            with self.subTest(launcher=name):
                 existing = launcher.index('if exist .venv\\Scripts\\python.exe')
                 venv_validation = launcher.index('.venv\\Scripts\\python.exe -c', existing)
                 system_validation = launcher.index('call :require_system_python')
-                creation = launcher.index('py -3 -m venv .venv')
+                creation_command = 'py -%PYSEL% -m venv .venv'
+                self.assertIn(creation_command, launcher)
+                creation = launcher.index(creation_command)
                 self.assertLess(existing, venv_validation)
                 self.assertLess(venv_validation, system_validation)
                 self.assertLess(system_validation, creation)
+                for mutation in ('rmdir /s /q .venv', 'py -%PYSEL% -m venv .venv'):
+                    offset = 0
+                    while True:
+                        mutation_at = launcher.find(mutation, offset)
+                        if mutation_at < 0:
+                            break
+                        validation_at = launcher.rfind('call :require_system_python', 0,
+                                                       mutation_at)
+                        self.assertGreaterEqual(validation_at, 0)
+                        offset = mutation_at + len(mutation)
 
+    def test_windows_launcher_repair_validates_before_removing_venv(self):
+        root = Path(__file__).resolve().parents[1]
+        windows = (root / 'start_windows.bat').read_text(encoding='utf-8')
         repair = windows.index('echo Beschaedigte Python-Umgebung erkannt.')
-        self.assertIn('call :require_system_python', windows[repair:])
         repair_validation = windows.index('call :require_system_python', repair)
         repair_removal = windows.index('rmdir /s /q .venv', repair)
         self.assertLess(repair_validation, repair_removal)
