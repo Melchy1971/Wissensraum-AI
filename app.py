@@ -316,13 +316,17 @@ class App(tk.Tk if tk is not None else object):
         if self.design_settings.logo_path.is_file():
             try:
                 from PIL import Image, ImageTk
-                with Image.open(self.design_settings.logo_path) as source:
-                    image=source.convert('RGBA')
-                    image.thumbnail((180,60),Image.Resampling.LANCZOS)
-                    self.logo_image=ImageTk.PhotoImage(image)
             except Exception:
-                self.logo_image=None
                 self.logo_load_error='Logo konnte wegen einer fehlerhaften Bildbibliothek nicht geladen werden.'
+            else:
+                try:
+                    with Image.open(self.design_settings.logo_path) as source:
+                        image=source.convert('RGBA')
+                        image.thumbnail((180,60),Image.Resampling.LANCZOS)
+                        self.logo_image=ImageTk.PhotoImage(image)
+                except Exception:
+                    self.logo_image=None
+                    self.logo_load_error='Gespeichertes Logo ist nicht lesbar; unter Einstellungen → Design neu auswählen.'
         if hasattr(self,'logo_label'):
             self.logo_label.configure(image=self.logo_image or '')
         preview=getattr(self,'design_logo_preview',None)

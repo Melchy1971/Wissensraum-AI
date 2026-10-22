@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import sqlite3
 import os
+import shutil
 import time
 import uuid
 from contextlib import closing, contextmanager
@@ -505,12 +506,13 @@ def restore_sqlite(path, backup):
     staging = path.with_name(f'{path.name}.restore.{os.getpid()}.{uuid.uuid4().hex}.tmp')
     try:
         try:
-            # Read-only copy first: validate_sqlite writes an FTS check and
-            # must never touch the user's backup file.
-            with closing(sqlite3.connect(backup.resolve().as_uri() + '?mode=ro',
-                                         uri=True)) as source, \
-                    closing(sqlite3.connect(staging)) as copy:
-                source.backup(copy)
+            # Copy bytes instead of opening the backup: a read-only SQLite
+            # connection to a WAL-mode file leaves -wal/-shm files beside it,
+            # and validate_sqlite writes an FTS check. A WAL sidecar is copied
+            # too so committed pages stored there are not lost.
+            shutil.copyfile(backup, staging)
+            if Path(str(backup) + '-wal').is_file():
+                shutil.copyfile(str(backup) + '-wal', str(staging) + '-wal')
             with closing(sqlite3.connect(staging)) as check:
                 version = _sqlite_version(check)
                 if version < 1 or version > CURRENT_SCHEMA_VERSION:

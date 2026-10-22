@@ -8,7 +8,7 @@
 
 **Repository:** `Melchy1971/Wissensraum-AI`
 
-**Geprüfter Repository-Stand:** Commit `3181057` (Quellenmodell `sources`, Schema 5) plus nicht committeter PostgreSQL-Backup-/Restore-Prozess und Release-Gate-Skript `tests/release_gate.py`. CI für diesen Stand nicht nachgewiesen.
+**Geprüfter Repository-Stand:** Commit `c979642` (PostgreSQL-Backup/Restore, Release-Gate-Skript) plus nicht committet: Python 3.12 in der CI-Matrix und Korrekturen aus der Windows-Prüfung. Release-Gate-Läufe von Markus auf `c979642` (Windows, Python 3.13.8, 22.10.2026 15:50): M1, M2, M3, R1 PASS, M4 und P1 SKIP. CI für diesen Stand nicht nachgewiesen.
 
 **Ablage:** Einziger Masterplan ist diese Datei `masterplan.md`. Die frühere Kopie `docs/masterplan.md` wurde am 22.10.2026 entfernt.
 
@@ -20,21 +20,24 @@
 
 **Synchronisation:** Der bisherige Root-Masterplan (Dokumentversion 1.5, 89 Tests, Phase 5 ⬜) war gegenüber `docs/masterplan.md` (Dokumentversion 1.0, 321 Tests, Release-1.9-Checkliste) veraltet. Beide Dateien wurden in dieser Datei zusammengeführt, `docs/masterplan.md` wurde danach gelöscht. Der Ist-Stand, die Release-1.9-Checkliste und die DoD-Nachweise stammen aus `docs/masterplan.md`. Phasenplan, Test-Gates und Phase-4-Historie stammen aus dem Root-Plan.
 
-**Testzahl:** `docs/masterplan.md` nannte 321 Tests. Nach diesem Stand ergänzte `e4a75ae` einen Test, der Head `c5503bc` hatte 322. Mit acht neuen Wiederherstellungstests, vier Tests zur Gesundheitsanzeige, sieben Negativtests, sieben Tests zum Quellenmodell und einem PostgreSQL-Rundlauftest sind es jetzt 349.
+**Testzahl:** `docs/masterplan.md` nannte 321 Tests. Nach diesem Stand ergänzte `e4a75ae` einen Test, der Head `c5503bc` hatte 322. Mit acht neuen Wiederherstellungstests, vier Tests zur Gesundheitsanzeige, sieben Negativtests, sieben Tests zum Quellenmodell einem PostgreSQL-Rundlauftest, einem WAL-Wiederherstellungstest und einem Logo-Test sind es jetzt 351.
 
 | Bereich | Ergebnis | Status |
 |---|---|---|
 | Neuer Fehler | `test_secret_free_sqlite_identity_rejects_replacement_at_same_path_without_sql` unter Linux deterministisch rot: ext4 vergibt nach dem Löschen dieselbe Inode-Nummer, die Bindung `device+inode` erkennt den Austausch der SQLite-Datei nicht. Die Linux-CI-Jobs für `c5503bc` sind damit sehr wahrscheinlich rot (CI-Lauf nicht einsehbar). | ❌ → behoben |
 | Korrektur | `configuration_authority._filesystem_binding` ergänzt unter Linux die `statx`-Erstellungszeit (`created_ns`). Windows-Format unverändert. Bestehende Linux-Identitätsdateien ohne `created_ns` werden fail-closed abgelehnt und beim nächsten normalen Start neu geschrieben. | 🟡 |
+| Geheimnisprüfung | Gesamte Git-Historie (46 Commits, alle Diffs) auf API-Schlüssel, Token, private Schlüssel, Verbindungs-URLs mit Kennwort und Kennwortzuweisungen geprüft, dazu Dateinamen (`.env`, Datenbanken, Logs, Schlüsseldateien). 12 Treffer, alle harmlos: Variablennamen, Oberflächentexte und erfundene Werte in den Tests der Log-Filterung. Lokale Logs (`data/logs/wissensraum.jsonl`) und Konfigurationsdateien: 0 Treffer. CI-Vorschaubilder nicht geprüft. | ✅ für den geprüften Stand |
+| Python 3.12 | CI-Matrix um 3.12 erweitert (jetzt sieben Jobs). Lokal unter Linux und Windows mit 3.12 grün. | 🟡 CI offen |
+| Befund Wiederherstellung | `restore_sqlite` öffnete die Sicherung nur lesend; bei einer Sicherung im WAL-Modus legt SQLite dabei `-wal`/`-shm` neben der Benutzerdatei an und kann sie nicht entfernen. Unter Windows führte das zu sporadischen Testfehlern. Korrigiert: Die Sicherung wird byteweise in die Staging-Datei kopiert, eine vorhandene `-wal`-Datei mit, damit dort gespeicherte Änderungen nicht verloren gehen. Zwei Tests, beide mit Gegenprobe. | 🟡 |
+| Kleinkorrekturen | `start.sh`-Tests werden ohne `sh` im Suchpfad übersprungen statt mit Fehler abzubrechen (in der CI unter Windows vorhanden). Ein beschädigtes `logo.png` meldet jetzt „Gespeichertes Logo ist nicht lesbar“ statt einer fehlerhaften Bildbibliothek. | 🟡 |
 | Release-Gate-Skript | `tests/release_gate.py` führt die manuellen Migrations- und Wiederherstellungsschritte aus Phase 4 und 5 reproduzierbar an Kopien aus und schreibt ein Protokoll mit Checkliste für die menschlichen Prüfungen. Lauf 22.10.2026 Windows, Python 3.13.8: M1 Migration 1 bis 4 auf 5, M2 Abbruch mit Rollback, M3 zwei gleichzeitige Starts, M4 Kopie der echten `data/wissen.db` (bereits Version 5, 0 Dokumente, daher ohne Aussagekraft für Bestandsdaten), R1 SQLite-Wiederherstellung: PASS. P1 PostgreSQL: SKIP (kein Testdienst unter Windows). Lauf Linux, Python 3.13, PostgreSQL 16.2: alle sechs Schritte PASS. Gegenprobe: defekte Wiederherstellung ergibt FAIL und Exit-Code 1. Unterschriebenes Protokoll und manuelle Oberflächenprüfungen stehen aus. | 🟡 |
 | PostgreSQL-Backup/Restore | Ablauf in README dokumentiert: `pg_dump --schema=wissensraum --format=custom`, Prüfung mit `pg_restore --list`, Wiederherstellung über `DROP SCHEMA` und `pg_restore --single-transaction --exit-on-error --no-owner`, danach Schemaprüfung durch die Anwendung. Kennwort nur interaktiv bzw. über `PGPASSWORD`, nie in der Befehlszeile. Rundlauftest vergleicht Prüfsummen, Originale, Abschnitte, Quellen, KI-Verlauf, Einstellungen, Migrationshistorie und fortlaufende IDs. Gegenprobe: ohne Wiederherstellungsschritt rot. CI-Job `postgres` installiert Client-Werkzeuge 18 und verlangt sie (`PGTEST_REQUIRE_PG_TOOLS=1`). | 🟡 |
 | Quellenmodell `sources` (Schema 5) | Neue Migration 5 für beide Backends: Tabelle `sources` (Primärschlüssel `document_id`, Löschweitergabe mit dem Dokument, Konto-ID ohne Fremdschlüssel, damit die Herkunft eine Kontolöschung überdauert) und deterministische Rückfüllung des Bestands. Alle Importpfade (Notiz, Datei, Ordner, PST, IMAP, Graph) schreiben die Quelle in derselben Transaktion wie das Dokument. Unversionierte PostgreSQL-Bestandsschemata werden als Version 4 übernommen und danach auf 5 migriert. Nebenbefund behoben: `database.reset_postgresql` prüfte gegen eine fest verdrahtete Tabellenliste und hätte nach jeder neuen Tabelle den Reset abgelehnt; die Liste wird jetzt aus dem Migrationskatalog abgeleitet. Lokaler PostgreSQL-16.2-Testdienst eingerichtet; die Abnahme verlangt weiterhin den CI-Lauf gegen PostgreSQL 18. | 🟡 |
 | Negativtests Konfiguration | Alle Konfigurationsdateien (`database.json`, `design.json`, Autorität, lokale Identität, Resync-Markierung, Import-Journal) mit leeren, binären, abgeschnittenen, formfalschen und tief verschachtelten Inhalten geprüft; Schreibabbrüche an Schreib-, fsync- und Ersetzungsschritt geprüft. Drei Fehler gefunden und behoben: `design.json` in falscher Form (Liste, `null`, Zahl, Theme als Liste) brach mit `AttributeError`/`TypeError` ab statt auf „hell“ zurückzufallen; tief verschachteltes `database.json` gab den internen `RecursionError`-Text aus; ein fehlgeschlagenes Logo-Speichern meldete fälschlich ein unlesbares Bild und hinterließ `logo.tmp.png`. Gegenprobe: Die neuen Tests schlagen gegen den alten Code fehl. | 🟡 |
 | Gesundheitsanzeige | `diagnostics.health_overview`, CLI `status`, Desktop „Systemstatus“: Datenbank antwortet (mit Dokumentanzahl), aktive KI mit Modell und Schlüsselquelle, E-Mail-Konten ohne gespeicherte Zugangsdaten. Liest nur lokalen Zustand, baut keine Verbindung zu KI-Anbietern oder Postfächern auf, gibt keine Schlüssel aus. `status` öffnet den Store wie jeder normale CLI-Befehl (inkl. Migration), anders als das schreibgeschützte `doctor`. | 🟡 |
 | SQLite-Wiederherstellung | `migrations.restore_sqlite`, CLI `restore <sicherung> --confirm <dateiname>`, Desktop „Sicherung wiederherstellen“: Sicherung nur lesend, Vorprüfung (Integrität, Version 1–4, exaktes Schema), geprüfte Sicherung des aktuellen Stands, Einspielen unter Migrationssperre, Hash-Vergleich aller Dokumente, automatisches Zurückspielen bei Abweichung. Unlesbare Zieldatenbank wird nicht überschrieben. | 🟡 |
-| Tests Linux, Python 3.13 mit lokalem PostgreSQL 16.2 | 349 Tests: 347 bestanden, 2 übersprungen (Windows-Pfadfälle), 0 Fehler. Alle PostgreSQL-Vertragstests laufen mit, darunter `test_configuration_transfer_contract_on_real_postgresql`. | ✅ lokal |
-| Tests Linux, Python 3.11 ohne PostgreSQL-Dienst | 349 Tests: 337 bestanden, 12 übersprungen, 0 Fehler | ✅ lokal |
-| Tests Windows, Python 3.13.8 | 349 Tests: 333 bestanden, 13 übersprungen (3 POSIX-Logging-Fälle, 10 PostgreSQL), 3 Fehler in `start.sh`-Launcher-Tests (kein `sh` im Suchpfad des Prüfrechners, umgebungsbedingt) | ❌ lokal umgebungsbedingt |
+| Tests Linux, Python 3.11, 3.12 und 3.13 | 351 Tests. 3.12 und 3.13 mit lokalem PostgreSQL 16.2: je 349 bestanden, 2 übersprungen (Windows-Pfadfälle). 3.11 ohne PostgreSQL-Dienst: 339 bestanden, 12 übersprungen. Jeweils 0 Fehler. | ✅ lokal |
+| Tests Windows, Python 3.11, 3.12 und 3.13 | 351 Tests, je 335 bestanden, 16 übersprungen (3 POSIX-Logging-Fälle, 10 PostgreSQL, 3 `start.sh`-Tests ohne `sh` im Suchpfad). 3.12 und 3.13: 0 Fehler. 3.11: in zwei Läufen je ein Fehler beim Löschen des Temp-Ordners (WinError 145) in wechselnden, bereits vorhandenen Tests (`test_logging`, `test_importer`); die Prüfungen selbst waren grün, unter 3.12 und 3.13 nie aufgetreten. | 🟡 lokal, Windows-3.11-Aufräumproblem offen |
 | CI-Matrix | nicht nachgewiesen | offen |
 
 **Nächster kleinster Schritt:** Änderungen committen und pushen, CI-Matrix auf Grün prüfen. Danach `python tests/release_gate.py` auf dem Zielrechner ausführen, möglichst mit `--sqlite` auf eine Kopie einer Datenbank mit Bestandsdaten älterer Schemaversion, und die manuellen Punkte des Protokolls abhaken. Das abgezeichnete Protokoll ist der Nachweis für das Gate von Phase 4 und 5.
@@ -151,9 +154,9 @@ Die Annahmen werden vor Beginn eines Mehrbenutzer- oder Serverbetriebs neu bewer
 
 ### 4.3 Qualitätsbasis
 
-- Aktueller Stand 22.10.2026: 349 Tests: Linux Python 3.13 mit lokalem PostgreSQL 16.2 347 bestanden, 2 übersprungen; Linux Python 3.11 ohne PostgreSQL 337 bestanden, 12 übersprungen; Windows (Python 3.13.8) 333 bestanden, 13 übersprungen, 3 umgebungsbedingte Fehler. Die Windows-Fehler betreffen nur die `start.sh`-Launcher-Tests auf einem Rechner ohne `sh` im Suchpfad.
+- Aktueller Stand 22.10.2026: 351 Tests. Linux Python 3.12/3.13 mit lokalem PostgreSQL 16.2 je 349 bestanden, 2 übersprungen; Linux Python 3.11 ohne PostgreSQL 339 bestanden, 12 übersprungen; Windows Python 3.11/3.12/3.13 je 335 bestanden, 16 übersprungen, unter 3.11 vereinzelt ein umgebungsbedingter Temp-Ordner-Aufräumfehler.
 - Dokumentierter Vorstand `b117ac9`: 321 Tests auf Windows erfolgreich, 9 Übersprünge (3 plattformspezifische Logging-Dateisystemfälle, 6 nicht konfigurierte Live-PostgreSQL-Diensttests).
-- Unterstützte Python-Versionen 3.11, 3.12 und 3.13; CI-Matrix auf Windows und Linux mit den Endpunkten 3.11 und 3.13
+- Unterstützte Python-Versionen 3.11, 3.12 und 3.13; CI-Matrix auf Windows und Linux mit allen drei Versionen (seit 22.10.2026, vorher nur 3.11 und 3.13), dazu der Job `postgres`: sieben Jobs
 - grafische Tests unter virtuellem Linux-Bildschirm
 - PostgreSQL-18-Dienst in CI verdrahtet; erfolgreicher entfernter Lauf von `test_configuration_transfer_contract_on_real_postgresql` noch nicht nachgewiesen
 - CI ohne kostenpflichtige KI-, E-Mail- oder Microsoft-Aufrufe
@@ -411,7 +414,7 @@ PostgreSQL-Destruktivtests dürfen ausschließlich gegen eine Wegwerfdatenbank m
 - parallele Starts führen genau eine Migration aus
 - unversionierte oder manipulierte Schemas werden ohne Änderung abgelehnt
 
-**Gate:** 89 von 89 Tests grün, alle fünf CI-Jobs grün, PostgreSQL-18-Test grün und dokumentierter manueller Migrationstest bestanden. Automatischer Teil erfüllt: Die Matrix-Jobs überspringen nur die fünf PostgreSQL-Tests, die der Job `postgres` vollständig ausführt. Offen ist der manuelle Migrationstest; bis dahin bleibt Phase 4 🟡 und Release 1.9 ist nicht freigegeben.
+**Gate:** 89 von 89 Tests grün, alle CI-Jobs grün (damals fünf, seit 22.10.2026 sieben), PostgreSQL-18-Test grün und dokumentierter manueller Migrationstest bestanden. Automatischer Teil erfüllt: Die Matrix-Jobs überspringen nur die fünf PostgreSQL-Tests, die der Job `postgres` vollständig ausführt. Offen ist der manuelle Migrationstest; bis dahin bleibt Phase 4 🟡 und Release 1.9 ist nicht freigegeben.
 
 ### Phase 5 – Release 1.9 Stabilisierung und Betriebsfähigkeit 🟡
 
@@ -598,7 +601,7 @@ Erforderlicher Mindestumfang:
 | Kennzahl | Zielwert |
 |---|---:|
 | CI-Erfolgsquote auf `main` | 100 % |
-| Unterstützte Plattformmatrix | Windows/Linux × Python 3.11/3.13 |
+| Unterstützte Plattformmatrix | Windows/Linux × Python 3.11/3.12/3.13 |
 | Exakte Dubletten im Bestand | 0 |
 | Dokumente ohne Quelle oder Prüfsumme | 0 |
 | Tatsachenantworten ohne Quellenverweis | 0 % |
@@ -740,12 +743,12 @@ Ein Arbeitspaket ist abgeschlossen, wenn:
 
 Der nächste Release ist **1.9 – Stabilisierung und Betriebsfähigkeit**. Neue Großfunktionen wie OCR, E-Mail-Anhänge und Vektorsuche beginnen erst, wenn folgende Gates erfüllt sind:
 
-- alle fünf GitHub-CI-Jobs für den aktuellen Head grün (historisch erfüllt für `ad7cf0e`, für den aktuellen Stand offen)
+- alle sieben GitHub-CI-Jobs (Windows/Linux × Python 3.11/3.12/3.13 und `postgres`) für den aktuellen Head grün (historisch erfüllt für `ad7cf0e`, für den aktuellen Stand offen)
 - SQLite-Migrationen 1 bis 4 auf 5 mit unveränderten Dokument-Hashes und erwarteten `sources`-Werten manuell geprüft
 - PostgreSQL-Migration und atomarer Reset ausschließlich gegen eine isolierte `*_test`-Datenbank geprüft
 - Dokumentation widerspruchsfrei
 - SQLite- und PostgreSQL-Wiederherstellung geprüft
 - strukturierte, geheimnisfreie Diagnose vorhanden
-- vollständiger Gesamtlauf (aktuell 349 Tests) grün; plattform- oder dienstbedingte Übersprünge transparent ausgewiesen
+- vollständiger Gesamtlauf (aktuell 351 Tests) grün; plattform- oder dienstbedingte Übersprünge transparent ausgewiesen
 
 Damit wird zuerst die Betriebs- und Datensicherheit des vorhandenen Funktionsumfangs abgesichert. Danach folgen Importausbau und Hybrid-RAG in getrennten Phasen.

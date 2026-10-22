@@ -208,6 +208,14 @@ class InterfaceTests(unittest.TestCase):
         window.remove_design_logo()
         self.assertFalse(window.design_settings.logo_path.exists())
 
+    def test_damaged_logo_names_the_file_not_the_library(self):
+        window=self.window
+        window.design_settings.directory.mkdir(parents=True,exist_ok=True)
+        window.design_settings.logo_path.write_bytes(b'\x89PNG beschaedigt')
+        window.refresh_logo()
+        self.assertIsNone(window.logo_image)
+        self.assertIn('Gespeichertes Logo ist nicht lesbar',window.logo_load_error)
+
     def test_save_switch_reload_and_remove(self):
         window=self.window
         window.provider_tree.selection_set('anthropic')

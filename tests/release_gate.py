@@ -260,7 +260,7 @@ MANUAL_CHECKS = (
     'Sicherung wiederherstellen in der Oberfläche mit einer Testdatenbank (`WISSEN_DB` auf eine Kopie setzen), '
     'Bestätigung mit falschem und richtigem Dateinamen',
     'Konfigurationsexport und -import auf dem sauberen System ohne Schlüssel in der Exportdatei',
-    'GitHub Actions: Link zum Lauf mit allen fünf grünen Jobs eintragen',
+    'GitHub Actions: Link zum Lauf mit allen sieben grünen Jobs eintragen',
 )
 
 

@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -591,6 +592,7 @@ class DiagnosticTests(unittest.TestCase):
                 settings=DatabaseSettings(Path(folder),types.SimpleNamespace(get=lambda *_:None),environ={})
                 self.assertEqual(check_active_database(settings,path).status,'FAIL')
 
+    @unittest.skipUnless(shutil.which('sh'), 'sh nicht im Suchpfad; unter Windows Git Bash in PATH aufnehmen')
     def test_shell_launcher_uses_supported_existing_venv_without_system_python(self):
         root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as folder:
@@ -622,6 +624,7 @@ class DiagnosticTests(unittest.TestCase):
             self.assertIn('-m pip install -r requirements.txt', calls)
             self.assertIn('app.py', calls)
 
+    @unittest.skipUnless(shutil.which('sh'), 'sh nicht im Suchpfad; unter Windows Git Bash in PATH aufnehmen')
     def test_shell_launcher_gates_venv_creation_on_supported_system_python(self):
         root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as folder:
@@ -650,6 +653,7 @@ class DiagnosticTests(unittest.TestCase):
             self.assertIn('sys.version_info', log.read_text(encoding='utf-8'))
             self.assertFalse((work / '.venv').exists())
 
+    @unittest.skipUnless(shutil.which('sh'), 'sh nicht im Suchpfad; unter Windows Git Bash in PATH aufnehmen')
     def test_shell_launcher_rejects_unsupported_existing_venv_without_system_fallback(self):
         root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as folder:

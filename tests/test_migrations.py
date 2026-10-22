@@ -784,6 +784,7 @@ class SQLiteRestoreTests(unittest.TestCase):
         self.assertTrue(safety.name.startswith('wissen.db.pre-restore-'))
         self.assertEqual(self.titles(safety), ['Erste Fassung', 'Nach Sicherung'])
         self.assertEqual(self.backup.read_bytes(), backup_bytes)
+        self.assertEqual(sorted(p.name for p in self.folder.glob('sicherung.db*')), ['sicherung.db'])
         self.assertEqual(self.leftovers(), [])
 
     def test_older_backup_is_restored_as_is_and_migrated_on_next_start(self):
@@ -829,6 +830,21 @@ class SQLiteRestoreTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'nicht lesbar'):
             restore_sqlite(damaged, self.backup)
         self.assertEqual(damaged.read_bytes(), before)
+
+    def test_committed_pages_in_copied_wal_sidecar_are_restored(self):
+        live = self.folder / 'live.db'
+        Store(live).add('Basis', 'Basisinhalt')
+        copy = self.folder / 'kopie.db'
+        with closing(sqlite3.connect(live)) as db:
+            db.execute('PRAGMA wal_autocheckpoint=0')
+            db.execute("INSERT INTO documents(title,category,content,sha256) "
+                       "VALUES('Nur im WAL','Allgemein','wal','sha-wal')")
+            db.commit()
+            # A user copies the database together with its -wal file.
+            copy.write_bytes(live.read_bytes())
+            Path(str(copy) + '-wal').write_bytes(Path(str(live) + '-wal').read_bytes())
+        restore_sqlite(self.path, copy)
+        self.assertEqual(self.titles(self.path), ['Basis', 'Nur im WAL'])
 
     def test_restore_into_missing_path_creates_database(self):
         target = self.folder / 'neu' / 'wissen.db'
