@@ -43,15 +43,15 @@ def prepare_startup(base=None,environ=None,vault_factory=None,
     vault=vault_factory()
     database_settings=database_settings_factory(base,vault,environ)
     sqlite_path=resolve_sqlite_path(base,environ)
+    results=tuple(diagnostics_runner(base,vault,database_settings,sqlite_path))
+    if any(result.status=='FAIL' for result in results):
+        raise StartupFailure(results)
     try:
         recover_pending_configuration(base,database_settings,sqlite_path)
     except ConfigurationTransferError:
         failure=DiagnosticResult('configuration_recovery','FAIL',
                                  'Konfigurationswiederherstellung ist unvollständig; das Wiederherstellungsjournal wurde beibehalten.',{})
         raise StartupFailure((failure,)) from None
-    results=tuple(diagnostics_runner(base,vault,database_settings,sqlite_path))
-    if any(result.status=='FAIL' for result in results):
-        raise StartupFailure(results)
     return vault,database_settings,results,sqlite_path
 
 

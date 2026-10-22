@@ -51,6 +51,47 @@ class CliDoctorTests(unittest.TestCase):
         self.assertEqual(run.call_args.args[3], Path(configured))
         self.assertFalse(run.call_args.kwargs['force_sqlite'])
 
+    def test_doctor_reports_pending_recovery_without_recovery_or_marker_changes(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            data = base / 'data'
+            data.mkdir()
+            journal = data / 'configuration-import-journal.json'
+            authority = data / 'authority-resync-pending.json'
+            journal.write_bytes(b'PRIVATE journal contents')
+            authority.write_bytes(b'PRIVATE authority contents')
+            before = {path: path.read_bytes() for path in (journal, authority)}
+            output = io.StringIO()
+
+            with patch.object(cli, 'BASE', base), \
+                 patch.object(cli, 'SystemVault'), \
+                 patch.object(cli, 'DatabaseSettings'), \
+                 patch.object(cli, 'recover_pending_configuration') as recover, \
+                 patch.object(cli, 'run_diagnostics', return_value=()), \
+                 redirect_stdout(output):
+                exit_code = cli.main(['--db', 'PRIVATE-origin.db', 'doctor'])
+
+            self.assertEqual(exit_code, 1)
+            recover.assert_not_called()
+            self.assertEqual({path: path.read_bytes() for path in before}, before)
+            self.assertEqual(
+                output.getvalue(),
+                '[FAIL] configuration_recovery: '
+                'Konfigurationswiederherstellung ist ausstehend; Anwendung normal starten.\n'
+                'Ergebnis: 0 bestanden, 0 Warnungen, 1 fehlgeschlagen.\n')
+            self.assertNotIn('PRIVATE', output.getvalue())
+
+    def test_doctor_without_pending_recovery_never_calls_recovery(self):
+        with tempfile.TemporaryDirectory() as folder, \
+             patch.object(cli, 'BASE', Path(folder)), \
+             patch.object(cli, 'SystemVault'), \
+             patch.object(cli, 'DatabaseSettings'), \
+             patch.object(cli, 'recover_pending_configuration') as recover, \
+             patch.object(cli, 'run_diagnostics', return_value=()), \
+             redirect_stdout(io.StringIO()):
+            self.assertEqual(cli.main(['doctor']), 0)
+        recover.assert_not_called()
+
 
 class CliDatabasePathTests(unittest.TestCase):
     def test_normal_command_passes_wissen_db_to_database_settings(self):
@@ -110,6 +151,45 @@ class CliDatabasePathTests(unittest.TestCase):
 
         sqlite_store.assert_called_once_with(explicit)
         settings.open_store.assert_not_called()
+
+    def test_normal_command_recovers_before_opening_store(self):
+        events = []
+        settings = Mock()
+        store = Mock(backend='sqlite')
+        store.list.return_value = []
+        settings.open_store.side_effect = lambda _path: events.append('open') or store
+
+        with patch.object(cli, 'SystemVault'), \
+             patch.object(cli, 'DatabaseSettings', return_value=settings), \
+             patch.object(cli, 'recover_pending_configuration',
+                          side_effect=lambda *_: events.append('recover')), \
+             redirect_stdout(io.StringIO()):
+            self.assertEqual(cli.main(['list']), 0)
+
+        self.assertEqual(events, ['recover', 'open'])
+
+
+class CliConfigurationExportTests(unittest.TestCase):
+    def test_export_fails_closed_on_authority_pending_marker_without_recovery(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            marker = base / 'data' / 'authority-resync-pending.json'
+            marker.parent.mkdir()
+            marker.write_bytes(b'PRIVATE malformed marker')
+            error = io.StringIO()
+            with patch.object(cli, 'BASE', base), \
+                 patch.object(cli, 'SystemVault'), \
+                 patch.object(cli, 'DatabaseSettings'), \
+                 patch.object(cli, 'recover_pending_configuration') as recover, \
+                 self.assertRaises(SystemExit) as raised, \
+                 patch('sys.stderr', error):
+                cli.main(['config-export', str(base / 'export.json')])
+
+            self.assertEqual(raised.exception.code, 1)
+            recover.assert_not_called()
+            self.assertTrue(marker.exists())
+            self.assertNotIn('PRIVATE', error.getvalue())
+            self.assertIn('Konfigurationswiederherstellung ist unvollständig', error.getvalue())
 
 
 if __name__ == '__main__':

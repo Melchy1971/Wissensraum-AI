@@ -51,6 +51,15 @@ class ConfigurationTransferError(ValueError):
         super().__init__(message)
 
 
+def pending_configuration_recovery(base):
+    """Check known recovery markers without opening or parsing either file."""
+    data = Path(base) / 'data'
+    return any(path.exists() for path in (
+        data / 'configuration-import-journal.json',
+        data / 'authority-resync-pending.json',
+    ))
+
+
 def _exact_dict(value, keys):
     if type(value) is not dict:
         return False

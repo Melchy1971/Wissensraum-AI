@@ -14,8 +14,8 @@ from settings import Settings
 from test_settings import FakeVault
 
 class StartupTests(unittest.TestCase):
-    def test_pending_recovery_failure_blocks_diagnostics_and_normal_store_selection(self):
-        diagnostics = Mock()
+    def test_pending_recovery_failure_follows_diagnostics_and_blocks_store_selection(self):
+        diagnostics = Mock(return_value=())
         settings = Mock()
         with patch.object(app, 'recover_pending_configuration',
                           side_effect=app.ConfigurationTransferError(
@@ -25,10 +25,39 @@ class StartupTests(unittest.TestCase):
                 app.prepare_startup(
                     base=Path('unused'), environ={}, vault_factory=Mock,
                     database_settings_factory=lambda *_: settings)
-        diagnostics.assert_not_called()
+        diagnostics.assert_called_once()
         settings.open_store.assert_not_called()
         self.assertIn('Wiederherstellungsjournal', str(raised.exception))
         self.assertNotIn('private-safe', str(raised.exception))
+
+    def test_failed_diagnostics_prevent_pending_recovery(self):
+        failure = app.DiagnosticResult('database', 'FAIL', 'Datenbank prüfen.', {})
+        settings = Mock()
+        with patch.object(app, 'run_diagnostics', return_value=(failure,)), \
+             patch.object(app, 'recover_pending_configuration') as recover:
+            with self.assertRaises(app.StartupFailure):
+                app.prepare_startup(
+                    base=Path('unused'), environ={}, vault_factory=Mock,
+                    database_settings_factory=lambda *_: settings)
+        recover.assert_not_called()
+        settings.open_store.assert_not_called()
+
+    def test_diagnostics_and_recovery_finish_before_active_store_open(self):
+        events = []
+        settings = Mock()
+        settings.open_store.side_effect = lambda _path: events.append('store') or object()
+        diagnostics = lambda *_: events.append('diagnostics') or ()
+        recovery = lambda *_: events.append('recovery')
+
+        with patch.object(app, 'recover_pending_configuration', side_effect=recovery):
+            _vault, prepared_settings, _results, sqlite_path = app.prepare_startup(
+                base=Path('unused'), environ={}, vault_factory=Mock,
+                database_settings_factory=lambda *_: settings,
+                diagnostics_runner=diagnostics)
+        app.initialize_desktop(Mock(), prepared_settings, sqlite_path,
+                               lambda: events.append('root'))
+
+        self.assertEqual(events, ['diagnostics', 'recovery', 'root', 'store'])
 
     def test_production_startup_failure_prevents_root_and_store_creation(self):
         failure = app.DiagnosticResult(

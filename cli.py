@@ -7,9 +7,10 @@ from settings import Settings
 from settings import SystemVault
 from database import DatabaseSettings, resolve_sqlite_path
 from configuration_authority import ConfigurationAuthority, identity_for_profile
-from diagnostics import format_diagnostics, run_diagnostics
+from diagnostics import DiagnosticResult, format_diagnostics, run_diagnostics
 from configuration import (APPLY_ERROR, EXPORT_ERROR, ConfigurationTransfer,
                            ConfigurationTransferError, RECOVERY_ERROR,
+                           pending_configuration_recovery,
                            recover_pending_configuration)
 from design import DesignSettings
 from local_logging import (create_operational_logger, known_runtime_secrets,
@@ -63,16 +64,20 @@ def main(argv=None):
         # identity (or explicit --db), never from the process environment.
         sqlite_path = (args.db if args.command == 'config-export' else
                        resolve_sqlite_path(BASE,explicit=args.db))
-        journal_path=BASE/'data'/'configuration-import-journal.json'
-        if args.command == 'config-export' and journal_path.exists():
+        recovery_pending = pending_configuration_recovery(BASE)
+        if args.command == 'config-export' and recovery_pending:
             raise ConfigurationTransferError(RECOVERY_ERROR,'CONFIG_IMPORT_RECOVERY_INCOMPLETE')
-        if args.command != 'config-export':
-            recover_pending_configuration(BASE,database_settings,sqlite_path)
         if args.command == 'doctor':
             results = run_diagnostics(BASE,vault,database_settings,sqlite_path,
                                       force_sqlite=args.db is not None)
+            if recovery_pending:
+                results = (*results, DiagnosticResult(
+                    'configuration_recovery', 'FAIL',
+                    'Konfigurationswiederherstellung ist ausstehend; Anwendung normal starten.', {}))
             print(format_diagnostics(results))
             return 1 if any(result.status == 'FAIL' for result in results) else 0
+        if args.command != 'config-export':
+            recover_pending_configuration(BASE,database_settings,sqlite_path)
         if args.command == 'config-export':
             profile=database_settings.persisted_profile()
             expected=identity_for_profile(
