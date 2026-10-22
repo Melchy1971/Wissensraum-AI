@@ -1,8 +1,8 @@
 # Masterplan Wissensraum-AI
 
 - **Dokumentversion:** 1.0
-- **Stand:** 19.10.2026
-- **Produktstand:** 1.8.1
+- **Stand:** 22.10.2026
+- **Produktstand:** 1.9-dev (Basis 1.8.1)
 - **Repository:** `Melchy1971/Wissensraum-AI`
 - **Status:** Verbindliche Planungsgrundlage
 
@@ -65,7 +65,7 @@ Die Annahmen werden vor Beginn eines Mehrbenutzer- oder Serverbetriebs neu bewer
 
 ### 4.1 Produktfunktionen
 
-| Bereich | Stand 1.8.1 | Reifegrad |
+| Bereich | Aktueller Stand 1.9-dev | Reifegrad |
 |---|---|---|
 | Desktop-Oberfläche | Deutsche Tkinter-Oberfläche mit Hauptnavigation und kontrolliertem Beenden | Produktiv nutzbar |
 | Lokale Dokumente | TXT, Markdown, textbasierte PDF und DOCX | Produktiv nutzbar |
@@ -76,7 +76,7 @@ Die Annahmen werden vor Beginn eines Mehrbenutzer- oder Serverbetriebs neu bewer
 | Suche | Lexikalische Volltextsuche: SQLite mit BM25, PostgreSQL mit `ts_rank_cd` | Funktionsfähig, keine Semantik |
 | KI | OpenAI, Claude, Gemini und Ollama; Anbieter und Modell aktivierbar | Adapter getestet, Live-Abdeckung unvollständig |
 | Quellen | KI-Kontext aus maximal acht Abschnitten, Quellenmarkierungen `[Qn]` | Technisch geprüft, keine fachliche Belegprüfung |
-| Datenbanken | SQLite oder PostgreSQL mit eigenem Schema `wissensraum` | PostgreSQL-18-Vertragstest in CI verdrahtet; erfolgreicher Live-Lauf noch ausstehend |
+| Datenbanken | SQLite oder PostgreSQL mit eigenem Schema `wissensraum`; beide über geordnete Migrationen bis Schema 4 verwaltet | Lokale Verträge getestet; PostgreSQL-Live-Abdeckung in CI noch nicht vollständig nachgewiesen |
 | Schlüssel | Betriebssystem-Schlüsselspeicher; externe Variablen und Dateien lesbar | Sicherheitskritischer Kern vorhanden |
 | Design | Telekom-Magenta, Hell-/Dunkelmodus, eigenes Logo | Produktiv nutzbar |
 | Sicherung | SQLite-Backup; PostgreSQL serverseitig | Wiederherstellung noch nicht automatisiert getestet |
@@ -92,16 +92,17 @@ Die Annahmen werden vor Beginn eines Mehrbenutzer- oder Serverbetriebs neu bewer
 | `settings` | Nicht geheime Anwendungseinstellungen |
 | `email_accounts` | Kontometadaten ohne Kennwörter oder Token |
 | `email_imports` | Zuordnung importierter Servernachrichten zu Dokumenten |
+| `PRAGMA user_version` / `schema_migrations` | Versionsmetadaten für geordnete SQLite-/PostgreSQL-Migrationen |
 | `data/database.json` | Lokales Datenbankprofil ohne Kennwort |
 | `data/design.json` | Lokale Designkonfiguration |
 | `data/branding/logo.png` | Normalisiertes Anwendungslogo |
 
 ### 4.3 Qualitätsbasis
 
-- 274 automatisierte Anwendungstests
-- Windows und Linux mit Python 3.11 und 3.13
+- Lokaler Windows-Gesamtlauf mit Projektinterpreter: 321 Tests erfolgreich, 9 Übersprünge (3 plattformspezifische Logging-Dateisystemfälle und 6 nicht konfigurierte Live-PostgreSQL-Diensttests)
+- Unterstützte Python-Versionen 3.11, 3.12 und 3.13; CI-Matrix auf Windows und Linux mit den Endpunkten 3.11 und 3.13
 - grafische Tests unter virtuellem Linux-Bildschirm
-- PostgreSQL-18-Vertragstest in CI verdrahtet; erfolgreicher Live-Lauf noch ausstehend
+- PostgreSQL-18-Dienst in CI verdrahtet; erfolgreicher entfernter Lauf von `test_configuration_transfer_contract_on_real_postgresql` noch nicht nachgewiesen
 - CI ohne kostenpflichtige KI-, E-Mail- oder Microsoft-Aufrufe
 - API-Verträge über kontrollierte Testantworten
 
@@ -150,13 +151,13 @@ Die Annahmen werden vor Beginn eines Mehrbenutzer- oder Serverbetriebs neu bewer
 
 **Muss-Umfang:**
 
-- [x] README-Widersprüche bereinigt und PostgreSQL-Funktionsumfang einschließlich Suche, TLS-Ausnahme, Sicherung und fehlender Schema-Migration eindeutig dokumentiert
-- [x] Fail-closed-Startdiagnose für Python, Tcl/Tk, Pillow, sicheren Schlüsselbund, aktive SQLite-/PostgreSQL-Datenbank, Anwendungsschema und Schreibrechte; CLI `doctor`, redigierter Desktop-Abbruch vor Store-Initialisierung und Konsolenpfad ohne Tk umgesetzt
+- [x] README-Widersprüche bereinigt und PostgreSQL-Funktionsumfang einschließlich Suche, TLS-Ausnahme, Sicherungsgrenzen und versionierter Schema-Migration eindeutig dokumentiert
+- [x] Fail-closed-Startdiagnose für Python, Tcl/Tk, Pillow, sicheren Schlüsselbund, aktive SQLite-/PostgreSQL-Datenbank, Anwendungsschema und Schreibrechte; CLI `doctor` bleibt read-only und meldet ausstehende Konfigurationswiederherstellung redigiert, der Desktop verarbeitet sie erst nach erfolgreicher Diagnose und vor dem normalen Store-Öffnen
 - [x] strukturierte lokale Logs mit Rotation und konsequenter Geheimnisfilterung
-- [ ] Konfigurationsexport und -import ohne Schlüssel, Kennwörter und Token (Implementierung und realer PostgreSQL-Vertragstest vorhanden; Abschluss erst nach erfolgreichem PostgreSQL-CI-Lauf)
-- SQLite-Wiederherstellung als geführter Ablauf
-- dokumentierter und automatisiert geprüfter PostgreSQL-Backup-/Restore-Prozess
-- Schema-Migrationsrahmen statt ausschließlich eingebetteter Initialisierung
+- [ ] Konfigurationsexport und -import ohne Schlüssel, Kennwörter und Token (Code und Tests lokal vollständig; Abschluss erst nach erfolgreichem entferntem CI-Lauf von `test_configuration_transfer_contract_on_real_postgresql`)
+- [ ] SQLite-Wiederherstellung als geführter Ablauf
+- [ ] dokumentierter und automatisiert geprüfter PostgreSQL-Backup-/Restore-Prozess
+- [x] geordneter, versionierter Schema-Migrationsrahmen für SQLite und PostgreSQL mit Metadaten, Sperren, Sicherung/Validierung und Rollback-Tests; PostgreSQL-Reset migrationsbasiert und atomar
 - einheitliches Quellenmodell `sources` für Quelltyp und anwendbare Herkunftsangaben; bestehende Herkunftsangaben werden versioniert migriert
 - Gesundheitsanzeige für aktive Datenbank, KI-Anbieter und E-Mail-Konten
 - negative Tests für beschädigte Konfigurationen und unterbrochene Schreibvorgänge
@@ -388,7 +389,7 @@ Ein Arbeitspaket ist abgeschlossen, wenn:
 | Migration / Rückwärtskompatibilität | Keine SQL-Schema-, Daten- oder Konfigurationsmigration erforderlich. Bestehende SQLite- und PostgreSQL-Datenbanken bleiben unverändert; Logging-Ausfall ist nicht blockierend. Neue lokale Logdateien sind additive Betriebsartefakte und alte Programmversionen ignorieren sie. |
 | UI-Themes | Nicht anwendbar: Es gibt kein neues UI-Element und keine Änderung an Hell-/Dunkelmodus. Die einzige sichtbare Reaktion ist eine themenunabhängige generische Warnung auf dem bestehenden Fehlerkanal. |
 | Sicherheit | Nur exakte eingebaute Skalartypen und freigegebene Metadaten gelangen in das Schema; Ausnahmetexte, Tracebacks und nicht freigegebene Werte werden verworfen. Formbasierte und bekannte-Wert-Redaktion sind eine zusätzliche Grenze, ersetzen aber weder Dateirechte noch die Prüfung vor Weitergabe. Pfad-, Windows- und Hardlink-Aliasse eines vorhandenen Ziels teilen dieselbe Besitzsperre. |
-| Messbarer Testnachweis | Abschlusslauf auf Windows mit Projektinterpreter: fokussiert `python -m unittest tests.test_logging tests.test_logging_integration -v` = 79 Tests, erfolgreich, 3 POSIX-Dateisystemtests plattformbedingt übersprungen; vollständig `python -m unittest discover -s tests -v` = 197 Tests, erfolgreich, 4 Übersprünge (drei POSIX-Dateisystemfälle und lokal nicht konfigurierter PostgreSQL-Testdienst). |
+| Messbarer Testnachweis | Historischer fokussierter Abschlusslauf: `python -m unittest tests.test_logging tests.test_logging_integration -v` = 79 Tests, erfolgreich, 3 POSIX-Dateisystemtests plattformbedingt übersprungen. Aktueller vollständiger Windows-Lauf: `python -m unittest discover -s tests -v` = 321 Tests, erfolgreich, 9 Übersprünge (3 plattformspezifische Logging-Dateisystemfälle und 6 nicht konfigurierte Live-PostgreSQL-Diensttests). |
 
 ### 12.2 DoD-Nachweis: sicherer Konfigurationstransfer (Release 1.9)
 
@@ -397,11 +398,21 @@ Ein Arbeitspaket ist abgeschlossen, wenn:
 | Anforderungen | Versionierter JSON-Export und -Import sind über CLI und **Einstellungen → Konfiguration** verfügbar. Die feste Positivliste umfasst KI-Anbieter/Modelle/Deaktivierung, Datenbankprofil, Designmodus und E-Mail-Kontometadaten. |
 | Nicht-Ziele | Keine Dokumente, Originale, KI-Verläufe, Logs, Logo-Dateien, API-Schlüssel, Datenbank-/E-Mail-Kennwörter, OAuth-Token, Schlüsselbundinhalte, Umgebungswerte oder Inhalte beziehungsweise Pfade externer Schlüsseldateien. Keine Datenmigration zwischen SQLite und PostgreSQL. |
 | Fehler- und Abbruchverhalten | Format, Version, exakte Container- und Skalartypen, Feldlisten, Wertebereiche und Enumerationen werden vollständig vor der ersten Änderung geprüft. Unbekannte und geheimnisverdächtige Schlüssel werden abgelehnt. SQL-Änderungen laufen in einer Transaktion; atomar ersetzte lokale Konfigurationsdateien werden bei späterem Fehler aus ihren Snapshots zurückgesetzt. |
-| SQLite / PostgreSQL | Der Dienst nutzt den gemeinsamen `store.connect()`-Vertrag und backendneutrale SQL-Platzhalter. Die lokale Autoritätsdatei verhindert, dass ein PostgreSQL-Export versehentlich veraltete SQLite-Metadaten übernimmt. Crash-Tests decken SQLite→PostgreSQL, PostgreSQL→SQLite und geänderte PostgreSQL-Server-/Datenbankprofile ab. Der echte PostgreSQL-18-Test ist in CI verdrahtet; ein erfolgreicher Live-Lauf des erweiterten Vertrags steht noch aus. |
+| SQLite / PostgreSQL | Der Dienst nutzt den gemeinsamen `store.connect()`-Vertrag und backendneutrale SQL-Platzhalter. Die lokale Autoritätsdatei verhindert, dass ein PostgreSQL-Export versehentlich veraltete SQLite-Metadaten übernimmt. Crash-Tests decken SQLite→PostgreSQL, PostgreSQL→SQLite und geänderte PostgreSQL-Server-/Datenbankprofile ab. Der echte PostgreSQL-18-Dienst ist in CI verdrahtet; der erfolgreiche entfernte Lauf von `test_configuration_transfer_contract_on_real_postgresql` steht noch aus. |
 | Neustart / Kompatibilität | Ein importiertes Datenbankprofil wird gespeichert, aber der während des Imports geöffnete Store bleibt aktiv. Jede Profildifferenz, einschließlich Host- oder Datenbankwechsel innerhalb von PostgreSQL, meldet den erforderlichen Neustart. Bestehende Installationen erzeugen die Autoritätsdatei beim authentifizierten Desktop-Start oder ausdrücklich mit `config-sync`; der geheime-freie CLI-Export schlägt vorher fail-closed fehl. Formatversion 1 wird exakt akzeptiert; andere Versionen schlagen fail-closed fehl. Es ist keine SQL-Schemamigration erforderlich. |
 | Sicherheit | Der CLI-Export liest ausschließlich die validierte Autoritätsdatei sowie Datenbank- und Designprofil und öffnet weder SQL noch Schlüsselbund oder Kennwort-/Tokenquellen. Das Wiederherstellungsjournal speichert nur die nicht geheime Ursprungsidentität; die Verbindung wird vor normaler Store-Auswahl wiederhergestellt. Bestehende Zielsystem-Geheimnisse bleiben beim Import unverändert. Dateiausgaben, CLI-Status und Betriebslogs enthalten weder gewählte Pfade noch Konfigurationsinhalte. |
 | UI-Themes | Der Konfigurationsbereich verwendet bestehende ttk-Stile und ist damit in Hell- und Dunkelmodus eingebunden; Abbruch-, Fehler- und Erfolgspfade sind ohne Live-Anzeige getestet, die Auffindbarkeit im Einstellungs-Notebook im GUI-Vertragstest. |
-| Messbarer Testnachweis | Abschlusslauf auf Windows mit Projektinterpreter: fokussiert `python -m unittest discover -s tests -p 'test_configuration.py' -v` = 53 Tests, erfolgreich; vollständig `python -m unittest discover -s tests -v` = 274 Tests, erfolgreich, 5 Übersprünge (drei Windows-Dateisystemfälle und zwei Tests des lokal nicht konfigurierten PostgreSQL-Dienstes). Der erfolgreiche Live-PostgreSQL-CI-Lauf bleibt ausstehend. |
+| Messbarer Testnachweis | Historischer fokussierter Abschlusslauf: `python -m unittest discover -s tests -p 'test_configuration.py' -v` = 53 Tests, erfolgreich. Aktueller vollständiger Windows-Lauf: `python -m unittest discover -s tests -v` = 321 Tests, erfolgreich, 9 Übersprünge (3 plattformspezifische Logging-Dateisystemfälle und 6 nicht konfigurierte Live-PostgreSQL-Diensttests). Der erfolgreiche entfernte CI-Lauf von `test_configuration_transfer_contract_on_real_postgresql` bleibt ausstehend. |
+
+### 12.3 DoD-Nachweis: Schema-Migrationsrahmen (Release 1.9)
+
+| Prüfaspekt | Bewertung und Nachweis |
+|---|---|
+| Anforderungen | `migrations.py` enthält geordnete Vorwärtsmigrationen bis Schema 4 für SQLite und PostgreSQL. SQLite verwendet `PRAGMA user_version`, PostgreSQL die Tabelle `wissensraum.schema_migrations`. Store-Initialisierung und PostgreSQL-Schema-Reset verwenden diesen Rahmen. |
+| Sicherheit und Parallelität | SQLite serialisiert Migrationen über Datei- und Identitätssperren; PostgreSQL verwendet eine transaktionale Advisory-Sperre. Neuere unbekannte Versionen und unvereinbare Bestandsschemata werden vor Änderungen abgelehnt. |
+| Sicherung, Validierung und Fehlerpfad | Vor SQLite-Upgrades wird eine per Integritäts- und Versionsprüfung validierte Sicherung erstellt. Beide Backends validieren den Schema-Vertrag; fehlgeschlagene Migrationen und Nachvalidierungen rollen zurück. Der PostgreSQL-Reset löscht und migriert das Anwendungsschema in einer Transaktion. |
+| Grenzen | Die Vor-Migrationssicherung ersetzt keinen geführten SQLite-Restore. Ein dokumentierter und automatisiert geprüfter PostgreSQL-Backup-/Restore-Prozess bleibt offen. |
+| Messbarer Testnachweis | Der aktuelle vollständige Windows-Lauf umfasst Migrations-, Sperr-, Sicherungs-, Validierungs-, Rollback-, Legacy-Adoptions- und Reset-Tests: 321 Tests erfolgreich, 9 Übersprünge. Sechs Übersprünge betreffen den lokal nicht konfigurierten Live-PostgreSQL-Dienst; daraus wird kein grüner Live-CI-Status abgeleitet. |
 
 ## 13. Entscheidungsregister
 
@@ -439,6 +450,6 @@ Der nächste Release ist **1.9 – Stabilisierung und Betriebsfähigkeit**. Neue
 - Datenbankmigrationen versioniert
 - SQLite- und PostgreSQL-Wiederherstellung geprüft
 - strukturierte, geheimnisfreie Diagnose vorhanden
-- bestehende 51 Tests weiterhin grün und um Restore-/Fehlertests erweitert
+- aktueller lokaler Gesamtlauf mit 321 Tests erfolgreich und um Migrations-/Fehlerpfade erweitert; 9 plattform- beziehungsweise dienstbedingte Übersprünge bleiben transparent ausgewiesen
 
 Damit wird zuerst die Betriebs- und Datensicherheit des vorhandenen Funktionsumfangs abgesichert. Danach folgen Importausbau und Hybrid-RAG in getrennten Releases.
