@@ -1,14 +1,14 @@
 # Masterplan Wissensraum-AI
 
-**Dokumentversion:** 1.3
+**Dokumentversion:** 1.4
 
-**Stand:** 21.10.2026
+**Stand:** 22.10.2026
 
 **Produktstand:** 1.8.1 stabil · 1.9 in Entwicklung
 
 **Repository:** `Melchy1971/Wissensraum-AI`
 
-**Geprüfter Stand:** Commit `ad7cf0e` (Hermes-Code aus `717db89`, Testkorrekturen aus `55bc4ca`, danach nur Dokumentation)
+**Geprüfter Repository-Stand:** Commit `0d05aa5` (letzter codewirksamer Stand `ad7cf0e`; danach ausschließlich `masterplan.md` geändert)
 
 **Status:** Phasen- und Testplan
 
@@ -118,10 +118,11 @@ Die Annahmen werden vor Beginn eines Mehrbenutzer- oder Serverbetriebs neu bewer
 | ❌ GitHub Actions vor Korrektur | Alle fünf Jobs fehlgeschlagen in Lauf `39380439985` (`717db89`) und `39381519764` (`297339b`) |
 | ✅ GitHub Actions nach Korrektur | Lauf `39410112241` (`55bc4ca`): alle fünf Jobs grün; Windows/Linux × Python 3.11/3.13 je 89 Tests, 84 bestanden, 5 PostgreSQL-Tests übersprungen; Job `postgres` (PostgreSQL 18) 8 von 8 bestanden, 0 übersprungen |
 | ✅ Lokale Nachprüfung 21.10.2026 (Windows, Python 3.13.8, `ad7cf0e`) | 89 Tests: 84 bestanden, 5 übersprungen (PostgreSQL-Testdienst nicht konfiguriert), 0 Fehler |
-| ✅ GitHub Actions aktueller Stand | Lauf `39410785307` (`ad7cf0e`): alle fünf Jobs grün |
+| ✅ GitHub Actions aktueller codewirksamer Stand | Lauf `39410785307` (`ad7cf0e`): alle fünf Jobs grün |
+| ✅ Repositoryprüfung 22.10.2026 | Head `0d05aa5`; seit `ad7cf0e` keine Code-, Schema- oder Teständerung, sondern ausschließlich Aktualisierung von `masterplan.md` |
 | ✅ Testdatenschutz | CI verwendet synthetische Daten und ruft keine kostenpflichtigen KI-, E-Mail- oder Microsoft-Dienste auf |
 
-Aktueller CI-Nachweis: [GitHub Actions Lauf 39410785307](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39410785307) (`ad7cf0e`); Korrekturlauf [39410112241](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39410112241) (`55bc4ca`); rote Vorläufe [39381519764](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39381519764) und [39380439985](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39380439985).
+Aktueller Code- und CI-Nachweis: [GitHub Actions Lauf 39410785307](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39410785307) (`ad7cf0e`); Korrekturlauf [39410112241](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39410112241) (`55bc4ca`); rote Vorläufe [39381519764](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39381519764) und [39380439985](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39380439985). Der nachfolgende Repository-Commit `0d05aa5` änderte ausschließlich diesen Masterplan und verändert die technische Prüfbasis nicht.
 
 ### 4.4 Vom Hermes Agent neu implementiert
 
@@ -643,4 +644,4 @@ Der nächste Release ist **1.9 – Stabilisierung und Betriebsfähigkeit**. Neue
 - SQLite- und PostgreSQL-Wiederherstellung geprüft
 - strukturierte, geheimnisfreie Diagnose vorhanden
 
-Der Stand `ad7cf0e` erfüllt die automatischen Gates; die manuellen Migrations- und Wiederherstellungstests sowie die übrigen Punkte stehen noch aus. Damit wird zuerst die Betriebs- und Datensicherheit des vorhandenen Funktionsumfangs abgesichert. Danach folgen Importausbau und Hybrid-RAG in getrennten Phasen.
+Der letzte codewirksame Stand `ad7cf0e` erfüllt die automatischen Gates; der geprüfte Repository-Head `0d05aa5` enthält danach nur Dokumentationsänderungen. Die manuellen Migrations- und Wiederherstellungstests sowie die übrigen Punkte stehen noch aus. Damit wird zuerst die Betriebs- und Datensicherheit des vorhandenen Funktionsumfangs abgesichert. Danach folgen Importausbau und Hybrid-RAG in getrennten Phasen.
