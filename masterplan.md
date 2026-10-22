@@ -1,6 +1,6 @@
 # Masterplan Wissensraum-AI
 
-**Dokumentversion:** 1.4
+**Dokumentversion:** 1.5
 
 **Stand:** 22.10.2026
 
@@ -8,11 +8,29 @@
 
 **Repository:** `Melchy1971/Wissensraum-AI`
 
-**Geprüfter Repository-Stand:** Commit `0d05aa5` (letzter codewirksamer Stand `ad7cf0e`; danach ausschließlich `masterplan.md` geändert)
+**Geprüfter Repository-Stand:** `80e3807` (Merge PR #1, 22.10.2026); neuer Code seit `ad7cf0e`, Abnahme der neuen Änderungen nicht abschließend nachgewiesen.
 
 **Status:** Phasen- und Testplan
 
 **Legende:** ✅ vollständig implementiert und gesamtes Gate nachweislich bestanden · 🟡 implementiert oder teilweise geprüft, aber noch nicht vollständig abgenommen · ❌ Gate fehlgeschlagen oder Freigabe blockiert · ⬜ geplant und noch nicht begonnen
+
+## Aktualisierung 22.10.2026 – Release 1.9 nach Hermes-Merge
+
+**Quellennachweis:** GitHub-Commit-Historie auf `main`, zuletzt Merge-Commit [`80e3807`](https://github.com/Melchy1971/Wissensraum-AI/commit/80e3807c9e8ac9aeeef70210ae47026e7f28a349) (PR #1). Diese Aktualisierung bestätigt Commit-Inhalte anhand der Commit-Beschreibungen, **nicht** einen erneuten vollständigen Lauf aller manuellen Abnahmetests.
+
+| Bereich | Neuer Stand | Abnahme |
+|---|---|---|
+| 🟡 Release-1.9-Branch | Hermes-Änderungen durch PR #1 nach `main` gemergt | CI und manuelles Release-Gate für Merge-Head erneut nachweisen |
+| 🟡 Konfigurationswiederherstellung | Portabilitätskorrektur `e4a75ae` | Import/Export auf sauberem Windows-System und ohne Geheimnisse testen |
+| 🟡 Startdiagnose | Diagnostik vor Recovery schreibgeschützt gehärtet (`dffa98e`) | Fehlerfälle, Seiteneffekte und Recovery-Protokoll testen |
+| 🟡 Windows-Starter | Python 3.12 ergänzt (`bc538db`) | Startmatrix 3.11/3.12/3.13 prüfen; CI-Abdeckung separat bestätigen |
+| 🟡 SQLite-Migration | Sperrverhalten über alternative Pfadnamen serialisiert (`994fa1e`) | Gleichzeitige Starts mit Pfad-Alias, Symlink und Abbruch testen |
+| 🟡 CI-Kompilierung | Produktionsmodule werden kompiliert (`c4447b5`) | Grünstatus für Merge-Head bestätigen |
+| 🟡 Dokumentation | Release-1.9-Status synchronisiert (`b117ac9`) | Gegen tatsächliche Module und Tests abgleichen |
+
+**Wichtige Korrektur:** Ältere Aussagen in diesem Dokument, wonach nach `ad7cf0e` nur Dokumentation geändert worden sei, beziehen sich auf den damaligen Prüfstand und sind für den aktuellen Head überholt. Die vorherige grüne CI-Matrix belegt nicht automatisch die Qualität von `80e3807`.
+
+**Nächstes Gate (P0):** (1) vollständige CI auf `80e3807` verifizieren, (2) Migrationen einschließlich Restore und konkurrierender Starts manuell protokollieren, (3) Diagnose/Recovery und Konfigurationstransfer auf sauberer Windows-Installation testen, (4) README und Testmatrix mit Python 3.12 abgleichen, (5) erst dann Phase 4/5 und Release 1.9 als vollständig abgeschlossen kennzeichnen.
 
 ## 1. Zweck
 
@@ -644,4 +662,4 @@ Der nächste Release ist **1.9 – Stabilisierung und Betriebsfähigkeit**. Neue
 - SQLite- und PostgreSQL-Wiederherstellung geprüft
 - strukturierte, geheimnisfreie Diagnose vorhanden
 
-Der letzte codewirksame Stand `ad7cf0e` erfüllt die automatischen Gates; der geprüfte Repository-Head `0d05aa5` enthält danach nur Dokumentationsänderungen. Die manuellen Migrations- und Wiederherstellungstests sowie die übrigen Punkte stehen noch aus. Damit wird zuerst die Betriebs- und Datensicherheit des vorhandenen Funktionsumfangs abgesichert. Danach folgen Importausbau und Hybrid-RAG in getrennten Phasen.
+Historischer Nachweis: `ad7cf0e` erfüllte die damaligen automatischen Gates. Der aktuelle Merge-Head `80e3807` enthält weitere Codeänderungen; dessen vollständiger CI- und manueller Abnahmestatus muss separat bestätigt werden. Die manuellen Migrations- und Wiederherstellungstests sowie die übrigen Punkte stehen noch aus. Damit wird zuerst die Betriebs- und Datensicherheit des vorhandenen Funktionsumfangs abgesichert. Danach folgen Importausbau und Hybrid-RAG in getrennten Phasen.
