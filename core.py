@@ -1,4 +1,4 @@
-"""Local SQL knowledge store and source-grounded AI operations. Python 3.11+."""
+"""Local SQL knowledge store and source-grounded AI operations. Python 3.11–3.13."""
 from __future__ import annotations
 
 import hashlib
@@ -11,8 +11,20 @@ import urllib.error
 import urllib.request
 from contextlib import closing, contextmanager
 from pathlib import Path
+import uuid
 
-from migrations import migrate_postgres, migrate_sqlite
+from migrations import (CURRENT_SCHEMA_VERSION, SQLITE_MIGRATIONS,
+                        migrate_postgres, migrate_sqlite)
+
+
+# Compatibility fixture for schema-corruption diagnostics. Runtime initialization
+# always goes through the migration layer below rather than this generated script.
+SCHEMA = ('PRAGMA foreign_keys = ON;\n' + '\n'.join(
+    statement.rstrip(';') + ';'
+    for _, statements in SQLITE_MIGRATIONS for statement in statements
+) + f'\nPRAGMA user_version = {CURRENT_SCHEMA_VERSION};\n').replace(
+    ', content TEXT NOT NULL,\n            UNIQUE(document_id, ordinal)',
+    ', content TEXT NOT NULL, UNIQUE(document_id, ordinal)')
 
 SUPPORTED_DOCUMENT_SUFFIXES = frozenset({'.txt', '.md', '.pdf', '.docx'})
 
@@ -25,10 +37,169 @@ def chunks(text: str, size: int = 1800, overlap: int = 200):
 
 class Store:
     backend = 'sqlite'
+    # Declared type, PRAGMA not-null flag, normalized default, primary-key position.
+    column_contract = {
+        'documents': {
+            'id':('INTEGER',0,None,1), 'title':('TEXT',1,None,0), 'category':('TEXT',1,None,0),
+            'filename':('TEXT',0,None,0), 'original':('BLOB',0,None,0), 'content':('TEXT',1,None,0),
+            'sha256':('TEXT',1,None,0), 'created_at':('TEXT',1,'current_timestamp',0)},
+        'chunks': {
+            'id':('INTEGER',0,None,1), 'document_id':('INTEGER',1,None,0),
+            'ordinal':('INTEGER',1,None,0), 'content':('TEXT',1,None,0)},
+        'search_index': {
+            'title':('',0,None,0), 'category':('',0,None,0), 'content':('',0,None,0)},
+        'ai_runs': {
+            'id':('INTEGER',0,None,1), 'kind':('TEXT',1,None,0), 'question':('TEXT',1,None,0),
+            'answer':('TEXT',1,None,0), 'sources_json':('TEXT',1,None,0), 'model':('TEXT',1,None,0),
+            'created_at':('TEXT',1,'current_timestamp',0)},
+        'settings': {'name':('TEXT',0,None,1), 'value':('TEXT',1,None,0)},
+        'email_accounts': {
+            'id':('TEXT',0,None,1), 'label':('TEXT',1,None,0), 'provider':('TEXT',1,None,0),
+            'email':('TEXT',1,None,0), 'username':('TEXT',1,None,0), 'host':('TEXT',1,"''",0),
+            'port':('INTEGER',1,'0',0), 'client_id':('TEXT',1,"''",0),
+            'tenant':('TEXT',1,"'common'",0), 'created_at':('TEXT',1,'current_timestamp',0),
+            'updated_at':('TEXT',1,'current_timestamp',0)},
+        'email_imports': {
+            'account_id':('TEXT',1,None,1), 'remote_id':('TEXT',1,None,2),
+            'document_id':('INTEGER',1,None,0), 'imported_at':('TEXT',1,'current_timestamp',0)},
+    }
+    schema_contract = {table:frozenset(columns) for table,columns in column_contract.items()}
+    version_tables = {
+        1: frozenset({'documents','chunks','search_index','ai_runs'}),
+        2: frozenset({'documents','chunks','search_index','ai_runs','settings'}),
+        3: frozenset({'documents','chunks','search_index','ai_runs','settings','email_accounts'}),
+        CURRENT_SCHEMA_VERSION: frozenset(schema_contract),
+    }
+    primary_keys = {
+        'documents': ('id',), 'chunks': ('id',), 'ai_runs': ('id',),
+        'settings': ('name',), 'email_accounts': ('id',),
+        'email_imports': ('account_id','remote_id'),
+    }
+    unique_keys = {'documents': {('sha256',)}, 'chunks': {('document_id','ordinal')}}
+    foreign_keys = {
+        'chunks': {('document_id','documents','id','CASCADE')},
+        'email_imports': {('account_id','email_accounts','id','CASCADE'),
+                          ('document_id','documents','id','CASCADE')},
+    }
+    sql_fragments = {
+        ('view','chunks_search'): ('select c.id, d.title, d.category, c.content','join documents d'),
+        ('trigger','chunk_insert'): ('after insert on chunks','insert into search_index'),
+        ('trigger','chunk_delete'): ('after delete on chunks',"select 'delete',old.id"),
+    }
 
-    def __init__(self, path: Path | str):
+    @staticmethod
+    def _sqlite_default(value):
+        if value is None:
+            return None
+        value=' '.join(str(value).strip().split()).lower()
+        while len(value)>1 and value[0]=='(' and value[-1]==')':
+            value=value[1:-1].strip()
+        return value
+
+    def __init__(self, path: Path | str, initialize: bool = True):
         self.path = Path(path)
-        migrate_sqlite(self.path)
+        if initialize:
+            migrate_sqlite(self.path)
+
+    def health(self):
+        """Validate schema and rolled-back writes without changing user data."""
+        connection = sqlite3.connect(self.path.resolve().as_uri()+'?mode=rw', uri=True, timeout=20)
+        try:
+            version=connection.execute('PRAGMA user_version').fetchone()[0]
+            if version not in self.version_tables:
+                raise ValueError('SQLite-Anwendungsschema ist unvollständig.')
+            objects={(row[0],row[1]):row[2] or '' for row in connection.execute(
+                "SELECT type,name,sql FROM sqlite_master")}
+            required_tables=self.version_tables[version]
+            if any(('table',table) not in objects for table in required_tables):
+                raise ValueError('SQLite-Anwendungsschema ist unvollständig.')
+            present_tables={table for table in self.schema_contract if ('table',table) in objects}
+            if present_tables != required_tables:
+                raise ValueError('SQLite-Anwendungsschema ist unvollständig.')
+            for table in present_tables:
+                columns={row[1]:(str(row[2]).upper(),row[3],self._sqlite_default(row[4]),row[5])
+                         for row in connection.execute(f'PRAGMA table_info("{table}")')}
+                if columns != self.column_contract[table]:
+                    raise ValueError('SQLite-Anwendungsschema ist unvollständig.')
+            for table,expected in self.primary_keys.items():
+                if table not in present_tables:
+                    continue
+                actual=tuple(row[1] for row in sorted(connection.execute(
+                    f'PRAGMA table_info("{table}")'),key=lambda row:row[5]) if row[5])
+                if actual != expected:
+                    raise ValueError('SQLite-Anwendungsschema ist unvollständig.')
+            for table,expected in self.unique_keys.items():
+                actual=set()
+                for index in connection.execute(f'PRAGMA index_list("{table}")'):
+                    if index[2]:
+                        actual.add(tuple(row[2] for row in connection.execute(
+                            f'PRAGMA index_info("{index[1]}")')))
+                if not expected.issubset(actual):
+                    raise ValueError('SQLite-Anwendungsschema ist unvollständig.')
+            for table,expected in self.foreign_keys.items():
+                if table not in present_tables:
+                    continue
+                actual={(row[3],row[2],row[4],row[6].upper()) for row in connection.execute(
+                    f'PRAGMA foreign_key_list("{table}")')}
+                if not expected.issubset(actual):
+                    raise ValueError('SQLite-Anwendungsschema ist unvollständig.')
+            search_sql=' '.join(objects.get(('table','search_index'),'').lower().split())
+            if ('using fts5' not in search_sql or "content='chunks_search'" not in search_sql or
+                    "tokenize='unicode61 remove_diacritics 2'" not in search_sql or
+                    not {('view','chunks_search'),('trigger','chunk_insert'),
+                         ('trigger','chunk_delete')}.issubset(objects)):
+                raise ValueError('SQLite-Anwendungsschema ist unvollständig.')
+            for key,fragments in self.sql_fragments.items():
+                sql=' '.join(objects[key].lower().split())
+                if any(fragment not in sql for fragment in fragments):
+                    raise ValueError('SQLite-Anwendungsschema ist unvollständig.')
+            if connection.execute('PRAGMA foreign_key_check').fetchone():
+                raise ValueError('SQLite-Anwendungsschema ist unvollständig.')
+            connection.execute('PRAGMA foreign_keys=ON')
+            connection.execute('BEGIN IMMEDIATE')
+            connection.execute("INSERT INTO search_index(search_index,rank) VALUES('integrity-check',1)")
+            probe_uuid=uuid.uuid4()
+            probe='.wissensraum_health_probe_'+probe_uuid.hex
+            first_probe_id=-(probe_uuid.int % ((1 << 63)-3)+1)
+            document_id,chunk_id,ai_run_id=(first_probe_id,first_probe_id-1,first_probe_id-2)
+            probe_digest=hashlib.sha256(probe.encode()).hexdigest()
+            connection.execute(
+                'INSERT INTO documents(id,title,category,filename,original,content,sha256) '
+                'VALUES(?,?,?,?,?,?,?)',
+                (document_id,probe,'Diagnose',probe+'.txt',probe.encode(),probe,probe_digest))
+            connection.execute(
+                'INSERT INTO chunks(id,document_id,ordinal,content) VALUES(?,?,?,?)',
+                (chunk_id,document_id,1,probe))
+            connection.execute(
+                'INSERT INTO ai_runs(id,kind,question,answer,sources_json,model) VALUES(?,?,?,?,?,?)',
+                (ai_run_id,'health',probe,probe,'[]',probe))
+            if 'settings' in required_tables:
+                connection.execute('INSERT INTO settings(name,value) VALUES(?,?)',(probe,'1'))
+            if 'email_accounts' in required_tables:
+                connection.execute(
+                    'INSERT INTO email_accounts(id,label,provider,email,username,host,port,client_id,tenant) '
+                    'VALUES(?,?,?,?,?,?,?,?,?)',
+                    (probe,probe,'imap',probe+'@invalid.example',probe,'invalid.example',993,'','common'))
+            if 'email_imports' in required_tables:
+                connection.execute(
+                    'INSERT INTO email_imports(account_id,remote_id,document_id) VALUES(?,?,?)',
+                    (probe,probe,document_id))
+            connection.rollback()
+            residue_checks=(
+                ('documents','title'), ('chunks','content'), ('ai_runs','question'),
+                ('settings','name'), ('email_accounts','id'), ('email_imports','remote_id'),
+            )
+            if any(connection.execute(f'SELECT 1 FROM {table} WHERE {column}=?',(probe,)).fetchone()
+                   for table,column in residue_checks if table in required_tables):
+                raise ValueError('SQLite-Schreibprobe konnte nicht rückstandsfrei abgeschlossen werden.')
+            if version < CURRENT_SCHEMA_VERSION:
+                return {'backend':'SQLite','migration_needed':True,'schema_version':version}
+            return {'backend':'SQLite'}
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
 
     @contextmanager
     def connect(self):
@@ -127,13 +298,186 @@ class _PostgresConnection:
 class PostgresStore:
     """PostgreSQL implementation used after explicit activation in database settings."""
     backend = 'postgresql'
+    # information_schema: data_type, udt_name, is_nullable, normalized default, is_identity.
+    column_contract = {
+        'documents': {
+            'id':('bigint','int8','NO',None,'YES'), 'title':('text','text','NO',None,'NO'),
+            'category':('text','text','NO',None,'NO'), 'filename':('text','text','YES',None,'NO'),
+            'original':('bytea','bytea','YES',None,'NO'), 'content':('text','text','NO',None,'NO'),
+            'sha256':('text','text','NO',None,'NO'),
+            'created_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO')},
+        'chunks': {
+            'id':('bigint','int8','NO',None,'YES'), 'document_id':('bigint','int8','NO',None,'NO'),
+            'ordinal':('integer','int4','NO',None,'NO'), 'content':('text','text','NO',None,'NO')},
+        'ai_runs': {
+            'id':('bigint','int8','NO',None,'YES'), 'kind':('text','text','NO',None,'NO'),
+            'question':('text','text','NO',None,'NO'), 'answer':('text','text','NO',None,'NO'),
+            'sources_json':('text','text','NO',None,'NO'), 'model':('text','text','NO',None,'NO'),
+            'created_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO')},
+        'settings': {'name':('text','text','NO',None,'NO'), 'value':('text','text','NO',None,'NO')},
+        'email_accounts': {
+            'id':('text','text','NO',None,'NO'), 'label':('text','text','NO',None,'NO'),
+            'provider':('text','text','NO',None,'NO'), 'email':('text','text','NO',None,'NO'),
+            'username':('text','text','NO',None,'NO'), 'host':('text','text','NO',"''",'NO'),
+            'port':('integer','int4','NO','0','NO'), 'client_id':('text','text','NO',"''",'NO'),
+            'tenant':('text','text','NO',"'common'",'NO'),
+            'created_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO'),
+            'updated_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO')},
+        'email_imports': {
+            'account_id':('text','text','NO',None,'NO'), 'remote_id':('text','text','NO',None,'NO'),
+            'document_id':('bigint','int8','NO',None,'NO'),
+            'imported_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO')},
+    }
+    schema_contract = {table:frozenset(columns) for table,columns in column_contract.items()}
+    required_constraints = {
+        'documents_pkey': ('documents','p',('id',),None,(),None),
+        'documents_sha256_key': ('documents','u',('sha256',),None,(),None),
+        'chunks_pkey': ('chunks','p',('id',),None,(),None),
+        'chunks_document_id_ordinal_key': ('chunks','u',('document_id','ordinal'),None,(),None),
+        'chunks_document_id_fkey': ('chunks','f',('document_id',),'documents',('id',),'c'),
+        'ai_runs_pkey': ('ai_runs','p',('id',),None,(),None),
+        'settings_pkey': ('settings','p',('name',),None,(),None),
+        'email_accounts_pkey': ('email_accounts','p',('id',),None,(),None),
+        'email_imports_pkey': ('email_imports','p',('account_id','remote_id'),None,(),None),
+        'email_imports_account_id_fkey': ('email_imports','f',('account_id',),'email_accounts',('id',),'c'),
+        'email_imports_document_id_fkey': ('email_imports','f',('document_id',),'documents',('id',),'c'),
+    }
+    required_indexes = {
+        'chunks_document_id_idx': ('chunks','(document_id)'),
+        'chunks_search_idx': ('chunks',"using gin (to_tsvector('simple'::regconfig, content))"),
+    }
 
-    def __init__(self,profile,password,connector=None):
+    @staticmethod
+    def _postgres_default(value):
+        if value is None:
+            return None
+        value=' '.join(str(value).strip().split()).lower()
+        value=re.sub(r'::(?:text|integer|bigint|timestamp with time zone)$','',value)
+        while len(value)>1 and value[0]=='(' and value[-1]==')':
+            value=value[1:-1].strip()
+        return value
+
+    def __init__(self,profile,password,connector=None,initialize=True):
         self.profile=dict(profile)
         self.password=password
         self.connector=connector
-        with self.connect() as db:
-            migrate_postgres(db)
+        if initialize:
+            with self.connect() as db:
+                migrate_postgres(db)
+
+    def health(self):
+        """Validate the application schema and rollback a capability probe."""
+        connection=self._connect()
+        try:
+            rows=connection.execute(
+                "SELECT table_name,column_name,data_type,udt_name,is_nullable,column_default,is_identity "
+                "FROM information_schema.columns WHERE table_schema='wissensraum'").fetchall()
+            columns={table:{} for table in self.column_contract}
+            for row in rows:
+                values=((row['table_name'],row['column_name'],row['data_type'],row['udt_name'],
+                         row['is_nullable'],row['column_default'],row['is_identity'])
+                        if isinstance(row,dict) else row)
+                table,column,data_type,udt_name,nullable,default,identity=values
+                if table in columns:
+                    columns[table][column]=(data_type,udt_name,nullable,self._postgres_default(default),identity)
+            if columns != self.column_contract:
+                raise ValueError('PostgreSQL-Anwendungsschema ist unvollständig.')
+            rows=connection.execute(
+                "SELECT c.conname,t.relname,c.contype,"
+                "ARRAY(SELECT a.attname FROM unnest(c.conkey) WITH ORDINALITY k(attnum,ord) "
+                "JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=k.attnum ORDER BY k.ord) AS columns,"
+                "rt.relname AS referenced_table,"
+                "ARRAY(SELECT a.attname FROM unnest(c.confkey) WITH ORDINALITY k(attnum,ord) "
+                "JOIN pg_attribute a ON a.attrelid=c.confrelid AND a.attnum=k.attnum ORDER BY k.ord) "
+                "AS referenced_columns,c.confdeltype AS delete_action "
+                "FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace "
+                "JOIN pg_class t ON t.oid=c.conrelid LEFT JOIN pg_class rt ON rt.oid=c.confrelid "
+                "WHERE n.nspname='wissensraum'").fetchall()
+            constraints={}
+            for row in rows:
+                values=((row['conname'],row['relname'],row['contype'],row['columns'],
+                         row['referenced_table'],row['referenced_columns'],row['delete_action'])
+                        if isinstance(row,dict) else row)
+                name,table,kind,columns,referenced,referenced_columns,delete_action=values
+                constraints[name]=(table,kind,tuple(columns),referenced,tuple(referenced_columns or ()),
+                                   delete_action if kind == 'f' else None)
+            if any(constraints.get(name) != expected for name,expected in self.required_constraints.items()):
+                raise ValueError('PostgreSQL-Anwendungsschema ist unvollständig.')
+            rows=connection.execute(
+                "SELECT indexname,tablename,indexdef FROM pg_indexes WHERE schemaname='wissensraum'").fetchall()
+            indexes={(row['indexname'] if isinstance(row,dict) else row[0]):
+                     ((row['tablename'],row['indexdef']) if isinstance(row,dict) else row[1:3]) for row in rows}
+            for name,(table,fragment) in self.required_indexes.items():
+                actual=indexes.get(name)
+                if not actual or actual[0] != table or fragment not in ' '.join(actual[1].lower().split()):
+                    raise ValueError('PostgreSQL-Anwendungsschema ist unvollständig.')
+            if not indexes:
+                raise ValueError('PostgreSQL-Anwendungsschema ist unvollständig.')
+            rows=connection.execute(
+                "SELECT identity_table,"
+                "pg_get_serial_sequence('wissensraum.' || identity_table,'id') AS sequence_name,"
+                "has_sequence_privilege(current_user,"
+                "pg_get_serial_sequence('wissensraum.' || identity_table,'id'),'USAGE') AS has_usage "
+                "FROM (VALUES ('documents'),('chunks'),('ai_runs')) AS identity_tables(identity_table)"
+            ).fetchall()
+            sequences={}
+            for row in rows:
+                values=((row['identity_table'],row['sequence_name'],row['has_usage'])
+                        if isinstance(row,dict) else row)
+                table,sequence_name,has_usage=values
+                sequences[table]=(sequence_name,has_usage)
+            for table in ('documents','chunks','ai_runs'):
+                sequence_name,has_usage=sequences.get(table,(None,None))
+                if not sequence_name:
+                    raise ValueError(f'PostgreSQL-Identitätssequenz für {table} fehlt.')
+                if has_usage is not True:
+                    raise PermissionError(f'Keine USAGE-Berechtigung für Sequenz {sequence_name}.')
+            probe_uuid=uuid.uuid4()
+            probe='.wissensraum_health_probe_'+probe_uuid.hex
+            probe_digest=hashlib.sha256(probe.encode()).hexdigest()
+            first_probe_id=-(probe_uuid.int % ((1 << 63)-3)+1)
+            document_id,chunk_id,ai_run_id=(first_probe_id,first_probe_id-1,first_probe_id-2)
+            connection.execute(
+                "INSERT INTO wissensraum.documents(id,title,category,filename,original,content,sha256) "
+                "OVERRIDING SYSTEM VALUE VALUES(%s,%s,%s,%s,%s,%s,%s)",
+                (document_id,probe,'Diagnose',probe+'.txt',probe.encode(),probe,probe_digest))
+            connection.execute(
+                "INSERT INTO wissensraum.chunks(id,document_id,ordinal,content) "
+                "OVERRIDING SYSTEM VALUE VALUES(%s,%s,%s,%s)",
+                (chunk_id,document_id,1,probe))
+            connection.execute(
+                "INSERT INTO wissensraum.ai_runs(id,kind,question,answer,sources_json,model) "
+                "OVERRIDING SYSTEM VALUE VALUES(%s,%s,%s,%s,%s,%s)",
+                (ai_run_id,'health',probe,probe,'[]',probe))
+            connection.execute(
+                "INSERT INTO wissensraum.settings(name,value) VALUES(%s,%s)",(probe,'1'))
+            connection.execute(
+                "INSERT INTO wissensraum.email_accounts(id,label,provider,email,username,host,port,client_id,tenant) "
+                "VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (probe,probe,'imap',probe+'@invalid.example',probe,'invalid.example',993,'','common'))
+            connection.execute(
+                "INSERT INTO wissensraum.email_imports(account_id,remote_id,document_id) VALUES(%s,%s,%s)",
+                (probe,probe,document_id))
+            connection.rollback()
+            residue_checks=(
+                ("SELECT 1 FROM wissensraum.documents WHERE title=%s",(probe,)),
+                ("SELECT 1 FROM wissensraum.chunks WHERE content=%s",(probe,)),
+                ("SELECT 1 FROM wissensraum.ai_runs WHERE question=%s",(probe,)),
+                ("SELECT 1 FROM wissensraum.settings WHERE name=%s",(probe,)),
+                ("SELECT 1 FROM wissensraum.email_accounts WHERE id=%s",(probe,)),
+                ("SELECT 1 FROM wissensraum.email_imports WHERE remote_id=%s",(probe,)),
+            )
+            if any(connection.execute(query,parameters).fetchone()
+                   for query,parameters in residue_checks):
+                raise ValueError('PostgreSQL-Schreibprobe konnte nicht rückstandsfrei abgeschlossen werden.')
+            connection.rollback()
+            return {'backend':'PostgreSQL'}
+        except Exception:
+            try: connection.rollback()
+            except Exception: pass
+            raise
+        finally:
+            connection.close()
 
     def _connect(self):
         if self.connector is None:

@@ -2,7 +2,11 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import uuid
+
+from configuration_authority import configuration_operation_lock, _sync_directory
 
 THEMES = {
     'light': {
@@ -45,10 +49,21 @@ class DesignSettings:
     def save_theme(self,theme):
         if theme not in THEMES:
             raise ValueError('Designmodus muss hell oder dunkel sein.')
-        self.path.parent.mkdir(parents=True,exist_ok=True)
-        temporary=self.path.with_suffix('.tmp')
-        temporary.write_text(json.dumps({'theme':theme},ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
-        temporary.replace(self.path)
+        with configuration_operation_lock(self.base):
+            self.path.parent.mkdir(parents=True,exist_ok=True)
+            temporary=self.path.with_name(self.path.name+'.tmp-'+uuid.uuid4().hex)
+            try:
+                text=json.dumps({'theme':theme},ensure_ascii=False,indent=2)+'\n'
+                data=text.replace('\n',os.linesep).encode('utf-8')
+                with temporary.open('xb') as output:
+                    output.write(data)
+                    output.flush()
+                    os.fsync(output.fileno())
+                os.replace(temporary,self.path)
+                _sync_directory(self.path.parent)
+            finally:
+                try: temporary.unlink()
+                except FileNotFoundError: pass
 
     def save_logo(self,source):
         source=Path(source)

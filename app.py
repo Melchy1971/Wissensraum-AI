@@ -3,40 +3,156 @@ from pathlib import Path
 import os
 import json
 import queue
+import sys
 import threading
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, simpledialog
-from tkinter.scrolledtext import ScrolledText
-from core import Store, discover_documents, import_documents
+try:
+    import tkinter as tk
+    from tkinter import ttk, filedialog, messagebox, simpledialog
+    from tkinter.scrolledtext import ScrolledText
+except (ImportError, OSError):
+    tk=ttk=filedialog=messagebox=simpledialog=ScrolledText=None
+from core import discover_documents, import_documents
 from settings import Settings, SystemVault, PROVIDERS
-from database import DatabaseSettings
+from database import DatabaseSettings, resolve_sqlite_path
+from diagnostics import DiagnosticResult, run_diagnostics
 from design import DesignSettings, THEMES
+from configuration import (APPLY_ERROR, EXPORT_ERROR, ConfigurationTransfer,
+                           ConfigurationTransferError, recover_pending_configuration)
 from importer import Importer, MailAccounts, MAIL_PROVIDERS
+from local_logging import (create_operational_logger, known_runtime_secrets,
+                           safe_exception_class, warn_operational_logging_failure)
 
 BASE = Path(__file__).resolve().parent
 
 
-class App(tk.Tk):
-    def __init__(self):
-        super().__init__()
+class StartupFailure(RuntimeError):
+    def __init__(self,results):
+        self.results=tuple(results)
+        messages=' '.join(result.message for result in self.results if result.status=='FAIL')
+        super().__init__('Startdiagnose fehlgeschlagen. '+messages)
+
+
+def prepare_startup(base=None,environ=None,vault_factory=None,
+                    database_settings_factory=None,diagnostics_runner=None):
+    """Run required checks and return unopened startup dependencies."""
+    base=BASE if base is None else Path(base)
+    environ=os.environ if environ is None else environ
+    vault_factory=vault_factory or SystemVault
+    database_settings_factory=database_settings_factory or DatabaseSettings
+    diagnostics_runner=diagnostics_runner or run_diagnostics
+    vault=vault_factory()
+    database_settings=database_settings_factory(base,vault,environ)
+    sqlite_path=resolve_sqlite_path(base,environ)
+    try:
+        recover_pending_configuration(base,database_settings,sqlite_path)
+    except ConfigurationTransferError:
+        failure=DiagnosticResult('configuration_recovery','FAIL',
+                                 'Konfigurationswiederherstellung ist unvollständig; das Wiederherstellungsjournal wurde beibehalten.',{})
+        raise StartupFailure((failure,)) from None
+    results=tuple(diagnostics_runner(base,vault,database_settings,sqlite_path))
+    if any(result.status=='FAIL' for result in results):
+        raise StartupFailure(results)
+    return vault,database_settings,results,sqlite_path
+
+
+def initialize_desktop(window,database_settings,sqlite_path,root_initializer):
+    """Create the actual application root before opening the active store."""
+    try:
+        root_initializer()
+    except Exception:
+        failure=DiagnosticResult('tcl_tk','FAIL',
+            'Tcl/Tk oder die grafische Anzeige ist nicht verfügbar; Python mit Tcl/Tk installieren oder die CLI verwenden.',{})
+        raise StartupFailure((failure,)) from None
+    try:
+        return database_settings.open_store(sqlite_path)
+    except Exception:
+        try:
+            window.destroy()
+        except Exception:
+            pass
+        failure=DiagnosticResult('database','FAIL',
+                                 'Aktive Datenbank konnte nicht geöffnet werden; Konfiguration, Schema und Rechte prüfen.',
+                                 {'backend':'Unknown'})
+        raise StartupFailure((failure,)) from None
+
+
+def run_with_root_cleanup(window,operation):
+    """Destroy a possibly-created root when startup cannot complete."""
+    try:
+        return operation()
+    except Exception:
+        try:
+            window.destroy()
+        except Exception:
+            pass
+        raise
+
+
+def destroy_root_on_startup_failure(initializer):
+    def guarded(window,*args,**kwargs):
+        return run_with_root_cleanup(window,lambda:initializer(window,*args,**kwargs))
+    return guarded
+
+
+def show_startup_failure(results):
+    text='Startdiagnose fehlgeschlagen:\n'+'\n'.join(
+        '- '+result.message for result in results if result.status=='FAIL')
+    if tk is not None and messagebox is not None:
+        root=None
+        try:
+            root=tk.Tk()
+            root.withdraw()
+            messagebox.showerror('Wissensraum – Startdiagnose',text,parent=root)
+            return
+        except Exception:
+            pass
+        finally:
+            if root is not None:
+                try: root.destroy()
+                except Exception: pass
+    print(text,file=sys.stderr)
+
+
+class App(tk.Tk if tk is not None else object):
+    @destroy_root_on_startup_failure
+    def __init__(self,startup=None):
+        if tk is None:
+            raise StartupFailure((DiagnosticResult('tcl_tk','FAIL',
+                'Tcl/Tk konnte nicht geladen werden; Python mit Tcl/Tk installieren oder die CLI verwenden.',{}),))
+        if startup is None:
+            vault,database_settings,diagnostic_results,sqlite_path=prepare_startup()
+            store=initialize_desktop(self,database_settings,sqlite_path,lambda:tk.Tk.__init__(self))
+        else:
+            # Preserve the injected startup tuple used by GUI tests and embedders.
+            store,vault,database_settings,diagnostic_results=startup
+            try:
+                tk.Tk.__init__(self)
+            except Exception:
+                failure=DiagnosticResult('tcl_tk','FAIL',
+                    'Tcl/Tk oder die grafische Anzeige ist nicht verfügbar; Python mit Tcl/Tk installieren oder die CLI verwenden.',{})
+                raise StartupFailure((*diagnostic_results,failure)) from None
         self.title('Wissensraum · SQL & KI')
         self.geometry('1180x780')
         self.minsize(920, 650)
         self.configure(bg='#f3f4f0')
-        self.vault=SystemVault()
-        self.database_settings=DatabaseSettings(BASE,self.vault)
-        self.database_start_error=''
-        try:
-            self.store=self.database_settings.open_store(Path(os.environ.get('WISSEN_DB',BASE/'data'/'wissen.db')))
-        except ValueError as error:
-            self.database_start_error=str(error)
-            self.store=Store(Path(os.environ.get('WISSEN_DB',BASE/'data'/'wissen.db')))
+        self.store=store
+        self._operational_logger=None
+        self._operational_logging_closed=False
+        self.vault=vault
+        self.database_settings=database_settings
+        self.diagnostic_results=diagnostic_results
+        problems=[result.message for result in self.diagnostic_results if result.status=='WARN']
+        notice='Startdiagnose: '+' '.join(problems) if problems else ''
+        self.diagnostic_notice=tk.StringVar(value=notice)
         self.queue = queue.Queue()
         self.busy = False
         self.settings = Settings(self.store, BASE, self.vault)
         self.design_settings = DesignSettings(BASE)
+        self.configuration_transfer = ConfigurationTransfer(
+            self.store, BASE, self.database_settings, self.design_settings)
+        self.configuration_transfer.synchronize_authority()
         self.theme_mode = self.design_settings.theme()
-        self.mail_accounts = MailAccounts(self.store, self.settings.vault)
+        self.mail_accounts = MailAccounts(self.store, self.settings.vault, BASE)
         self.importer = Importer(self.store, self.mail_accounts)
         self.docs = {}
         self.style = ttk.Style(self)
@@ -62,6 +178,9 @@ class App(tk.Tk):
             self.buttons.append(b)
         self.exit_button = ttk.Button(tools,text='Beenden',command=self.exit_application,style='Exit.TButton')
         self.exit_button.pack(side='right')
+        if notice:
+            ttk.Label(self,textvariable=self.diagnostic_notice,style='Warning.TLabel',wraplength=1100,
+                      padding=(24,0,24,12)).pack(fill='x')
         self.protocol('WM_DELETE_WINDOW',self.exit_application)
         self.tabs = ttk.Notebook(self)
         self.tabs.pack(fill='both',expand=True,padx=24,pady=(0,12))
@@ -208,7 +327,39 @@ class App(tk.Tk):
 
     def exit_application(self):
         """End the desktop application immediately from every close control."""
+        self.stop_operational_logging()
         self.destroy()
+
+    def stop_operational_logging(self):
+        if not self._operational_logging_closed:
+            self._safe_operational_event('application_stopped',metadata={'backend':self.store.backend})
+        self.close_operational_logger()
+
+    def attach_operational_logger(self,logger):
+        """Attach an optional logger after desktop startup has fully succeeded."""
+        self._operational_logger=logger
+        self._operational_logging_closed=False
+        self._safe_operational_event('application_started',metadata={'backend':self.store.backend})
+
+    def _safe_operational_event(self,event_name,**kwargs):
+        logger=getattr(self,'_operational_logger',None)
+        if logger is None or getattr(self,'_operational_logging_closed',False):
+            return
+        try:
+            logger.event(event_name,**kwargs)
+        except BaseException:
+            warn_operational_logging_failure()
+
+    def close_operational_logger(self):
+        if getattr(self,'_operational_logging_closed',False):
+            return
+        self._operational_logging_closed=True
+        logger=getattr(self,'_operational_logger',None)
+        if logger is not None:
+            try:
+                logger.close()
+            except BaseException:
+                warn_operational_logging_failure()
 
     def write(self, widget, text):
         widget.configure(state='normal')
@@ -255,10 +406,16 @@ class App(tk.Tk):
         for button in self.buttons:
             button.configure(state='disabled')
         self.status.set('Wird verarbeitet …')
+        self._safe_operational_event('background_operation_started',metadata={'operation':'background'})
         def worker():
             try:
-                self.queue.put((done,fn(),None))
+                result=fn()
+                self._safe_operational_event('background_operation_completed',metadata={'operation':'background'})
+                self.queue.put((done,result,None))
             except Exception as e:
+                self._safe_operational_event('background_operation_failed',severity='ERROR',
+                    metadata={'operation':'background'},exception_class=safe_exception_class(e),
+                    error_code='DESKTOP_BACKGROUND_FAILED')
                 self.queue.put((done,None,str(e)))
         threading.Thread(target=worker,daemon=True).start()
 
@@ -557,10 +714,12 @@ class App(tk.Tk):
         self.database_settings_frame=ttk.Frame(self.settings_sections,padding=12)
         self.mail_settings_frame=ttk.Frame(self.settings_sections,padding=12)
         self.design_settings_frame=ttk.Frame(self.settings_sections,padding=12)
+        self.configuration_settings_frame=ttk.Frame(self.settings_sections,padding=12)
         self.settings_sections.add(self.ai_settings_frame,text='KI-Anbieter')
         self.settings_sections.add(self.database_settings_frame,text='Datenbank')
         self.settings_sections.add(self.mail_settings_frame,text='E-Mail-Konten')
         self.settings_sections.add(self.design_settings_frame,text='Design')
+        self.settings_sections.add(self.configuration_settings_frame,text='Konfiguration')
         frame=self.ai_settings_frame
         ttk.Label(frame,text='KI-Anbieter & API-Schlüssel',font=('Segoe UI',18,'bold')).pack(anchor='w')
         self.active_notice=tk.StringVar()
@@ -611,6 +770,66 @@ class App(tk.Tk):
         self.build_database_settings()
         self.build_mail_settings()
         self.build_design_settings()
+        self.build_configuration_settings()
+
+    def build_configuration_settings(self):
+        frame=self.configuration_settings_frame
+        ttk.Label(frame,text='Konfiguration übertragen',font=('Segoe UI',18,'bold')).pack(anchor='w')
+        ttk.Label(frame,text='Exportiert KI-Auswahl und Modelle, Datenbankprofil, Designmodus sowie E-Mail-Kontometadaten. '
+                  'API-Schlüssel, Kennwörter, Token, Dokumente, Logs und Logo-Dateien werden niemals übernommen.',
+                  wraplength=940).pack(anchor='w',pady=(8,16))
+        actions=ttk.Frame(frame); actions.pack(fill='x')
+        for title,command,style in [('Konfiguration exportieren',self.export_configuration,'Accent.TButton'),
+                                   ('Konfiguration importieren',self.import_configuration,'TButton')]:
+            button=ttk.Button(actions,text=title,command=command,style=style)
+            button.pack(side='left',padx=(0,8)); self.buttons.append(button)
+        ttk.Label(frame,text='Ein importierter Wechsel der Datenquelle gilt erst nach einem Programmneustart. '
+                  'Vorhandene Zugangsdaten im Betriebssystem-Schlüsselspeicher bleiben unverändert.',
+                  wraplength=940).pack(anchor='w',pady=(16,0))
+
+    def export_configuration(self):
+        try:
+            path=filedialog.asksaveasfilename(title='Konfiguration exportieren',defaultextension='.json',
+                                              filetypes=[('JSON-Konfiguration','*.json')])
+            if not path:
+                return
+            self.configuration_transfer.export_file(path)
+            messagebox.showinfo('Konfiguration exportieren',
+                                'Konfiguration wurde ohne Schlüssel, Kennwörter und Token exportiert.',parent=self)
+        except ConfigurationTransferError as error:
+            messagebox.showerror('Konfiguration exportieren',str(error),parent=self)
+        except Exception:
+            messagebox.showerror('Konfiguration exportieren',EXPORT_ERROR,parent=self)
+
+    def import_configuration(self):
+        path=filedialog.askopenfilename(title='Konfiguration importieren',
+                                        filetypes=[('JSON-Konfiguration','*.json')])
+        if not path:
+            return
+        try:
+            result=self.configuration_transfer.import_file(path)
+        except ConfigurationTransferError as error:
+            messagebox.showerror('Konfiguration importieren',str(error),parent=self)
+            return
+        except Exception:
+            messagebox.showerror('Konfiguration importieren',APPLY_ERROR,parent=self)
+            return
+        try:
+            self.refresh_settings()
+            self.load_database_settings()
+            self.refresh_mail_accounts()
+            self.refresh_design_settings()
+            self.apply_theme(self.design_settings.theme())
+        except Exception:
+            messagebox.showwarning(
+                'Konfiguration importieren',
+                'Konfiguration wurde importiert, aber die Anzeige konnte nicht aktualisiert werden. Programm neu starten.',
+                parent=self)
+            return
+        text='Konfiguration wurde importiert. Vorhandene Zugangsdaten blieben unverändert.'
+        if result['restart_required']:
+            text+=' Programm neu starten, damit die konfigurierte Datenquelle verwendet wird.'
+        messagebox.showinfo('Konfiguration importieren',text,parent=self)
 
     def build_design_settings(self):
         frame=self.design_settings_frame
@@ -728,10 +947,7 @@ class App(tk.Tk):
         configured='PostgreSQL auf dem VPS' if profile['backend']=='postgresql' else 'Lokale SQLite-Datei'
         running='PostgreSQL' if self.store.backend=='postgresql' else 'SQLite'
         self.database_active.set('Konfiguriert: '+configured+' · Aktuelle Sitzung: '+running)
-        if self.database_start_error:
-            self.database_message.set('PostgreSQL-Start fehlgeschlagen; lokale SQLite-Datei geöffnet. '+self.database_start_error)
-        else:
-            self.database_message.set('Kennwort: '+source)
+        self.database_message.set('Kennwort: '+source)
 
     def save_database_settings(self):
         try:
@@ -1018,5 +1234,36 @@ class App(tk.Tk):
             self.work(lambda:self.store.backup(target),lambda _:self.status.set('SQL-Sicherung erstellt'))
 
 
+def main():
+    window=None
+    try:
+        window=App()
+    except StartupFailure as error:
+        show_startup_failure(error.results)
+        return 1
+    except Exception:
+        print('Desktop-Oberfläche konnte nicht gestartet werden; Tcl/Tk und grafische Anzeige prüfen oder die CLI verwenden.',
+              file=sys.stderr)
+        return 1
+    logger=create_operational_logger(
+        BASE,'desktop',known_secrets=known_runtime_secrets(window.store))
+    window.attach_operational_logger(logger)
+    failed=False
+    try:
+        window.mainloop()
+        return 0
+    except Exception as error:
+        failed=True
+        window._safe_operational_event('application_failed',severity='ERROR',
+            metadata={'backend':window.store.backend},exception_class=safe_exception_class(error),
+            error_code='DESKTOP_RUNTIME_FAILED')
+        raise
+    finally:
+        if failed:
+            window.close_operational_logger()
+        else:
+            window.stop_operational_logging()
+
+
 if __name__ == '__main__':
-    App().mainloop()
+    raise SystemExit(main())

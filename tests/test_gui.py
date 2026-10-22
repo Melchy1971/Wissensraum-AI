@@ -1,15 +1,109 @@
 """Native UI regression; skipped on systems without a graphical display."""
 from pathlib import Path
+import io
 import os
 import tempfile
 import tkinter as tk
 import unittest
-from unittest.mock import patch
+from contextlib import redirect_stderr
+from unittest.mock import Mock, patch
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import app
 from settings import Settings
 from test_settings import FakeVault
+
+class StartupTests(unittest.TestCase):
+    def test_pending_recovery_failure_blocks_diagnostics_and_normal_store_selection(self):
+        diagnostics = Mock()
+        settings = Mock()
+        with patch.object(app, 'recover_pending_configuration',
+                          side_effect=app.ConfigurationTransferError(
+                              'private-safe', 'CONFIG_IMPORT_RECOVERY_INCOMPLETE')), \
+             patch.object(app, 'run_diagnostics', diagnostics):
+            with self.assertRaises(app.StartupFailure) as raised:
+                app.prepare_startup(
+                    base=Path('unused'), environ={}, vault_factory=Mock,
+                    database_settings_factory=lambda *_: settings)
+        diagnostics.assert_not_called()
+        settings.open_store.assert_not_called()
+        self.assertIn('Wiederherstellungsjournal', str(raised.exception))
+        self.assertNotIn('private-safe', str(raised.exception))
+
+    def test_production_startup_failure_prevents_root_and_store_creation(self):
+        failure = app.DiagnosticResult(
+            'database', 'FAIL', 'Datenbank prüfen.',
+            {'backend': 'PostgreSQL', 'password': 'SENSITIVE_MARKER'},
+        )
+        output = io.StringIO()
+
+        with patch.object(app, 'run_diagnostics', return_value=(failure,)), \
+             patch.object(app.tk.Tk, '__init__') as root_initializer, \
+             patch.object(app.DatabaseSettings, 'open_store') as open_store, \
+             patch.object(app, 'messagebox', None), \
+             patch.object(app, 'create_operational_logger') as create_logger, \
+             redirect_stderr(output):
+            result = app.main()
+
+        self.assertEqual(result, 1)
+        root_initializer.assert_not_called()
+        open_store.assert_not_called()
+        create_logger.assert_not_called()
+        self.assertIn('Datenbank prüfen.', output.getvalue())
+        self.assertNotIn('SENSITIVE_MARKER', output.getvalue())
+
+    def test_actual_root_is_initialized_before_store_open(self):
+        events = []
+        settings = Mock()
+        settings.open_store.side_effect = lambda _path: events.append('store') or object()
+        window = Mock()
+
+        app.initialize_desktop(
+            window, settings, Path('wissen.db'),
+            lambda: events.append('root'),
+        )
+
+        self.assertEqual(events, ['root', 'store'])
+        window.destroy.assert_not_called()
+
+    def test_store_open_failure_is_redacted_destroys_root_and_has_no_memory_fallback(self):
+        settings = Mock()
+        settings.open_store.side_effect = RuntimeError('SENSITIVE_MARKER')
+        window = Mock()
+        with self.assertRaises(app.StartupFailure) as raised:
+            app.initialize_desktop(window, settings, Path('wissen.db'), Mock())
+        window.destroy.assert_called_once_with()
+        self.assertNotIn('SENSITIVE_MARKER', str(raised.exception))
+        self.assertNotIn(':memory:', str(raised.exception))
+
+    def test_unavailable_gui_prevents_store_initialization(self):
+        settings = Mock()
+        window = Mock()
+        with self.assertRaises(app.StartupFailure) as raised:
+            app.initialize_desktop(
+                window, settings, Path('wissen.db'),
+                lambda: (_ for _ in ()).throw(RuntimeError('secret display details')),
+            )
+        settings.open_store.assert_not_called()
+        window.destroy.assert_not_called()
+        self.assertIn('Tcl/Tk', str(raised.exception))
+        self.assertNotIn('secret display details', str(raised.exception))
+
+    def test_post_root_startup_failure_destroys_window(self):
+        window = Mock()
+
+        with self.assertRaises(RuntimeError):
+            app.run_with_root_cleanup(window, lambda: (_ for _ in ()).throw(
+                RuntimeError('SENSITIVE_MARKER')))
+
+        window.destroy.assert_called_once_with()
+
+    def test_startup_failure_has_console_fallback_when_tk_is_unavailable(self):
+        failure=app.DiagnosticResult('tcl_tk','FAIL','Tcl/Tk installieren.',{})
+        output=io.StringIO()
+        with patch.object(app,'tk',None),redirect_stderr(output):
+            app.show_startup_failure((failure,))
+        self.assertIn('Tcl/Tk installieren.',output.getvalue())
 
 class InterfaceTests(unittest.TestCase):
     def setUp(self):
@@ -22,8 +116,11 @@ class InterfaceTests(unittest.TestCase):
         self.base=Path(self.temp.name)
         self.base.joinpath('.env.local').write_text('OPENAI_API_KEY=synthetic-existing-1234567890',encoding='utf-8')
         self.vault=FakeVault()
+        startup_warning=(app.DiagnosticResult('database','WARN','SQLite wird beim ersten Start angelegt.',
+                                              {'backend':'SQLite'}),)
         self.patches=[patch.object(app,'BASE',self.base),patch.dict(os.environ,{k:os.environ[k] for k in ('DISPLAY','XAUTHORITY','PATH','SYSTEMROOT','SystemRoot','WINDIR','HOME','USERPROFILE','TCL_LIBRARY','TK_LIBRARY') if k in os.environ},clear=True),
                       patch.object(app,'SystemVault',lambda:self.vault),
+                      patch.object(app,'run_diagnostics',return_value=startup_warning),
                       patch.object(app,'Settings',lambda store,base,vault=None:Settings(store,base,self.vault,environ={}))]
         for p in self.patches: p.start()
         self.window=None
@@ -44,6 +141,7 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn('E-Mail-Konten',[window.settings_sections.tab(t,'text') for t in window.settings_sections.tabs()])
         self.assertIn('Datenbank',[window.settings_sections.tab(t,'text') for t in window.settings_sections.tabs()])
         self.assertIn('Design',[window.settings_sections.tab(t,'text') for t in window.settings_sections.tabs()])
+        self.assertIn('Konfiguration',[window.settings_sections.tab(t,'text') for t in window.settings_sections.tabs()])
         self.assertEqual(window.folder_import_button.cget('text'),'Ordner inkl. Unterordner')
         self.assertEqual(window.key_value.get(),'synthetic-existing-1234567890')
         self.assertEqual(window.key_entry.cget('show'),'*')
@@ -60,6 +158,10 @@ class InterfaceTests(unittest.TestCase):
         with patch.object(window,'destroy') as destroy:
             window.exit_button.invoke()
         destroy.assert_called_once_with()
+
+    def test_startup_diagnostics_show_nonblocking_warning(self):
+        self.assertIn('SQLite',self.window.diagnostic_notice.get())
+        self.assertIn('Startdiagnose',self.window.diagnostic_notice.get())
 
     def test_design_mode_and_logo_are_applied(self):
         window=self.window
