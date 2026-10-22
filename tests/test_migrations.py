@@ -5,6 +5,8 @@ import threading
 import time
 import unittest
 import multiprocessing
+import os
+import queue
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing, contextmanager
 from pathlib import Path
@@ -74,6 +76,28 @@ def _migrate_sqlite_in_spawned_process(path, started, result):
         result.put(('error', repr(error)))
     else:
         result.put(('ok', None))
+
+
+def _migrate_sqlite_alias_in_spawned_process(path, ready, start, entered, release, result):
+    import migrations
+
+    original_backup = migrations._verified_sqlite_backup
+
+    def blocking_backup(*args):
+        entered.put(path)
+        if not release.wait(5):
+            raise TimeoutError('test did not release migration backup')
+        return original_backup(*args)
+
+    migrations._verified_sqlite_backup = blocking_backup
+    ready.put(path)
+    start.wait()
+    try:
+        migrations.migrate_sqlite(path)
+    except Exception as error:
+        result.put(('error', path, repr(error)))
+    else:
+        result.put(('ok', path, None))
 
 
 class FakeResult:
@@ -262,6 +286,61 @@ class SQLiteMigrationTests(unittest.TestCase):
                 result.close()
                 result.join_thread()
             with closing(sqlite3.connect(path)) as db:
+                self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0],
+                                 CURRENT_SCHEMA_VERSION)
+
+    def test_sqlite_migrations_serialize_hard_link_aliases_across_spawned_processes(self):
+        context = multiprocessing.get_context('spawn')
+        with tempfile.TemporaryDirectory() as directory:
+            original = Path(directory) / 'wissen.db'
+            first_alias = Path(directory) / 'alias-one.db'
+            second_alias = Path(directory) / 'alias-two.db'
+            with closing(sqlite3.connect(original)):
+                pass
+            try:
+                os.link(original, first_alias)
+                os.link(original, second_alias)
+            except (OSError, NotImplementedError) as error:
+                self.skipTest(f'hard links unavailable in temporary directory: {error}')
+
+            ready = context.Queue()
+            entered = context.Queue()
+            result = context.Queue()
+            start = context.Event()
+            release = context.Event()
+            processes = [
+                context.Process(
+                    target=_migrate_sqlite_alias_in_spawned_process,
+                    args=(str(path), ready, start, entered, release, result),
+                )
+                for path in (first_alias, second_alias)
+            ]
+            try:
+                for process in processes:
+                    process.start()
+                self.assertEqual({ready.get(timeout=5), ready.get(timeout=5)},
+                                 {str(first_alias), str(second_alias)})
+                start.set()
+                entered.get(timeout=5)
+                with self.assertRaises(queue.Empty):
+                    entered.get(timeout=0.3)
+                release.set()
+                for process in processes:
+                    process.join(10)
+                    self.assertFalse(process.is_alive(), 'child migration did not finish')
+                    self.assertEqual(process.exitcode, 0)
+                outcomes = [result.get(timeout=2), result.get(timeout=2)]
+                self.assertTrue(all(outcome[0] == 'ok' for outcome in outcomes), outcomes)
+            finally:
+                release.set()
+                for process in processes:
+                    if process.is_alive():
+                        process.terminate()
+                    process.join(5)
+                for channel in (ready, entered, result):
+                    channel.close()
+                    channel.join_thread()
+            with closing(sqlite3.connect(original)) as db:
                 self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0],
                                  CURRENT_SCHEMA_VERSION)
 

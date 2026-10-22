@@ -1,19 +1,24 @@
 """Real PostgreSQL contract tests; destructive runs require explicit opt-in."""
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+import json
 import os
 import time
+import tempfile
 import unittest
-import sys
 from unittest.mock import patch
+import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from core import PostgresStore, _PostgresConnection
+from configuration import (ConfigurationTransfer, ConfigurationTransferError,
+                           recover_pending_configuration)
 from database import DatabaseSettings
+from design import DesignSettings
 from importer import MailAccounts
-from migrations import migrate_postgres
+from migrations import CURRENT_SCHEMA_VERSION, migrate_postgres
 from settings import Settings
 from test_settings import FakeVault
 
@@ -190,14 +195,41 @@ class PostgresStoreTests(unittest.TestCase):
             second.close()
         with PostgresStore(self.profile, self.password).connect() as db:
             self.assertEqual(db.execute(
-                'SELECT MAX(version) AS version FROM schema_migrations').fetchone()['version'], 4)
+                'SELECT MAX(version) AS version FROM schema_migrations').fetchone()['version'], CURRENT_SCHEMA_VERSION)
 
     def test_postgres_store_contract(self):
-        store = PostgresStore(self.profile, self.password)
-        vault = FakeVault()
-        settings = Settings(store, Path.cwd(), vault, environ={})
-        settings.save('ollama', 'qwen3:8b')
-        self.assertEqual(settings.active(), 'ollama')
+        store=PostgresStore(self.profile,self.password)
+        vault=FakeVault()
+        authority_temp=tempfile.TemporaryDirectory()
+        self.addCleanup(authority_temp.cleanup)
+        settings=Settings(store,Path(authority_temp.name),vault,environ={})
+        settings.save('ollama','qwen3:8b')
+        self.assertEqual(settings.active(),'ollama')
+        with store.connect() as db:
+            sequences={table:db.execute(
+                "SELECT pg_get_serial_sequence(%s,'id') AS name",(f'wissensraum.{table}',)
+            ).fetchone()['name'] for table in ('documents','chunks','ai_runs')}
+            sequence_values={table:db.execute(
+                'SELECT last_value FROM '+name
+            ).fetchone()['last_value'] for table,name in sequences.items()}
+        self.assertEqual(store.health(),{'backend':'PostgreSQL'})
+        self.assertEqual(settings.active(),'ollama')
+        with store.connect() as db:
+            self.assertEqual(sequence_values,{table:db.execute(
+                'SELECT last_value FROM '+name
+            ).fetchone()['last_value'] for table,name in sequences.items()})
+            self.assertFalse(db.execute(
+                "SELECT to_regclass('pg_temp.wissensraum_health_probe') AS probe").fetchone()['probe'])
+            residue_columns={
+                'documents':'title', 'chunks':'content', 'ai_runs':'question', 'settings':'name',
+                'email_accounts':'id', 'email_imports':'remote_id',
+            }
+            for table,column in residue_columns.items():
+                with self.subTest(table=table):
+                    self.assertFalse(db.execute(
+                        f"SELECT 1 FROM wissensraum.{table} "
+                        f"WHERE {column} LIKE ? LIMIT 1",
+                        ('.wissensraum_health_probe_%',)).fetchone())
 
         document_id, created = store.add(
             'PostgreSQL Test', 'Freigabe für den PostgreSQL Integrationslauf.',
@@ -211,11 +243,10 @@ class PostgresStoreTests(unittest.TestCase):
                     'ordinal': 1, 'content': 'Freigabe'}], 'ollama/qwen3:8b')
         self.assertEqual(store.history()[0]['answer'], 'Erteilt [Q1]')
 
-        accounts = MailAccounts(store, vault)
-        account_id = accounts.save({
-            'label': 'Testkonto', 'provider': 'gmail', 'email': 'test@example.com',
-            'username': 'test@example.com', 'host': 'imap.gmail.com', 'port': '993',
-            'client_id': '', 'tenant': 'common'}, 'synthetic-app-password')
+        accounts=MailAccounts(store,vault,Path(authority_temp.name))
+        account_id=accounts.save({'label':'Testkonto','provider':'gmail','email':'test@example.com',
+            'username':'test@example.com','host':'imap.gmail.com','port':'993','client_id':'','tenant':'common'},
+            'synthetic-app-password')
         with store.connect() as db:
             db.execute('INSERT INTO email_imports(account_id,remote_id,document_id) VALUES(?,?,?)',
                        (account_id, 'imap:INBOX:1', document_id))
@@ -237,7 +268,69 @@ class PostgresStoreTests(unittest.TestCase):
                 'SELECT count(*) AS count FROM ' + table).fetchone()['count'] == 0
                                 for table in data_tables))
             self.assertEqual(db.execute(
-                'SELECT MAX(version) AS version FROM schema_migrations').fetchone()['version'], 4)
+                'SELECT MAX(version) AS version FROM schema_migrations').fetchone()['version'], CURRENT_SCHEMA_VERSION)
+
+    def test_configuration_transfer_contract_on_real_postgresql(self):
+        store=PostgresStore(self.profile,self.password)
+        vault=FakeVault()
+        with tempfile.TemporaryDirectory() as temporary:
+            base=Path(temporary)
+            database=DatabaseSettings(base,vault,environ={})
+            database._write({'backend':'postgresql',**self.profile})
+            design=DesignSettings(base)
+            transfer=ConfigurationTransfer(store,base,database,design)
+            with store.connect() as db:
+                db.execute('DELETE FROM email_accounts')
+                db.execute("INSERT INTO settings(name,value) VALUES(?,?) ON CONFLICT(name) DO UPDATE SET value=excluded.value",
+                           ('active_provider','ollama'))
+                db.execute('''INSERT INTO email_accounts
+                    (id,label,provider,email,username,host,port,client_id,tenant)
+                    VALUES(?,?,?,?,?,?,?,?,?)''',
+                    ('pg-extra','Extra','gmail','extra@example.test','extra',
+                     'imap.example.test',993,'','common'))
+            document=transfer.export_document()
+            self.assertEqual(document['configuration']['ai']['active_provider'],'ollama')
+            replacement=dict(document)
+            replacement['configuration']=dict(document['configuration'])
+            replacement['configuration']['email_accounts']=[]
+            transfer.import_document(replacement)
+            with store.connect() as db:
+                self.assertEqual(db.execute('SELECT COUNT(*) AS count FROM email_accounts').fetchone()['count'],0)
+
+            invalid=json.loads(json.dumps(document))
+            invalid['configuration']['design']['theme']='invalid'
+            before=transfer.export_document()
+            with self.assertRaises(ConfigurationTransferError):
+                transfer.import_document(invalid)
+            self.assertEqual(transfer.export_document(),before)
+
+            changed=json.loads(json.dumps(before))
+            changed['configuration']['ai']['active_provider']='openai'
+            real_write=transfer._write_json_atomic
+            calls=[]
+            def fail_second(path,value):
+                calls.append(path)
+                if len(calls)==2:
+                    raise OSError('injected')
+                return real_write(path,value)
+            with patch.object(transfer,'_write_json_atomic',side_effect=fail_second):
+                with self.assertRaises(ConfigurationTransferError):
+                    transfer.import_document(changed)
+            self.assertEqual(transfer.export_document(),before)
+
+            # A crash after commit must recover through the recorded PostgreSQL origin even
+            # after the imported profile has selected SQLite for the next start.
+            switch=json.loads(json.dumps(before))
+            switch['configuration']['database'].update(
+                {'backend':'sqlite','host':'','database':'','username':'','sslmode':'require'})
+            with patch.object(transfer,'_verify_applied',side_effect=OSError('injected crash')), \
+                 patch.object(transfer,'_recover_pending',
+                              side_effect=['no_pending',OSError('simulate restart')]):
+                with self.assertRaises(ConfigurationTransferError):
+                    transfer.import_document(switch)
+            vault.values['database:postgresql']=self.password
+            self.assertEqual(recover_pending_configuration(
+                base,database,base/'wissen.db'),'committed_finalized')
 
 
 if __name__ == '__main__':

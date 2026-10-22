@@ -5,6 +5,67 @@ import json
 import os
 from pathlib import Path
 import re
+import uuid
+from contextlib import contextmanager
+
+from configuration_authority import configuration_operation_lock, _sync_directory
+
+
+DATABASE_OPERATION_BUSY = 'Datenbankkonfiguration wird gerade geändert; bitte erneut versuchen.'
+DATABASE_PERSISTENCE_ERROR = 'Datenbankkonfiguration konnte nicht gespeichert werden.'
+DATABASE_PERSISTENCE_FATAL_ERROR = ('Datenbankkonfiguration konnte nicht sicher '
+                                    'wiederhergestellt werden; Zustand prüfen.')
+
+
+def resolve_sqlite_path(base,environ=None,explicit=None):
+    """Resolve the SQLite target without changing backend configuration."""
+    if explicit is not None:
+        return Path(explicit)
+    environ=os.environ if environ is None else environ
+    return Path(environ.get('WISSEN_DB',Path(base)/'data'/'wissen.db'))
+
+
+def _probe_missing_sqlite_target(path):
+    """Exercise target-name and directory creation under an owned sibling."""
+    ancestor=path.parent
+    missing_directories=[]
+    while not os.path.lexists(ancestor) and ancestor != ancestor.parent:
+        missing_directories.append(ancestor)
+        ancestor=ancestor.parent
+    if not ancestor.is_dir():
+        raise ValueError('SQLite-Zielordner ist nicht verwendbar.')
+
+    probe_root=ancestor/('.wissensraum-sqlite-probe-'+uuid.uuid4().hex)
+    owned_directories=[]
+    probe_file=None
+    descriptor=None
+    cleanup_failed=False
+    try:
+        probe_root.mkdir()
+        owned_directories.append(probe_root)
+        probe_parent=probe_root
+        for directory in reversed(missing_directories):
+            probe_parent=probe_parent/directory.name
+            probe_parent.mkdir()
+            owned_directories.append(probe_parent)
+        probe_file=probe_parent/path.name
+        descriptor=os.open(probe_file,os.O_CREAT|os.O_EXCL|os.O_WRONLY)
+        os.write(descriptor,b'probe')
+    except OSError:
+        raise ValueError('SQLite-Zielordner ist nicht beschreibbar.') from None
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        if probe_file is not None and descriptor is not None:
+            try: probe_file.unlink()
+            except OSError: cleanup_failed=True
+        for directory in reversed(owned_directories):
+            try: directory.rmdir()
+            except OSError: cleanup_failed=True
+    if cleanup_failed:
+        raise ValueError('SQLite-Zielprüfung konnte nicht rückstandsfrei abgeschlossen werden.')
+    if os.path.lexists(path):
+        raise ValueError('SQLite-Zielpfad hat sich während der Prüfung geändert.')
 
 
 class DatabaseSettings:
@@ -19,39 +80,93 @@ class DatabaseSettings:
     def _file_config(self):
         try:
             value=json.loads(self.path.read_text(encoding='utf-8'))
-            return value if isinstance(value,dict) else {}
-        except (OSError,UnicodeError,json.JSONDecodeError):
+        except FileNotFoundError:
             return {}
+        except (OSError,UnicodeError,json.JSONDecodeError):
+            raise ValueError('Datenbankkonfiguration ist nicht lesbar; data/database.json prüfen.') from None
+        if type(value) is not dict or not all(type(key) is str for key in value):
+            raise ValueError('Datenbankkonfiguration ist ungültig; data/database.json prüfen.')
+        return value
 
     def profile(self):
         saved=self._file_config()
-        backend=str(saved.get('backend') or self.environ.get('DB_BACKEND') or 'sqlite').lower()
+        if 'backend' in saved:
+            value=saved['backend']
+            if type(value) is not str or not value.strip():
+                raise ValueError('Datenbankkonfiguration enthält eine ungültige Datenquelle; data/database.json prüfen.')
+            backend=value.strip().lower()
+        else:
+            if 'DB_BACKEND' not in self.environ:
+                backend='sqlite'
+            else:
+                value=self.environ['DB_BACKEND']
+                if type(value) is not str or not value.strip():
+                    raise ValueError('Datenbankkonfiguration enthält eine ungültige Datenquelle; DB_BACKEND prüfen.')
+                backend=value.strip().lower()
         if backend not in ('sqlite','postgresql'):
-            backend='sqlite'
+            raise ValueError('Datenbankkonfiguration enthält eine unbekannte Datenquelle; data/database.json prüfen.')
+
+        def resolved(field,environment,default,allow_integer=False):
+            value=saved[field] if field in saved else self.environ.get(environment,default)
+            valid=type(value) is str or (allow_integer and type(value) is int)
+            if not valid:
+                raise ValueError('Datenbankkonfiguration enthält einen ungültigen PostgreSQL-Wert; data/database.json prüfen.')
+            return str(value)
+
         return {
             'backend':backend,
-            'host':str(saved.get('host') or self.environ.get('DB_HOST') or ''),
-            'port':str(saved.get('port') or self.environ.get('DB_PORT') or '5432'),
-            'database':str(saved.get('database') or self.environ.get('DB_DATABASE') or ''),
-            'username':str(saved.get('username') or self.environ.get('DB_USERNAME') or ''),
-            'sslmode':str(saved.get('sslmode') or self.environ.get('DB_SSLMODE') or 'require'),
+            'host':resolved('host','DB_HOST',''),
+            'port':resolved('port','DB_PORT','5432',allow_integer=True),
+            'database':resolved('database','DB_DATABASE',''),
+            'username':resolved('username','DB_USERNAME',''),
+            'sslmode':resolved('sslmode','DB_SSLMODE','require'),
         }
+
+    def persisted_profile(self):
+        """Return validated on-disk values without DB_* environment fallbacks."""
+        saved=self._file_config()
+        backend=saved.get('backend','sqlite')
+        if type(backend) is not str or not backend.strip():
+            raise ValueError('Datenbankkonfiguration enthält eine ungültige Datenquelle; data/database.json prüfen.')
+        backend=backend.strip().lower()
+        if backend not in ('sqlite','postgresql'):
+            raise ValueError('Datenbankkonfiguration enthält eine unbekannte Datenquelle; data/database.json prüfen.')
+        defaults={'host':'','port':'5432','database':'','username':'','sslmode':'require'}
+        result={'backend':backend}
+        for field,default in defaults.items():
+            value=saved.get(field,default)
+            if not (type(value) is str or (field=='port' and type(value) is int)):
+                raise ValueError('Datenbankkonfiguration enthält einen ungültigen PostgreSQL-Wert; data/database.json prüfen.')
+            result[field]=str(value)
+        return result
 
     def password(self):
         value=self.vault.get(self.secret_name)
         if value:
             return value,'Betriebssystem-Schlüsselspeicher'
-        value=str(self.environ.get('DB_PASSWORD') or '')
-        return (value,'Umgebungsvariable') if value else ('','Nicht hinterlegt')
+        if 'DB_PASSWORD' not in self.environ:
+            return '','Nicht hinterlegt'
+        value=self.environ['DB_PASSWORD']
+        if type(value) is str and not value:
+            return '','Nicht hinterlegt'
+        return value,'Umgebungsvariable'
 
     @staticmethod
     def validate(values,password):
-        host=str(values.get('host','')).strip()
-        database=str(values.get('database','')).strip()
-        username=str(values.get('username','')).strip()
-        sslmode=str(values.get('sslmode') or 'require').strip()
+        if type(values) is not dict or not all(type(key) is str for key in values):
+            raise ValueError('Ungültiger PostgreSQL-Verbindungswert.')
+        for field in ('host','database','username','sslmode'):
+            if field in values and type(values[field]) is not str:
+                raise ValueError('Ungültiger PostgreSQL-Verbindungswert.')
+        host=values.get('host','').strip()
+        database=values.get('database','').strip()
+        username=values.get('username','').strip()
+        sslmode=values.get('sslmode','require').strip()
+        raw_port=values.get('port',5432)
+        if type(raw_port) not in (str,int):
+            raise ValueError('Gültigen PostgreSQL-Port eingeben.')
         try:
-            port=int(values.get('port') or 5432)
+            port=int(raw_port)
         except (TypeError,ValueError):
             raise ValueError('Gültigen PostgreSQL-Port eingeben.') from None
         if not re.fullmatch(r'[A-Za-z0-9.-]{1,253}',host):
@@ -64,13 +179,12 @@ class DatabaseSettings:
         allowed_ssl=('require','verify-ca','verify-full')+(("disable",) if host in ('127.0.0.1','localhost') else ())
         if sslmode not in allowed_ssl:
             raise ValueError('TLS-Modus require, verify-ca oder verify-full auswählen.')
-        password=str(password or '')
-        if not password or len(password)>4096 or any(ord(c)<32 for c in password):
+        if type(password) is not str or not password or len(password)>4096 or any(ord(c)<32 for c in password):
             raise ValueError('PostgreSQL-Kennwort eingeben.')
         return {'host':host,'port':port,'database':database,'username':username,'sslmode':sslmode},password
 
     def connection_values(self,values=None,password=None):
-        values=values or self.profile()
+        values=self.profile() if values is None else values
         if password is None:
             password=self.password()[0]
         profile,password=self.validate(values,password)
@@ -104,65 +218,119 @@ class DatabaseSettings:
         finally:
             connection.close()
 
-    def _write(self,profile):
+    @contextmanager
+    def _public_mutation(self):
+        lock=configuration_operation_lock(self.base)
+        try:
+            lock.acquire()
+        except Exception:
+            raise ValueError(DATABASE_OPERATION_BUSY) from None
+        try:
+            yield
+        finally:
+            lock.release()
+
+    def _write_owned(self,profile):
         self.path.parent.mkdir(parents=True,exist_ok=True)
-        temporary=self.path.with_suffix('.tmp')
-        temporary.write_text(json.dumps(profile,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
-        temporary.replace(self.path)
+        temporary=self.path.with_name(self.path.name+'.tmp-'+uuid.uuid4().hex)
+        try:
+            text=json.dumps(profile,ensure_ascii=False,indent=2)+'\n'
+            data=text.replace('\n',os.linesep).encode('utf-8')
+            with temporary.open('xb') as output:
+                output.write(data)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary,self.path)
+            _sync_directory(self.path.parent)
+        finally:
+            try: temporary.unlink()
+            except FileNotFoundError: pass
+
+    def _write(self,profile):
+        with configuration_operation_lock(self.base):
+            self._write_owned(profile)
+
+    def _save_owned(self,values,password=None,backend=None):
+        previous_vault_password=self.vault.get(self.secret_name)
+        current_password=self.password()[0]
+        profile,password=self.connection_values(values,current_password if password is None else password)
+        selected_backend=self.profile()['backend'] if backend is None else backend
+        if type(selected_backend) is not str or selected_backend not in ('sqlite','postgresql'):
+            raise ValueError('Datenbankkonfiguration enthält eine unbekannte Datenquelle; data/database.json prüfen.')
+        profile['backend']=selected_backend
+        password_changed=password != current_password
+        if password_changed:
+            self.vault.set(self.secret_name,password)
+        try:
+            self._write_owned(profile)
+        except BaseException as error:
+            if password_changed:
+                try:
+                    if previous_vault_password is None:
+                        self.vault.delete(self.secret_name)
+                    else:
+                        self.vault.set(self.secret_name,previous_vault_password)
+                    if self.vault.get(self.secret_name) != previous_vault_password:
+                        raise RuntimeError('vault rollback verification failed')
+                except BaseException:
+                    raise ValueError(DATABASE_PERSISTENCE_FATAL_ERROR) from None
+            if isinstance(error,Exception):
+                raise ValueError(DATABASE_PERSISTENCE_ERROR) from None
+            raise
+        return profile
 
     def save(self,values,password=None,backend=None):
-        current_password=self.password()[0]
-        profile,password=self.connection_values(values,password or current_password)
-        if password != current_password:
-            self.vault.set(self.secret_name,password)
-        profile['backend']=backend or self.profile()['backend']
-        self._write(profile)
-        return profile
+        with self._public_mutation():
+            return self._save_owned(values,password,backend)
 
     def activate_postgresql(self,values,password=None,connector=None,store_factory=None):
-        profile,password=self.connection_values(values,password or self.password()[0])
-        self.test(profile,password,connector)
-        if store_factory is None:
-            from core import PostgresStore
-            store_factory=PostgresStore
-        store_factory(profile,password)
-        return self.save(profile,password,backend='postgresql')
+        with self._public_mutation():
+            profile,password=self.connection_values(values,self.password()[0] if password is None else password)
+            self.test(profile,password,connector)
+            if store_factory is None:
+                from core import PostgresStore
+                store_factory=PostgresStore
+            store_factory(profile,password)
+            return self._save_owned(profile,password,backend='postgresql')
 
     def activate_sqlite(self):
-        profile=self.profile()
-        profile['backend']='sqlite'
-        self._write(profile)
-        return profile
+        with self._public_mutation():
+            profile=self.profile()
+            profile['backend']='sqlite'
+            self._write_owned(profile)
+            return profile
 
     def reset_postgresql(self,values,password,confirmation):
-        profile,password=self.connection_values(values,password or self.password()[0])
-        if str(confirmation) != profile['database']:
-            raise ValueError('Bestätigung stimmt nicht mit dem Datenbanknamen überein. Es wurde nichts gelöscht.')
-        connection=self._connect(profile,password)
-        try:
-            from core import _PostgresConnection
-            from migrations import (CURRENT_SCHEMA_VERSION,
-                                    _acquire_postgres_migration_lock,
-                                    migrate_postgres)
-            with connection.transaction():
-                db=_PostgresConnection(connection)
-                _acquire_postgres_migration_lock(db)
-                db.execute('DROP SCHEMA IF EXISTS wissensraum CASCADE')
-                migrate_postgres(db,acquire_lock=False)
-                rows=db.execute(
-                    "SELECT table_name FROM information_schema.tables WHERE table_schema='wissensraum' ORDER BY table_name").fetchall()
-                tables=[row['table_name'] if isinstance(row,dict) else row[0] for row in rows]
-                required={'documents','chunks','ai_runs','settings','email_accounts','email_imports','schema_migrations'}
-                version_row=db.execute(
-                    'SELECT MAX(version) AS version FROM wissensraum.schema_migrations').fetchone()
-                version=version_row['version'] if isinstance(version_row,dict) else version_row[0]
-                if set(tables)!=required or version!=CURRENT_SCHEMA_VERSION:
-                    raise ValueError('Anwendungsschema ist unvollständig.')
-        except Exception:
-            raise ValueError('Anwendungsschema konnte nicht zurückgesetzt werden. Datenbankrechte und Verbindung prüfen.') from None
-        finally:
-            connection.close()
-        return {'database':profile['database'],'tables':tables}
+        with self._public_mutation():
+            profile,password=self.connection_values(values,self.password()[0] if password is None else password)
+            if type(confirmation) is not str or confirmation != profile['database']:
+                raise ValueError('Bestätigung stimmt nicht mit dem Datenbanknamen überein. Es wurde nichts gelöscht.')
+            connection=self._connect(profile,password)
+            try:
+                from core import _PostgresConnection
+                from migrations import (CURRENT_SCHEMA_VERSION,
+                                        _acquire_postgres_migration_lock,
+                                        migrate_postgres)
+                with connection.transaction():
+                    db=_PostgresConnection(connection)
+                    _acquire_postgres_migration_lock(db)
+                    db.execute('DROP SCHEMA IF EXISTS wissensraum CASCADE')
+                    migrate_postgres(db,acquire_lock=False)
+                    rows=db.execute(
+                        "SELECT table_name FROM information_schema.tables WHERE table_schema='wissensraum' ORDER BY table_name").fetchall()
+                    tables=[row['table_name'] if isinstance(row,dict) else row[0] for row in rows]
+                    required={'documents','chunks','ai_runs','settings','email_accounts',
+                              'email_imports','schema_migrations'}
+                    version_row=db.execute(
+                        'SELECT MAX(version) AS version FROM wissensraum.schema_migrations').fetchone()
+                    version=version_row['version'] if isinstance(version_row,dict) else version_row[0]
+                    if set(tables)!=required or version!=CURRENT_SCHEMA_VERSION:
+                        raise ValueError('Anwendungsschema ist unvollständig.')
+            except Exception:
+                raise ValueError('Anwendungsschema konnte nicht zurückgesetzt werden. Datenbankrechte und Verbindung prüfen.') from None
+            finally:
+                connection.close()
+            return {'database':profile['database'],'tables':tables}
 
     def open_store(self,sqlite_path):
         profile=self.profile()
@@ -172,3 +340,19 @@ class DatabaseSettings:
             return PostgresStore(connection,password)
         from core import Store
         return Store(sqlite_path)
+
+    def health(self,sqlite_path,force_sqlite=False):
+        """Check the selected store without initializing or committing probe data."""
+        profile={'backend':'sqlite'} if force_sqlite else self.profile()
+        if profile['backend']=='sqlite':
+            path=Path(sqlite_path)
+            if not path.exists():
+                if os.path.lexists(path):
+                    raise ValueError('SQLite-Zielpfad ist nicht verwendbar.')
+                _probe_missing_sqlite_target(path)
+                return {'backend':'SQLite','missing':True}
+            from core import Store
+            return Store(path,initialize=False).health()
+        connection,password=self.connection_values(profile)
+        from core import PostgresStore
+        return PostgresStore(connection,password,initialize=False).health()

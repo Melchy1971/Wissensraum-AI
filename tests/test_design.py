@@ -1,5 +1,7 @@
 from pathlib import Path
 import builtins
+import json
+import os
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -8,6 +10,7 @@ from PIL import Image
 
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+from configuration_authority import configuration_operation_lock
 from design import DesignSettings
 
 
@@ -26,6 +29,54 @@ class DesignSettingsTests(unittest.TestCase):
         self.assertEqual(DesignSettings(self.base).theme(),'dark')
         with self.assertRaisesRegex(ValueError,'hell oder dunkel'):
             self.design.save_theme('automatic')
+
+    def test_theme_write_fails_closed_while_configuration_operation_is_owned(self):
+        lock=configuration_operation_lock(self.base)
+        lock.acquire()
+        try:
+            with self.assertRaises(BlockingIOError):
+                DesignSettings(self.base).save_theme('dark')
+            self.assertFalse(self.design.path.exists())
+        finally:
+            lock.release()
+        self.design.save_theme('dark')
+        self.assertEqual(self.design.theme(),'dark')
+
+    def test_theme_write_uses_unique_temporary_and_syncs_before_replace(self):
+        collision=self.design.path.with_suffix('.tmp')
+        collision.parent.mkdir(parents=True,exist_ok=True)
+        collision.write_bytes(b'owned-by-another-process')
+        operations=[]
+        sources=[]
+        real_replace=os.replace
+        def replace(source,target):
+            sources.append(Path(source))
+            operations.append('replace')
+            return real_replace(source,target)
+        with patch('design.os.fsync',side_effect=lambda _fd:operations.append('file')), \
+             patch('design.os.replace',side_effect=replace), \
+             patch('design._sync_directory',side_effect=lambda _path:operations.append('directory')):
+            self.design.save_theme('dark')
+        self.assertEqual(operations[-3:],['file','replace','directory'])
+        self.assertEqual(len(sources),1)
+        self.assertNotEqual(sources[0],collision)
+        self.assertEqual(collision.read_bytes(),b'owned-by-another-process')
+        self.assertEqual(json.loads(self.design.path.read_text(encoding='utf-8')),
+                         {'theme':'dark'})
+
+    def test_theme_write_cleans_unique_temporary_after_baseexception(self):
+        fixed_uuid=type('FixedUuid',(),{'hex':'1'*32})()
+        temporary=self.design.path.with_name(self.design.path.name+'.tmp-'+'1'*32)
+        self.design.path.parent.mkdir(parents=True,exist_ok=True)
+        self.design.path.write_bytes(b'previous')
+        interrupted=KeyboardInterrupt('interrupted')
+        with patch('design.uuid.uuid4',return_value=fixed_uuid), \
+             patch('design.os.replace',side_effect=interrupted):
+            with self.assertRaises(KeyboardInterrupt) as caught:
+                self.design.save_theme('dark')
+        self.assertIs(caught.exception,interrupted)
+        self.assertFalse(temporary.exists())
+        self.assertEqual(self.design.path.read_bytes(),b'previous')
 
     def test_logo_is_normalized_and_removable(self):
         source=self.base/'large-logo.jpg'

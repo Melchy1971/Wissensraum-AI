@@ -2,6 +2,9 @@
 from pathlib import Path
 import os
 import re
+from contextlib import contextmanager
+from configuration_authority import (CONFIGURATION_OPERATION_BUSY, ConfigurationAuthority,
+                                     configuration_operation_lock, store_identity)
 
 PROVIDERS = {
     'openai': {'name':'OpenAI', 'env':('OPENAI_API_KEY',), 'models':('gpt-4.1-mini','gpt-4.1'),
@@ -91,9 +94,34 @@ class Settings:
         with self.store.connect() as db:
             return {row['name']:row['value'] for row in db.execute('SELECT name,value FROM settings').fetchall()}
 
+    @contextmanager
+    def _public_mutation(self):
+        lock=configuration_operation_lock(self.base)
+        try:
+            lock.acquire()
+        except Exception:
+            raise ValueError(CONFIGURATION_OPERATION_BUSY) from None
+        try:
+            yield
+        finally:
+            lock.release()
+
+    def _put_owned(self,values):
+        authority=ConfigurationAuthority(self.base)
+        # Commit the stable store identity before the mutation transaction.
+        store_identity(self.store)
+        prepared=None
+        try:
+            with self.store.connect() as db:
+                db.executemany('INSERT INTO settings(name,value) VALUES(?,?) ON CONFLICT(name) DO UPDATE SET value=excluded.value',values.items())
+                prepared=authority.synchronize(self.store,db)
+            authority.finalize_synchronize(self.store,prepared)
+        finally:
+            authority.abort_synchronize(prepared)
+
     def put(self,values):
-        with self.store.connect() as db:
-            db.executemany('INSERT INTO settings(name,value) VALUES(?,?) ON CONFLICT(name) DO UPDATE SET value=excluded.value',values.items())
+        with self._public_mutation():
+            self._put_owned(values)
 
     def active(self):
         provider=self.config().get('active_provider','openai')
@@ -134,7 +162,7 @@ class Settings:
                          'source':source,'model':self.model(provider),'active':provider==active})
         return rows
 
-    def save(self,provider,model,key=None,activate=True):
+    def _save_owned(self,provider,model,key=None,activate=True):
         if provider not in PROVIDERS:
             raise ValueError('Unbekannter KI-Anbieter.')
         model=model.strip()
@@ -151,27 +179,36 @@ class Settings:
             values[provider+'.disabled']='0'
         if activate:
             values['active_provider']=provider
-        self.put(values)
+        self._put_owned(values)
 
-    def remove_key(self,provider):
+    def save(self,provider,model,key=None,activate=True):
+        with self._public_mutation():
+            self._save_owned(provider,model,key,activate)
+
+    def _remove_key_owned(self,provider):
         if not PROVIDERS[provider]['env']:
             return
         # External credentials are disabled for this app; source files/environment remain untouched.
         if self.vault.get(provider):
             self.vault.delete(provider)
-        self.put({provider+'.disabled':'1'})
+        self._put_owned({provider+'.disabled':'1'})
+
+    def remove_key(self,provider):
+        with self._public_mutation():
+            self._remove_key_owned(provider)
 
     def import_keys(self,path):
-        values=read_env_file(path)
-        found=0
-        for provider,info in PROVIDERS.items():
-            value=next((values[n] for n in info['env'] if values.get(n)),None)
-            if value:
-                self.save(provider,self.model(provider),value,activate=False)
-                found+=1
-        if not found:
-            raise ValueError('Keine unterstützten API-Schlüssel in dieser Datei gefunden.')
-        return found
+        with self._public_mutation():
+            values=read_env_file(path)
+            found=0
+            for provider,info in PROVIDERS.items():
+                value=next((values[n] for n in info['env'] if values.get(n)),None)
+                if value:
+                    self._save_owned(provider,self.model(provider),value,activate=False)
+                    found+=1
+            if not found:
+                raise ValueError('Keine unterstützten API-Schlüssel in dieser Datei gefunden.')
+            return found
 
     def ai(self,transport=None):
         from core import AI

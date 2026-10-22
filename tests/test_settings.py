@@ -1,8 +1,11 @@
 import io
 import json
 from pathlib import Path
+import subprocess
 import tempfile
+import time
 import unittest
+from contextlib import contextmanager
 from unittest.mock import patch
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
@@ -25,6 +28,85 @@ class SettingsTests(unittest.TestCase):
         self.vault=FakeVault()
         self.settings=Settings(self.store,self.base,self.vault,environ={})
     def tearDown(self): self.temp.cleanup()
+
+    @contextmanager
+    def _configuration_operation_owned_by_process(self):
+        ready=self.base/'settings-lock-ready'
+        release=self.base/'settings-lock-release'
+        script=(
+            "import pathlib,time; from configuration_authority import configuration_operation_lock; "
+            "lock=configuration_operation_lock(pathlib.Path(r'"+str(self.base)+"')); "
+            "lock.acquire(); pathlib.Path(r'"+str(ready)+"').write_text('ready'); "
+            "\nwhile not pathlib.Path(r'"+str(release)+"').exists(): time.sleep(.01)\n"
+            "lock.release()")
+        process=subprocess.Popen([sys.executable,'-c',script],
+                                 cwd=str(Path(__file__).parents[1]))
+        try:
+            deadline=time.monotonic()+5
+            while not ready.exists() and process.poll() is None and time.monotonic()<deadline:
+                time.sleep(.01)
+            self.assertTrue(ready.exists())
+            yield
+        finally:
+            release.write_text('release',encoding='utf-8')
+            try:
+                returncode=process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+                self.fail('lock-owner process did not exit after release request')
+            self.assertEqual(returncode,0,'lock-owner process exited unexpectedly')
+
+    def _configuration_snapshot(self):
+        with self.store.connect() as db:
+            rows=[tuple(row) for row in db.execute('SELECT name,value FROM settings ORDER BY name')]
+        authority=self.base/'data'/'configuration-authority.json'
+        return rows,authority.read_bytes() if authority.exists() else None,dict(self.vault.values)
+
+    def test_save_busy_lock_precedes_vault_sql_and_authority_mutation(self):
+        before=self._configuration_snapshot()
+        with patch.object(self.vault,'set',side_effect=AssertionError('vault write attempted')):
+            with self._configuration_operation_owned_by_process():
+                with self.assertRaisesRegex(
+                        ValueError,'^Konfiguration wird gerade geändert; bitte erneut versuchen\\.$'):
+                    self.settings.save('openai','gpt-4.1','replacement-secret')
+        self.assertEqual(self._configuration_snapshot(),before)
+
+    def test_remove_key_busy_lock_precedes_vault_sql_and_authority_mutation(self):
+        self.settings.save('openai','gpt-4.1','original-secret')
+        before=self._configuration_snapshot()
+        with patch.object(self.vault,'delete',side_effect=AssertionError('vault delete attempted')):
+            with self._configuration_operation_owned_by_process():
+                with self.assertRaisesRegex(
+                        ValueError,'^Konfiguration wird gerade geändert; bitte erneut versuchen\\.$'):
+                    self.settings.remove_key('openai')
+        self.assertEqual(self._configuration_snapshot(),before)
+
+    def test_put_busy_lock_precedes_sql_and_authority_mutation(self):
+        secret='synthetic-put-secret'
+        path=str(self.base/'synthetic-put-path')
+        before=self._configuration_snapshot()
+        with self._configuration_operation_owned_by_process():
+            with self.assertRaisesRegex(
+                    ValueError,'^Konfiguration wird gerade geändert; bitte erneut versuchen\\.$') as raised:
+                self.settings.put({'synthetic.secret':secret,'synthetic.path':path})
+        self.assertNotIn(secret,str(raised.exception))
+        self.assertNotIn(path,str(raised.exception))
+        self.assertEqual(self._configuration_snapshot(),before)
+
+    def test_import_keys_busy_lock_precedes_vault_sql_and_authority_mutation(self):
+        secret='synthetic-import-secret'
+        path=self.base/'synthetic-import-keys.env'
+        path.write_text('OPENAI_API_KEY='+secret+'\n',encoding='utf-8')
+        before=self._configuration_snapshot()
+        with patch.object(self.vault,'set',side_effect=AssertionError('vault write attempted')):
+            with self._configuration_operation_owned_by_process():
+                with self.assertRaisesRegex(
+                        ValueError,'^Konfiguration wird gerade geändert; bitte erneut versuchen\\.$') as raised:
+                    self.settings.import_keys(path)
+        self.assertNotIn(secret,str(raised.exception))
+        self.assertNotIn(str(path),str(raised.exception))
+        self.assertEqual(self._configuration_snapshot(),before)
 
     def test_existing_file_key_is_detected_without_being_copied(self):
         (self.base.parent/'.env.local').write_text('OPENAI_API_KEY=test-existing-1234567890\n',encoding='utf-8')
