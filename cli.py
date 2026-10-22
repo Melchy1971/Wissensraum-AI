@@ -4,11 +4,12 @@ import json
 from pathlib import Path
 from core import Store, import_document
 from migrations import restore_sqlite
-from settings import Settings
+from settings import PROVIDERS, Settings
 from settings import SystemVault
 from database import DatabaseSettings, resolve_sqlite_path
 from configuration_authority import ConfigurationAuthority, identity_for_profile
-from diagnostics import DiagnosticResult, format_diagnostics, run_diagnostics
+from diagnostics import DiagnosticResult, format_diagnostics, health_overview, run_diagnostics
+from importer import MailAccounts
 from configuration import (APPLY_ERROR, EXPORT_ERROR, ConfigurationTransfer,
                            ConfigurationTransferError, RECOVERY_ERROR,
                            pending_configuration_recovery,
@@ -41,6 +42,7 @@ def main(argv=None):
     parser.add_argument('--db',type=Path,help='Lokale SQLite-Datei; überschreibt die konfigurierte Datenquelle')
     commands = parser.add_subparsers(dest='command',required=True)
     commands.add_parser('doctor')
+    commands.add_parser('status',help='Gesundheit von Datenbank, aktiver KI und E-Mail-Konten anzeigen')
     commands.add_parser('config-sync')
     commands.add_parser('list')
     imp = commands.add_parser('import')
@@ -144,6 +146,12 @@ def main(argv=None):
                 title,text,name,data = import_document(args.path)
                 doc_id,created = store.add(title,text,args.category,name,data)
                 result = {'id':doc_id,'created':created}
+            elif args.command == 'status':
+                results = health_overview(store,Settings(store,BASE,vault),
+                                          MailAccounts(store,vault,BASE),PROVIDERS)
+                print(format_diagnostics(results))
+                _log_event(logger,'command_completed',metadata=metadata)
+                return 1 if any(result.status == 'FAIL' for result in results) else 0
             elif args.command == 'search':
                 result = store.search(args.query)
             elif args.command == 'backup':

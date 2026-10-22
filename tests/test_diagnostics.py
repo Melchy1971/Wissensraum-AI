@@ -20,6 +20,7 @@ from diagnostics import (
     check_python,
     check_tcl_tk,
     format_diagnostics,
+    health_overview,
     run_diagnostics,
 )
 
@@ -781,6 +782,59 @@ class DiagnosticTests(unittest.TestCase):
                          '[PASS] python: Python ok. (version=3.13.7)\n'
                          '[FAIL] database: Datenbank prüfen. (backend=SQLite)\n'
                          'Ergebnis: 1 bestanden, 0 Warnungen, 1 fehlgeschlagen.')
+
+
+class HealthOverviewTests(unittest.TestCase):
+    class Vault:
+        def __init__(self, secrets=None):
+            self.secrets = dict(secrets or {})
+
+        def get(self, name):
+            return self.secrets.get(name)
+
+    def build(self, secrets=None, provider='openai'):
+        from core import Store
+        from importer import MailAccounts
+        from settings import Settings
+        folder = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        store = Store(folder / 'wissen.db')
+        store.add('Dokument', 'Inhalt')
+        with store.connect() as db:
+            db.execute("INSERT INTO settings(name,value) VALUES('active_provider',?)", (provider,))
+            db.execute("INSERT INTO email_accounts(id,label,provider,email,username) "
+                       "VALUES('a','Arbeit','gmail','a@example.test','a@example.test')")
+        vault = self.Vault(secrets)
+        return store, Settings(store, folder, vault, environ={}), MailAccounts(store, vault, folder)
+
+    def test_missing_ai_key_and_mail_secret_are_warnings_without_secret_values(self):
+        from settings import PROVIDERS
+        store, settings, accounts = self.build()
+        with patch('urllib.request.urlopen', side_effect=AssertionError('network')), \
+                patch('imaplib.IMAP4_SSL', side_effect=AssertionError('network')):
+            results = health_overview(store, settings, accounts, PROVIDERS)
+        self.assertEqual([(r.check_id, r.status) for r in results],
+                         [('database', 'PASS'), ('ai_provider', 'WARN'), ('mail_accounts', 'WARN')])
+        self.assertEqual(results[0].details['documents'], 1)
+        self.assertIn('Arbeit', results[2].message)
+
+    def test_configured_state_passes_and_never_exposes_keys(self):
+        from settings import PROVIDERS
+        secret = 'sk-GEHEIM-1234567890'
+        store, settings, accounts = self.build({'openai': secret, 'mail:a': 'app-passwort'})
+        text = format_diagnostics(health_overview(store, settings, accounts, PROVIDERS))
+        self.assertNotIn('FAIL', text.split('Ergebnis')[0])
+        self.assertNotIn('WARN', text.split('Ergebnis')[0])
+        self.assertNotIn(secret, text)
+        self.assertNotIn('app-passwort', text)
+
+    def test_ollama_needs_no_key_and_broken_store_fails_closed(self):
+        from settings import PROVIDERS
+        store, settings, accounts = self.build(provider='ollama')
+        self.assertEqual(health_overview(store, settings, accounts, PROVIDERS)[1].status, 'PASS')
+        with patch.object(store, 'connect', side_effect=OSError('kaputt')):
+            results = health_overview(store, settings, accounts, PROVIDERS)
+        self.assertEqual(results[0].status, 'FAIL')
+        self.assertEqual(results[2].status, 'FAIL')
 
 
 if __name__ == '__main__':

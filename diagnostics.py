@@ -170,6 +170,61 @@ def run_diagnostics(base=None, vault=None, database_settings=None, sqlite_path=N
     return tuple(check() for check in checks)
 
 
+def check_store_health(store):
+    label = 'PostgreSQL' if getattr(store, 'backend', '') == 'postgresql' else 'SQLite'
+    try:
+        with store.connect() as db:
+            row = db.execute('SELECT count(*) AS total FROM documents').fetchone()
+        total = row['total'] if hasattr(row, 'keys') else row[0]
+    except Exception:
+        return DiagnosticResult('database', 'FAIL',
+                                f'Aktive {label}-Datenbank antwortet nicht; Verbindung und Rechte prüfen.',
+                                {'backend': label})
+    return DiagnosticResult('database', 'PASS', f'Aktive {label}-Datenbank antwortet.',
+                            {'backend': label, 'documents': total})
+
+
+def check_ai_provider(settings, providers):
+    try:
+        provider = settings.active()
+        _, source = settings.credential(provider)
+        details = {'provider': providers[provider]['name'], 'model': settings.model(provider),
+                   'source': source}
+    except Exception:
+        return DiagnosticResult('ai_provider', 'FAIL',
+                                'KI-Einstellungen nicht lesbar; Einstellungen und Schlüsselspeicher prüfen.', {})
+    if source in ('Nicht hinterlegt', 'Deaktiviert'):
+        return DiagnosticResult('ai_provider', 'WARN',
+                                'Aktive KI ist nicht nutzbar; unter Einstellungen einen Schlüssel hinterlegen '
+                                'oder einen anderen Anbieter aktivieren.', details)
+    return DiagnosticResult('ai_provider', 'PASS',
+                            'Aktive KI ist konfiguriert; die Erreichbarkeit prüft „Verbindung testen“.', details)
+
+
+def check_mail_accounts(mail_accounts):
+    try:
+        accounts = mail_accounts.list()
+    except Exception:
+        return DiagnosticResult('mail_accounts', 'FAIL',
+                                'E-Mail-Konten nicht lesbar; Datenbank und Schlüsselspeicher prüfen.', {})
+    if not accounts:
+        return DiagnosticResult('mail_accounts', 'PASS', 'Kein E-Mail-Konto eingerichtet.', {'accounts': 0})
+    missing = [account['label'] for account in accounts if account['auth_status'] != 'Verbunden']
+    details = {'accounts': len(accounts)}
+    if missing:
+        return DiagnosticResult('mail_accounts', 'WARN',
+                                f'{len(missing)} von {len(accounts)} E-Mail-Konten ohne gespeicherte Zugangsdaten: '
+                                + ', '.join(missing) + '.', details)
+    return DiagnosticResult('mail_accounts', 'PASS',
+                            'Alle E-Mail-Konten haben gespeicherte Zugangsdaten.', details)
+
+
+def health_overview(store, settings, mail_accounts, providers):
+    """Read local state only; never contacts AI providers or mail servers."""
+    return (check_store_health(store), check_ai_provider(settings, providers),
+            check_mail_accounts(mail_accounts))
+
+
 def format_diagnostics(results):
     results = tuple(results)
     lines = []

@@ -102,4 +102,50 @@ class DesignSettingsTests(unittest.TestCase):
         self.assertFalse(saved.exists())
 
 
+class CorruptedDesignTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory()
+        self.base=Path(self.temp.name)
+        self.design=DesignSettings(self.base)
+        self.design.path.parent.mkdir(parents=True)
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_malformed_design_file_falls_back_to_light_without_changing_it(self):
+        variants={'leer':b'','binaer':b'\xff\xfe\x00','abgeschnitten':b'{"theme": "da',
+                  'liste':b'[]','null':b'null','zahl':b'42','text':b'"dark"',
+                  'theme_liste':b'{"theme": ["dark"]}','theme_unbekannt':b'{"theme": "neon"}',
+                  'tief':b'['*100000+b']'*100000}
+        for name,data in variants.items():
+            with self.subTest(name):
+                self.design.path.write_bytes(data)
+                self.assertEqual(self.design.values(),{'theme':'light'})
+                self.assertEqual(self.design.path.read_bytes(),data)
+
+    def test_interrupted_theme_write_keeps_previous_theme(self):
+        self.design.save_theme('dark')
+        before=self.design.path.read_bytes()
+        for target in ('design.os.fsync','design.os.replace'):
+            with self.subTest(target), patch(target,side_effect=OSError(28,'voll')):
+                with self.assertRaises(OSError):
+                    self.design.save_theme('light')
+            self.assertEqual(self.design.path.read_bytes(),before)
+            self.assertEqual([p.name for p in self.design.path.parent.iterdir() if '.tmp-' in p.name],[])
+
+    def test_failed_logo_write_keeps_previous_logo_and_removes_partial_file(self):
+        source=self.base/'quelle.png'
+        Image.new('RGB',(40,20),'red').save(source)
+        self.design.save_logo(source)
+        before=self.design.logo_path.read_bytes()
+        def partial_save(image,target,*args,**kwargs):
+            Path(target).write_bytes(b'\x89PNG halb')
+            raise OSError(28,'No space left on device')
+        with patch('PIL.Image.Image.save',partial_save):
+            with self.assertRaisesRegex(ValueError,'nicht gespeichert.*bisherige Logo bleibt erhalten'):
+                self.design.save_logo(source)
+        self.assertEqual(self.design.logo_path.read_bytes(),before)
+        self.assertEqual([p.name for p in self.design.directory.iterdir()],['logo.png'])
+
+
 if __name__=='__main__': unittest.main()

@@ -14,7 +14,7 @@ except (ImportError, OSError):
 from core import discover_documents, import_documents
 from settings import Settings, SystemVault, PROVIDERS
 from database import DatabaseSettings, resolve_sqlite_path
-from diagnostics import DiagnosticResult, run_diagnostics
+from diagnostics import DiagnosticResult, format_diagnostics, health_overview, run_diagnostics
 from design import DesignSettings, THEMES
 from configuration import (APPLY_ERROR, EXPORT_ERROR, ConfigurationTransfer,
                            ConfigurationTransferError, recover_pending_configuration)
@@ -175,6 +175,7 @@ class App(tk.Tk if tk is not None else object):
         for label, command in [('Import',self.open_import),('Notiz erfassen',self.note),
                                ('Datenbank sichern',self.backup),
                                ('Sicherung wiederherstellen',self.restore),
+                               ('Systemstatus',self.show_health),
                                ('Einstellungen',self.open_settings)]:
             b = ttk.Button(tools,text=label,command=command)
             b.pack(side='left',padx=(0,8))
@@ -1235,6 +1236,13 @@ class App(tk.Tk if tk is not None else object):
         target = filedialog.asksaveasfilename(defaultextension='.db',initialfile='wissen_sicherung.db')
         if target:
             self.work(lambda:self.store.backup(target),lambda _:self.status.set('SQL-Sicherung erstellt'))
+
+    def show_health(self):
+        def done(results):
+            healthy = all(result.status == 'PASS' for result in results)
+            show = messagebox.showinfo if healthy else messagebox.showwarning
+            show('Systemstatus',format_diagnostics(results),parent=self)
+        self.work(lambda:health_overview(self.store,self.settings,self.mail_accounts,PROVIDERS),done)
 
     def restore(self):
         if self.store.backend != 'sqlite':

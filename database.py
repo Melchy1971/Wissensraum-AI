@@ -82,7 +82,7 @@ class DatabaseSettings:
             value=json.loads(self.path.read_text(encoding='utf-8'))
         except FileNotFoundError:
             return {}
-        except (OSError,UnicodeError,json.JSONDecodeError):
+        except (OSError,UnicodeError,json.JSONDecodeError,RecursionError):
             raise ValueError('Datenbankkonfiguration ist nicht lesbar; data/database.json prüfen.') from None
         if type(value) is not dict or not all(type(key) is str for key in value):
             raise ValueError('Datenbankkonfiguration ist ungültig; data/database.json prüfen.')

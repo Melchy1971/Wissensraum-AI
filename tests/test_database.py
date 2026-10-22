@@ -254,6 +254,25 @@ class DatabaseSettingsTests(unittest.TestCase):
                 self.assertFalse(temporary.exists())
                 self.assertEqual(self.settings.path.read_bytes(),b'previous')
 
+    def test_deeply_nested_profile_is_rejected_with_fixed_message(self):
+        self.settings.path.parent.mkdir(parents=True,exist_ok=True)
+        data=b'['*100000+b']'*100000
+        self.settings.path.write_bytes(data)
+        for read in (self.settings.profile,self.settings.persisted_profile):
+            with self.subTest(read.__name__):
+                with self.assertRaisesRegex(ValueError,'^Datenbankkonfiguration ist nicht lesbar'):
+                    read()
+        self.assertEqual(self.settings.path.read_bytes(),data)
+
+    def test_interrupted_profile_write_before_replace_keeps_previous_profile(self):
+        self.settings.path.parent.mkdir(parents=True,exist_ok=True)
+        self.settings.path.write_bytes(b'{"backend":"sqlite"}')
+        with patch('database.os.fsync',side_effect=OSError(28,'voll')):
+            with self.assertRaises(OSError):
+                self.settings._write({'backend':'postgresql'})
+        self.assertEqual(self.settings.path.read_bytes(),b'{"backend":"sqlite"}')
+        self.assertFalse(any(self.settings.path.parent.glob('database.json.tmp-*')))
+
     def test_profile_write_fails_closed_while_configuration_operation_is_owned(self):
         lock=configuration_operation_lock(self.base)
         lock.acquire()

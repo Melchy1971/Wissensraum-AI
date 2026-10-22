@@ -219,6 +219,20 @@ class CliRestoreTests(unittest.TestCase):
             self.assertEqual(json.loads(output.getvalue())['documents'], 1)
             self.assertEqual([doc['title'] for doc in store.list()], ['Gesichert'])
 
+    def test_status_reports_health_and_fails_only_on_failures(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            vault = Mock()
+            vault.get.return_value = None
+            output = io.StringIO()
+            with patch.object(cli, 'BASE', base), patch.object(cli, 'SystemVault', return_value=vault), \
+                    patch.dict(os.environ, {}, clear=True), redirect_stdout(output):
+                self.assertEqual(cli.main(['--db', str(base / 'wissen.db'), 'status']), 0)
+            text = output.getvalue()
+            self.assertIn('[PASS] database', text)
+            self.assertIn('[WARN] ai_provider', text)
+            self.assertIn('[PASS] mail_accounts: Kein E-Mail-Konto eingerichtet.', text)
+
     def test_restore_rejects_configured_postgresql(self):
         with tempfile.TemporaryDirectory() as folder:
             base = Path(folder)
@@ -229,6 +243,61 @@ class CliRestoreTests(unittest.TestCase):
                     self.assertRaises(SystemExit):
                 cli.main(['restore', str(base / 'x.db'), '--confirm', 'wissen.db'])
             self.assertIn('nur für SQLite', error.getvalue())
+
+
+class CorruptedConfigurationCliTests(unittest.TestCase):
+    CORRUPT = {'leer': b'', 'binaer': b'\xff\xfe\x00', 'abgeschnitten': b'{"format": "wiss',
+               'liste': b'[]', 'null': b'null', 'tief': b'[' * 100000 + b']' * 100000}
+    INTERNALS = ('Error', 'Expecting', 'recursion', 'Traceback', 'object has no', 'line ')
+
+    def run_cli(self, base, vault, argv):
+        error = io.StringIO()
+        with patch.object(cli, 'BASE', base), patch.object(cli, 'SystemVault', return_value=vault), \
+                patch.dict(os.environ, {}, clear=True), redirect_stdout(io.StringIO()), \
+                patch('sys.stderr', error):
+            try:
+                code = cli.main(argv)
+            except SystemExit as exit_:
+                code = exit_.code
+        return code, error.getvalue()
+
+    def prepared_base(self):
+        base = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (base / 'data').mkdir()
+        vault = Mock()
+        vault.get.return_value = None
+        self.assertEqual(self.run_cli(base, vault, ['config-sync'])[0], 0)
+        return base, vault
+
+    def test_corrupted_configuration_files_fail_with_fixed_messages_and_stay_unchanged(self):
+        cases = (('database.json', ['list']),
+                 ('configuration-authority.json', ['config-export', 'export.json']),
+                 ('configuration-store-identity.json', ['config-export', 'export.json']),
+                 ('authority-resync-pending.json', ['list']),
+                 ('configuration-import-journal.json', ['list']))
+        for name, argv in cases:
+            for label, data in self.CORRUPT.items():
+                with self.subTest(file=name, content=label):
+                    base, vault = self.prepared_base()
+                    target = base / 'data' / name
+                    target.write_bytes(data)
+                    argv = [str(base / arg) if arg.endswith('.json') else arg for arg in argv]
+                    code, error = self.run_cli(base, vault, argv)
+                    self.assertEqual(code, 1)
+                    self.assertTrue(error.startswith('Fehler: '), error)
+                    self.assertFalse(any(text in error for text in self.INTERNALS), error)
+                    self.assertEqual(target.read_bytes(), data)
+                    self.assertFalse((base / 'export.json').exists())
+
+    def test_interrupted_authority_write_keeps_previous_authority(self):
+        base, vault = self.prepared_base()
+        authority = base / 'data' / 'configuration-authority.json'
+        before = authority.read_bytes()
+        with patch('configuration_authority.os.replace', side_effect=OSError(28, 'voll')):
+            code, error = self.run_cli(base, vault, ['config-sync'])
+        self.assertEqual(code, 1)
+        self.assertEqual(authority.read_bytes(), before)
+        self.assertEqual([p.name for p in (base / 'data').iterdir() if '.tmp-' in p.name], [])
 
 
 if __name__ == '__main__':
