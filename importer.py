@@ -13,6 +13,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from contextlib import contextmanager
+from configuration_authority import (CONFIGURATION_OPERATION_BUSY, ConfigurationAuthority,
+                                     configuration_operation_lock, store_identity)
 
 
 MAIL_PROVIDERS = {
@@ -66,8 +69,35 @@ def email_body(message):
 
 
 class MailAccounts:
-    def __init__(self,store,vault):
+    def __init__(self,store,vault,base):
         self.store,self.vault=store,vault
+        self.authority=ConfigurationAuthority(base)
+        self.base=Path(base)
+
+    @contextmanager
+    def _public_mutation(self):
+        lock=configuration_operation_lock(self.base)
+        try:
+            lock.acquire()
+        except Exception:
+            raise ValueError(CONFIGURATION_OPERATION_BUSY) from None
+        try:
+            yield
+        finally:
+            lock.release()
+
+    def _change_metadata(self,operation):
+        # Commit the stable store identity before the mutation transaction.
+        store_identity(self.store)
+        prepared=None
+        try:
+            with self.store.connect() as db:
+                result=operation(db)
+                prepared=self.authority.synchronize(self.store,db)
+            self.authority.finalize_synchronize(self.store,prepared)
+            return result
+        finally:
+            self.authority.abort_synchronize(prepared)
 
     @staticmethod
     def secret_name(account_id):
@@ -89,7 +119,7 @@ class MailAccounts:
         result['auth_status']='Verbunden' if self.vault.get(self.secret_name(account_id)) else 'Nicht verbunden'
         return result
 
-    def save(self,values,secret=None):
+    def _save_owned(self,values,secret=None):
         provider=str(values.get('provider','')).strip()
         if provider not in MAIL_PROVIDERS:
             raise ValueError('Unbekannter E-Mail-Anbieter.')
@@ -138,21 +168,30 @@ class MailAccounts:
             if len(secret)>4096 or any(ord(c)<32 for c in secret):
                 raise ValueError('Ungültiges Kennwort oder App-Passwort.')
             self.vault.set(self.secret_name(account_id),secret)
-        with self.store.connect() as db:
+        def persist(db):
             db.execute('''INSERT INTO email_accounts(id,label,provider,email,username,host,port,client_id,tenant)
                           VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
                           label=excluded.label,provider=excluded.provider,email=excluded.email,
                           username=excluded.username,host=excluded.host,port=excluded.port,
                           client_id=excluded.client_id,tenant=excluded.tenant,updated_at=CURRENT_TIMESTAMP''',
                        (account_id,label,provider,address,username,host,port,client_id,tenant))
+        self._change_metadata(persist)
         return account_id
 
-    def delete(self,account_id):
+    def save(self,values,secret=None):
+        with self._public_mutation():
+            return self._save_owned(values,secret)
+
+    def _delete_owned(self,account_id):
         self.get(account_id)
         if self.vault.get(self.secret_name(account_id)):
             self.vault.delete(self.secret_name(account_id))
-        with self.store.connect() as db:
-            db.execute('DELETE FROM email_accounts WHERE id=?',(account_id,))
+        self._change_metadata(lambda db: db.execute(
+            'DELETE FROM email_accounts WHERE id=?',(account_id,)))
+
+    def delete(self,account_id):
+        with self._public_mutation():
+            self._delete_owned(account_id)
 
     def begin_microsoft(self,account_id):
         account=self.get(account_id)

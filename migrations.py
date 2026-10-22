@@ -11,6 +11,7 @@ from pathlib import Path
 CURRENT_SCHEMA_VERSION = 4
 POSTGRES_MIGRATION_LOCK_ID = 87031904
 POSTGRES_LOCK_TIMEOUT_SECONDS = 20.0
+WINDOWS_SQLITE_MIGRATION_LOCK_OFFSET = 0x7FFFFFFFFFFFFFFE
 
 
 SQLITE_MIGRATIONS = (
@@ -228,46 +229,64 @@ def _sqlite_version(db):
     return db.execute('PRAGMA user_version').fetchone()[0]
 
 
+def _lock_file_until(file, deadline, offset=0):
+    while True:
+        try:
+            file.seek(offset)
+            if os.name == 'nt':
+                import msvcrt
+                msvcrt.locking(file.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return
+        except (OSError, BlockingIOError):
+            if time.monotonic() >= deadline:
+                raise TimeoutError('Zeitüberschreitung beim Sperren der Datenbankmigration.') from None
+            time.sleep(0.05)
+
+
+def _unlock_file(file, offset=0):
+    file.seek(offset)
+    if os.name == 'nt':
+        import msvcrt
+        msvcrt.locking(file.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+        fcntl.flock(file.fileno(), fcntl.LOCK_UN)
+
+
 @contextmanager
 def _database_file_lock(path, timeout: float = 20):
-    """Hold a process-safe adjacent lock; the OS releases it after crashes."""
-    lock_file = open(path.with_name(path.name + '.migration.lock'), 'a+b')
+    """Hold path and file-identity locks; the OS releases them after crashes."""
+    canonical = Path(os.path.normcase(os.path.realpath(os.path.abspath(os.fspath(path)))))
+    path_lock = open(canonical.with_name(canonical.name + '.migration.lock'), 'a+b')
+    database_lock = None
+    locked = []
     deadline = time.monotonic() + timeout
-    locked = False
     try:
-        while True:
-            try:
-                lock_file.seek(0)
-                if os.name == 'nt':
-                    import msvcrt
-                    if lock_file.read(1) == b'':
-                        lock_file.seek(0)
-                        lock_file.write(b'\0')
-                        lock_file.flush()
-                    lock_file.seek(0)
-                    msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
-                else:
-                    import fcntl
-                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                locked = True
-                break
-            except (OSError, BlockingIOError):
-                if time.monotonic() >= deadline:
-                    raise TimeoutError('Zeitüberschreitung beim Sperren der Datenbankmigration.') from None
-                time.sleep(0.05)
+        _lock_file_until(path_lock, deadline)
+        locked.append((path_lock, 0))
+        try:
+            database_lock = open(canonical, 'r+b')
+        except FileNotFoundError:
+            pass
+        else:
+            offset = WINDOWS_SQLITE_MIGRATION_LOCK_OFFSET if os.name == 'nt' else 0
+            _lock_file_until(database_lock, deadline, offset)
+            locked.append((database_lock, offset))
         yield
     finally:
-        try:
-            if locked:
-                lock_file.seek(0)
-                if os.name == 'nt':
-                    import msvcrt
-                    msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
-                else:
-                    import fcntl
-                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-        finally:
-            lock_file.close()
+        for file, offset in reversed(locked):
+            try:
+                _unlock_file(file, offset)
+            finally:
+                file.close()
+        locked_files = {file for file, _ in locked}
+        if database_lock is not None and database_lock not in locked_files:
+            database_lock.close()
+        if path_lock not in locked_files:
+            path_lock.close()
 
 
 def _verified_sqlite_backup(db, path, version):
