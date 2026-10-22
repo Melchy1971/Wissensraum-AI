@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from migrations import CURRENT_SCHEMA_VERSION
+
 
 @dataclass(frozen=True)
 class DiagnosticResult:
@@ -97,7 +99,8 @@ def check_active_database(database_settings, sqlite_path, force_sqlite=False):
                                 details)
     if health.get('migration_needed'):
         return DiagnosticResult('database', 'WARN',
-                                'SQLite-Datenbank ist kompatibel und wird beim Start auf Schema 4 aktualisiert.',
+                                f'SQLite-Datenbank ist kompatibel und wird beim Start auf Schema '
+                                f'{CURRENT_SCHEMA_VERSION} aktualisiert.',
                                 details)
     return DiagnosticResult('database', 'PASS', f'Aktive {label}-Datenbank ist betriebsbereit.', details)
 

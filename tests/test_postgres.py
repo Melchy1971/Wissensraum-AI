@@ -18,7 +18,8 @@ from configuration import (ConfigurationTransfer, ConfigurationTransferError,
 from database import DatabaseSettings
 from design import DesignSettings
 from importer import MailAccounts
-from migrations import CURRENT_SCHEMA_VERSION, migrate_postgres
+from migrations import CURRENT_SCHEMA_VERSION, POSTGRES_MIGRATIONS, migrate_postgres
+from test_migrations import SOURCE_FIXTURE, fixture_sources, insert_source_fixture
 from settings import Settings
 from test_settings import FakeVault
 
@@ -114,6 +115,65 @@ class PostgresStoreTests(unittest.TestCase):
              self.assertRaisesRegex(ValueError, 'zurückgesetzt'):
             settings.reset_postgresql(self.profile, self.password, self.profile['database'])
         self.assertEqual(store.get(document_id)['title'], 'Vor Reset')
+
+    def _create_version_4_with_source_fixture(self, versioned):
+        with self._raw_connect() as connection:
+            with connection.transaction():
+                connection.execute('SELECT pg_advisory_xact_lock(%s)', (MIGRATION_LOCK_ID,))
+                connection.execute('CREATE SCHEMA wissensraum')
+                connection.execute('SET LOCAL search_path TO wissensraum')
+                for target, statements in POSTGRES_MIGRATIONS:
+                    if target <= 4:
+                        for statement in statements:
+                            connection.execute(statement)
+                if versioned:
+                    connection.execute('''CREATE TABLE schema_migrations (
+                        version INTEGER PRIMARY KEY,
+                        applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+                    for target in range(1, 5):
+                        connection.execute('INSERT INTO schema_migrations(version) VALUES(%s)',
+                                           (target,))
+                connection.execute("INSERT INTO email_accounts(id,label,provider,email,username) "
+                                   "VALUES('konto','Alt','imap','alt@example.test','alt@example.test')")
+                insert_source_fixture(_PostgresConnection(connection))
+
+    def _assert_source_fixture_backfilled(self):
+        with self._raw_connect() as connection:
+            connection.execute('SET search_path TO wissensraum')
+            sources, (documents, rows) = fixture_sources(connection)
+            history = [row[0] for row in connection.execute(
+                'SELECT version FROM schema_migrations ORDER BY version')]
+        self.assertEqual(sources, {title: source for title, *_, source in SOURCE_FIXTURE})
+        self.assertEqual(documents, rows)
+        self.assertEqual(history, list(range(1, CURRENT_SCHEMA_VERSION + 1)))
+
+    def test_version_4_schema_backfills_sources_on_real_postgresql(self):
+        self._create_version_4_with_source_fixture(versioned=True)
+        PostgresStore(self.profile, self.password)
+        self._assert_source_fixture_backfilled()
+
+    def test_unversioned_legacy_schema_is_adopted_then_backfilled(self):
+        self._create_version_4_with_source_fixture(versioned=False)
+        PostgresStore(self.profile, self.password)
+        self._assert_source_fixture_backfilled()
+
+    def test_add_records_one_source_per_document_on_real_postgresql(self):
+        store = PostgresStore(self.profile, self.password)
+        note, _ = store.add('Notiz', 'PG Notiz')
+        file, _ = store.add('Datei', 'PG Datei', filename='ordner/a.md', original=b'a')
+        mail, _ = store.add('Mail', 'PG Mail', 'E-Mail · Arbeit', 'Mail.eml', b'm',
+                            ('imap', 'konto', 'imap:INBOX:1'))
+        self.assertEqual(store.add('Kopie', 'PG Notiz', filename='b.md'), (note, False))
+        with self.assertRaises(ValueError):
+            store.add('Falsch', 'PG Falsch', source=('ftp', '', ''))
+        with store.connect() as db:
+            rows = {row['document_id']: (row['source_type'], row['account_id'], row['locator'])
+                    for row in db.execute('SELECT * FROM sources')}
+        self.assertEqual(rows, {note: ('note', '', ''), file: ('file', '', 'ordner/a.md'),
+                                mail: ('imap', 'konto', 'imap:INBOX:1')})
+        store.delete(file)
+        with store.connect() as db:
+            self.assertEqual(db.execute('SELECT count(*) AS total FROM sources').fetchone()['total'], 2)
 
     def test_malformed_legacy_schema_is_rejected_without_stamp(self):
         with self._raw_connect() as connection:
@@ -261,7 +321,7 @@ class PostgresStoreTests(unittest.TestCase):
             self.profile, self.password, self.profile['database'])
         self.assertEqual(reset['tables'], [
             'ai_runs', 'chunks', 'documents', 'email_accounts', 'email_imports',
-            'schema_migrations', 'settings'])
+            'schema_migrations', 'settings', 'sources'])
         with PostgresStore(self.profile, self.password).connect() as db:
             data_tables = [table for table in reset['tables'] if table != 'schema_migrations']
             self.assertTrue(all(db.execute(

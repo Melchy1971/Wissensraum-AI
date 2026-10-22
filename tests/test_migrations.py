@@ -65,7 +65,53 @@ SQLITE_HISTORICAL_MIGRATIONS = (
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )""",
     )),
+    (4, (
+        """CREATE TABLE email_imports (
+            account_id TEXT NOT NULL REFERENCES email_accounts(id) ON DELETE CASCADE,
+            remote_id TEXT NOT NULL,
+            document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(account_id,remote_id)
+        )""",
+    )),
 )
+
+
+# Version-4 documents covering every provenance rule of migration 5:
+# (title, filename, category, email_imports, expected source row)
+SOURCE_FIXTURE = (
+    ('Notiz', None, 'Allgemein', (), ('note', '', '')),
+    ('Datei', 'ordner/datei.md', 'Allgemein', (), ('file', '', 'ordner/datei.md')),
+    ('PST-Mail', 'PST-Mail.eml', 'E-Mail · PST · archiv', (), ('pst', '', 'archiv')),
+    ('IMAP-Mail', 'IMAP-Mail.eml', 'E-Mail · Arbeit',
+     (('imap:INBOX:7', '2026-01-01 10:00:00'),), ('imap', 'konto', 'imap:INBOX:7')),
+    ('Graph-Mail', 'Graph-Mail.json', 'E-Mail · Büro',
+     (('graph:AAA', '2026-01-01 10:00:00'),), ('graph', 'konto', 'graph:AAA')),
+    ('IMAP-ohne-Konto', 'x.eml', 'E-Mail · Gelöscht', (), ('imap', '', '')),
+    ('Graph-ohne-Konto', 'y.json', 'E-Mail · Gelöscht', (), ('graph', '', '')),
+    ('Doppelt', 'd.eml', 'E-Mail · Arbeit',
+     (('imap:Archiv:3', '2026-01-02 10:00:00'), ('imap:INBOX:9', '2026-01-01 10:00:00')),
+     ('imap', 'konto', 'imap:INBOX:9')),
+)
+
+
+def insert_source_fixture(db):
+    """Insert SOURCE_FIXTURE through a connection using ? placeholders."""
+    for title, filename, category, imports, _ in SOURCE_FIXTURE:
+        db.execute('INSERT INTO documents(title,category,filename,content,sha256) VALUES(?,?,?,?,?)',
+                   (title, category, filename, 'Inhalt ' + title, 'sha-' + title))
+        document_id = db.execute('SELECT id FROM documents WHERE title=?', (title,)).fetchone()[0]
+        for remote_id, imported_at in imports:
+            db.execute('INSERT INTO email_imports(account_id,remote_id,document_id,imported_at) '
+                       'VALUES(?,?,?,?)', ('konto', remote_id, document_id, imported_at))
+
+
+def fixture_sources(db):
+    rows = db.execute('SELECT d.title, s.source_type, s.account_id, s.locator FROM documents d '
+                      'LEFT JOIN sources s ON s.document_id=d.id').fetchall()
+    counts = db.execute('SELECT (SELECT count(*) FROM documents), (SELECT count(*) FROM sources)'
+                        ).fetchone()
+    return {row[0]: (row[1], row[2], row[3]) for row in rows}, (counts[0], counts[1])
 
 
 def _migrate_sqlite_in_spawned_process(path, started, result):
@@ -135,24 +181,32 @@ class FakePostgres:
             return FakeResult({'version': self.version})
         if normalized.startswith('SELECT version FROM wissensraum.schema_migrations'):
             return FakeResult(rows=[{'version': version} for version in self.history])
+        if normalized.startswith('CREATE TABLE IF NOT EXISTS '):
+            self.tables.add(normalized.split()[5])
         if 'FROM information_schema.tables' in normalized:
-            tables = self.tables | ({'schema_migrations'} if self.version is not None else set())
-            if self.current_tables is not None:
-                tables = set(self.current_tables) | {'schema_migrations'}
-            elif self.version == CURRENT_SCHEMA_VERSION:
-                tables |= {'documents', 'chunks', 'ai_runs', 'settings',
-                           'email_accounts', 'email_imports'}
-            return FakeResult(rows=[{'table_name': name} for name in sorted(tables)])
+            return FakeResult(rows=[{'table_name': name} for name in sorted(self.visible_tables())])
+        # Like PostgreSQL, report metadata only for tables that currently exist.
         if 'FROM information_schema.columns' in normalized:
-            return FakeResult(rows=self.columns)
+            visible = self.visible_tables()
+            return FakeResult(rows=[row for row in self.columns if row['table_name'] in visible])
         if 'FROM pg_catalog.pg_constraint' in normalized:
-            return FakeResult(rows=self.constraints)
+            visible = self.visible_tables()
+            return FakeResult(rows=[row for row in self.constraints if row['table_name'] in visible])
         if 'FROM pg_catalog.pg_indexes' in normalized:
             return FakeResult(rows=self.indexes)
         if normalized.startswith('INSERT INTO wissensraum.schema_migrations'):
             self.version = parameters[0]
             self.history.append(parameters[0])
         return FakeResult()
+
+    def visible_tables(self):
+        tables = self.tables | ({'schema_migrations'} if self.version is not None else set())
+        if self.current_tables is not None:
+            tables = set(self.current_tables) | {'schema_migrations'}
+        elif self.version == CURRENT_SCHEMA_VERSION:
+            tables |= {'documents', 'chunks', 'ai_runs', 'settings',
+                       'email_accounts', 'email_imports', 'sources'}
+        return tables
 
 
 class SQLiteMigrationTests(unittest.TestCase):
@@ -411,12 +465,10 @@ class SQLiteMigrationTests(unittest.TestCase):
     def test_failed_post_migration_validation_rolls_back_target_version(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'wissen.db'
-            migrate_sqlite(path)
+            self.create_version_fixture(path, 3)
             with closing(sqlite3.connect(path)) as db:
-                db.execute('DROP TABLE email_imports')
                 db.execute('PRAGMA foreign_keys=OFF')
                 db.execute("INSERT INTO chunks(document_id,ordinal,content) VALUES(999,1,'verwaist')")
-                db.execute('PRAGMA user_version=3')
                 db.commit()
             with self.assertRaisesRegex(ValueError, 'Fremdschlüssel'):
                 migrate_sqlite(path)
@@ -424,6 +476,21 @@ class SQLiteMigrationTests(unittest.TestCase):
                 self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 3)
                 self.assertIsNone(db.execute(
                     "SELECT name FROM sqlite_master WHERE name='email_imports'").fetchone())
+
+    def test_version_5_backfills_exactly_one_expected_source_per_document(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'wissen.db'
+            self.create_version_fixture(path, 4)
+            with closing(sqlite3.connect(path)) as db:
+                insert_source_fixture(db)
+                db.commit()
+            migrate_sqlite(path)
+            with closing(sqlite3.connect(path)) as db:
+                sources, (documents, rows) = fixture_sources(db)
+            expected = {title: source for title, *_, source in SOURCE_FIXTURE}
+            expected['Alt'] = ('file', '', 'alt.bin')
+            self.assertEqual(sources, expected)
+            self.assertEqual(documents, rows)
 
     def test_store_initialization_uses_migration_layer(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -483,6 +550,10 @@ class PostgresMigrationTests(unittest.TestCase):
              'referenced_table':'documents','referenced_columns':['id'],'delete_action':'c'},
             {'table_name':'ai_runs','constraint_type':'p','columns':['id'],
              'referenced_table':None,'referenced_columns':[],'delete_action':' '},
+            {'table_name':'sources','constraint_type':'p','columns':['document_id'],
+             'referenced_table':None,'referenced_columns':[],'delete_action':' '},
+            {'table_name':'sources','constraint_type':'f','columns':['document_id'],
+             'referenced_table':'documents','referenced_columns':['id'],'delete_action':'c'},
         ]
         indexes = [
             {'table_name':'chunks','index_name':'chunks_document_id_idx','index_definition':'CREATE INDEX chunks_document_id_idx ON wissensraum.chunks USING btree (document_id)'},
@@ -503,9 +574,16 @@ class PostgresMigrationTests(unittest.TestCase):
                                 if 'FROM information_schema.tables' in query)
         self.assertLess(lock_index, inspection_index)
         self.assertEqual(db.version, CURRENT_SCHEMA_VERSION)
+        self.assertEqual(db.history, list(range(1, CURRENT_SCHEMA_VERSION + 1)))
         self.assertTrue(any('CREATE TABLE' in query and 'wissensraum.schema_migrations' in query
                             for query in statements))
         self.assertFalse(any('GENERATED ALWAYS AS IDENTITY' in query for query in statements))
+        stamp_4 = next(i for i, (query, parameters) in enumerate(db.calls)
+                       if query.startswith('INSERT INTO wissensraum.schema_migrations')
+                       and parameters == (4,))
+        create_sources = next(i for i, query in enumerate(statements)
+                              if query.startswith('CREATE TABLE IF NOT EXISTS sources'))
+        self.assertLess(stamp_4, create_sources)
 
     def test_incompatible_six_table_legacy_schema_is_rejected_without_stamp(self):
         db = self.valid_legacy()
@@ -587,7 +665,7 @@ class PostgresMigrationTests(unittest.TestCase):
         migrate_postgres(db)
         recorded_versions = [parameters[0] for query, parameters in db.calls
                              if query.startswith('INSERT INTO wissensraum.schema_migrations')]
-        self.assertEqual(recorded_versions, [1, 2, 3, 4])
+        self.assertEqual(recorded_versions, list(range(1, CURRENT_SCHEMA_VERSION + 1)))
         self.assertEqual(db.version, CURRENT_SCHEMA_VERSION)
         self.assertTrue(any('GENERATED ALWAYS AS IDENTITY' in query for query, _ in db.calls))
         self.assertTrue(any("to_tsvector('simple',content)" in query for query, _ in db.calls))

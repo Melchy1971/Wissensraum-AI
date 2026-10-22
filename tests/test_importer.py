@@ -182,4 +182,63 @@ class ImportTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.accounts.save({'label':'MS','provider':'microsoft','email':'owner@example.com','client_id':'','tenant':'common'})
 
+    def source_of(self,document_id):
+        with self.store.connect() as db:
+            rows=db.execute('SELECT source_type,account_id,locator FROM sources WHERE document_id=?',
+                            (document_id,)).fetchall()
+        self.assertEqual(len(rows),1)
+        return tuple(rows[0])
+
+    def test_every_import_channel_records_exactly_one_expected_source(self):
+        from core import discover_documents, import_documents
+        def mail(body):
+            return RAW_MAIL.replace(b'Die Freigabe wurde erteilt.',body)
+        class Imap(FakeImap):
+            def uid(self,command,*args):
+                if command=='fetch': return 'OK',[(b'RFC822',mail(b'IMAP Inhalt'))]
+                return super().uid(command,*args)
+        class Archive(FakeArchive):
+            def format_message(self,message,with_headers=True): return mail(b'PST Inhalt').decode()
+        expected={}
+        note_id,_=self.store.add('Notiz','Notizinhalt')
+        expected[note_id]=('note','','')
+        folder=self.base/'quelle'; (folder/'unter').mkdir(parents=True)
+        (folder/'unter'/'datei.md').write_text('Dateiinhalt',encoding='utf-8')
+        import_documents(self.store,*discover_documents(folder)[:2])
+        expected[self.store.search('Dateiinhalt')[0]['document_id']]=('file','','unter/datei.md')
+        pst=self.base/'archiv.pst'; pst.write_bytes(b'test')
+        self.importer.import_pst(pst,1,Archive)
+        expected[self.store.search('PST')[0]['document_id']]=('pst','','archiv')
+        gmail=self.add_gmail()
+        self.importer.import_imap_ids(gmail,'INBOX',['202'],lambda host,port:Imap(host,port))
+        expected[self.store.search('IMAP')[0]['document_id']]=('imap',gmail,'imap:INBOX:202')
+        microsoft=self.accounts.save({'label':'Arbeit','provider':'microsoft','email':'owner@example.com',
+            'username':'','host':'','port':'0','client_id':'11111111-1111-1111-1111-111111111111','tenant':'common'})
+        item={'id':'G1','subject':'Graph','from':{'emailAddress':{'address':'boss@example.com'}},
+              'body':{'contentType':'text','content':'Graph Inhalt'}}
+        with patch.object(self.accounts,'microsoft_token',return_value='synthetic-token'):
+            self.importer.import_microsoft_ids(microsoft,['G1'],lambda url,token:item)
+        expected[self.store.search('Graph')[0]['document_id']]=('graph',microsoft,'graph:G1')
+        self.assertEqual({document_id:self.source_of(document_id) for document_id in expected},expected)
+        with self.store.connect() as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM documents').fetchone()[0],5)
+            self.assertEqual(db.execute('SELECT count(*) FROM sources').fetchone()[0],5)
+
+    def test_duplicate_keeps_first_source_and_delete_removes_it(self):
+        first,_=self.store.add('Notiz','Gleicher Inhalt')
+        again,created=self.store.add('Datei','Gleicher Inhalt',filename='kopie.md',original=b'x')
+        self.assertEqual((again,created),(first,False))
+        self.assertEqual(self.source_of(first),('note','',''))
+        self.store.delete(first)
+        with self.store.connect() as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM sources').fetchone()[0],0)
+
+    def test_invalid_source_is_rejected_before_any_write(self):
+        for source in (('ftp','',''),('imap',None,''),('imap','konto')):
+            with self.subTest(source=source):
+                with self.assertRaises(ValueError):
+                    self.store.add('Titel','Inhalt',source=source)
+        with self.store.connect() as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM documents').fetchone()[0],0)
+
 if __name__=='__main__': unittest.main()

@@ -247,7 +247,7 @@ class Importer:
             raise ValueError(f'Anzahl muss zwischen 1 und {maximum} liegen.')
         return value
 
-    def _add_email(self,raw,label='E-Mail'):
+    def _add_email(self,raw,label='E-Mail',source=None):
         message=BytesParser(policy=policy.default).parsebytes(raw)
         subject=decoded(message.get('Subject')) or '(Ohne Betreff)'
         sender=decoded(message.get('From'))
@@ -261,7 +261,7 @@ class Importer:
             'Datum: '+decoded(message.get('Date')) if message.get('Date') else '',
             'Nachrichten-ID: '+decoded(message.get('Message-ID')) if message.get('Message-ID') else '',
             '',body]))
-        return self.store.add(subject,content,'E-Mail · '+label,subject+'.eml',raw)
+        return self.store.add(subject,content,'E-Mail · '+label,subject+'.eml',raw,source)
 
     def _imported_ids(self,account_id,remote_ids):
         remote_ids=list(dict.fromkeys(str(value) for value in remote_ids))
@@ -352,8 +352,9 @@ class Importer:
                     raw=self._imap_raw(payload)
                     if status!='OK' or not raw or len(raw)>25*1024*1024:
                         raise ValueError('E-Mail konnte nicht gelesen werden oder ist größer als 25 MB.')
-                    document_id,created=self._add_email(raw,account['label'])
-                    self._record_import(account_id,self._imap_import_key(folder,uid),document_id)
+                    key=self._imap_import_key(folder,uid)
+                    document_id,created=self._add_email(raw,account['label'],('imap',account_id,key))
+                    self._record_import(account_id,key,document_id)
                     report['imported' if created else 'duplicates']+=1
                 except Exception:
                     report['errors']+=1
@@ -405,7 +406,7 @@ class Importer:
         for item in items: item['imported']=self._microsoft_import_key(item['id']) in imported
         return items
 
-    def _add_graph_item(self,item,label):
+    def _add_graph_item(self,item,label,source=None):
         sender=item.get('from',{}).get('emailAddress',{}).get('address','')
         recipients=', '.join(x.get('emailAddress',{}).get('address','') for x in item.get('toRecipients',[]))
         body=item.get('body',{}).get('content','')
@@ -415,7 +416,7 @@ class Importer:
             'Datum: '+item.get('receivedDateTime',''),'Nachrichten-ID: '+item.get('internetMessageId',''),'',body]))
         if not body.strip(): raise ValueError('Kein Nachrichtentext')
         raw=json.dumps(item,ensure_ascii=False).encode()
-        return self.store.add(subject,content,'E-Mail · '+label,subject+'.json',raw)
+        return self.store.add(subject,content,'E-Mail · '+label,subject+'.json',raw,source)
 
     def import_microsoft_ids(self,account_id,message_ids,transport=None):
         account=self.accounts.get(account_id)
@@ -430,8 +431,9 @@ class Importer:
             try:
                 url='https://graph.microsoft.com/v1.0/me/messages/'+urllib.parse.quote(message_id,safe='')+'?'+urllib.parse.urlencode({'$select':fields})
                 item=get(url,token)
-                document_id,created=self._add_graph_item(item,account['label'])
-                self._record_import(account_id,self._microsoft_import_key(message_id),document_id)
+                key=self._microsoft_import_key(message_id)
+                document_id,created=self._add_graph_item(item,account['label'],('graph',account_id,key))
+                self._record_import(account_id,key,document_id)
                 report['imported' if created else 'duplicates']+=1
             except Exception:
                 report['errors']+=1
@@ -472,7 +474,7 @@ class Importer:
                 report['found']+=1
                 try:
                     raw=archive.format_message(message,with_headers=True).encode('utf-8',errors='replace')
-                    _,created=self._add_email(raw,'PST · '+path.stem)
+                    _,created=self._add_email(raw,'PST · '+path.stem,('pst','',path.stem))
                     report['imported' if created else 'duplicates']+=1
                 except Exception:
                     report['errors']+=1

@@ -43,4 +43,10 @@ CREATE TABLE IF NOT EXISTS email_imports (
  imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
  PRIMARY KEY(account_id,remote_id)
 );
-PRAGMA user_version = 4;
+CREATE TABLE IF NOT EXISTS sources (
+ document_id INTEGER PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+ source_type TEXT NOT NULL, account_id TEXT NOT NULL DEFAULT '',
+ locator TEXT NOT NULL DEFAULT '',
+ recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+PRAGMA user_version = 5;

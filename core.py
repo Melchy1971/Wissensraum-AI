@@ -27,6 +27,19 @@ SCHEMA = ('PRAGMA foreign_keys = ON;\n' + '\n'.join(
     ', content TEXT NOT NULL, UNIQUE(document_id, ordinal)')
 
 SUPPORTED_DOCUMENT_SUFFIXES = frozenset({'.txt', '.md', '.pdf', '.docx'})
+SOURCE_TYPES = frozenset({'note', 'file', 'pst', 'imap', 'graph'})
+
+
+def source_row(filename=None, source=None):
+    """Return (source_type, account_id, locator); notes and files are derived."""
+    if source is None:
+        source = ('note', '', '') if filename is None else ('file', '', filename)
+    source_type, account_id, locator = source
+    if (source_type not in SOURCE_TYPES or type(account_id) is not str
+            or type(locator) is not str):
+        raise ValueError('Ungültige Quellenangabe.')
+    return source_type, account_id, locator
+
 
 def chunks(text: str, size: int = 1800, overlap: int = 200):
     for start in range(0, len(text), size-overlap):
@@ -62,24 +75,31 @@ class Store:
         'email_imports': {
             'account_id':('TEXT',1,None,1), 'remote_id':('TEXT',1,None,2),
             'document_id':('INTEGER',1,None,0), 'imported_at':('TEXT',1,'current_timestamp',0)},
+        'sources': {
+            'document_id':('INTEGER',0,None,1), 'source_type':('TEXT',1,None,0),
+            'account_id':('TEXT',1,"''",0), 'locator':('TEXT',1,"''",0),
+            'recorded_at':('TEXT',1,'current_timestamp',0)},
     }
     schema_contract = {table:frozenset(columns) for table,columns in column_contract.items()}
     version_tables = {
         1: frozenset({'documents','chunks','search_index','ai_runs'}),
         2: frozenset({'documents','chunks','search_index','ai_runs','settings'}),
         3: frozenset({'documents','chunks','search_index','ai_runs','settings','email_accounts'}),
+        4: frozenset({'documents','chunks','search_index','ai_runs','settings','email_accounts',
+                      'email_imports'}),
         CURRENT_SCHEMA_VERSION: frozenset(schema_contract),
     }
     primary_keys = {
         'documents': ('id',), 'chunks': ('id',), 'ai_runs': ('id',),
         'settings': ('name',), 'email_accounts': ('id',),
-        'email_imports': ('account_id','remote_id'),
+        'email_imports': ('account_id','remote_id'), 'sources': ('document_id',),
     }
     unique_keys = {'documents': {('sha256',)}, 'chunks': {('document_id','ordinal')}}
     foreign_keys = {
         'chunks': {('document_id','documents','id','CASCADE')},
         'email_imports': {('account_id','email_accounts','id','CASCADE'),
                           ('document_id','documents','id','CASCADE')},
+        'sources': {('document_id','documents','id','CASCADE')},
     }
     sql_fragments = {
         ('view','chunks_search'): ('select c.id, d.title, d.category, c.content','join documents d'),
@@ -213,7 +233,8 @@ class Store:
         finally:
             db.close()
 
-    def add(self, title, content, category='Allgemein', filename=None, original=None):
+    def add(self, title, content, category='Allgemein', filename=None, original=None, source=None):
+        source = source_row(filename, source)
         title, content = title.strip(), content.strip()
         if not title or not content:
             raise ValueError('Titel und lesbarer Inhalt sind erforderlich.')
@@ -229,6 +250,8 @@ class Store:
             doc_id = cur.lastrowid
             db.executemany('INSERT INTO chunks(document_id,ordinal,content) VALUES(?,?,?)',
                            ((doc_id, i+1, part) for i, part in enumerate(chunks(content))))
+            db.execute('INSERT INTO sources(document_id,source_type,account_id,locator) VALUES(?,?,?,?)',
+                       (doc_id, *source))
             return doc_id, True
 
     def list(self):
@@ -327,6 +350,10 @@ class PostgresStore:
             'account_id':('text','text','NO',None,'NO'), 'remote_id':('text','text','NO',None,'NO'),
             'document_id':('bigint','int8','NO',None,'NO'),
             'imported_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO')},
+        'sources': {
+            'document_id':('bigint','int8','NO',None,'NO'), 'source_type':('text','text','NO',None,'NO'),
+            'account_id':('text','text','NO',"''",'NO'), 'locator':('text','text','NO',"''",'NO'),
+            'recorded_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO')},
     }
     schema_contract = {table:frozenset(columns) for table,columns in column_contract.items()}
     required_constraints = {
@@ -341,6 +368,8 @@ class PostgresStore:
         'email_imports_pkey': ('email_imports','p',('account_id','remote_id'),None,(),None),
         'email_imports_account_id_fkey': ('email_imports','f',('account_id',),'email_accounts',('id',),'c'),
         'email_imports_document_id_fkey': ('email_imports','f',('document_id',),'documents',('id',),'c'),
+        'sources_pkey': ('sources','p',('document_id',),None,(),None),
+        'sources_document_id_fkey': ('sources','f',('document_id',),'documents',('id',),'c'),
     }
     required_indexes = {
         'chunks_document_id_idx': ('chunks','(document_id)'),
@@ -515,7 +544,8 @@ class PostgresStore:
         finally:
             connection.close()
 
-    def add(self,title,content,category='Allgemein',filename=None,original=None):
+    def add(self,title,content,category='Allgemein',filename=None,original=None,source=None):
+        source=source_row(filename,source)
         title,content=title.strip(),content.strip()
         if not title or not content:
             raise ValueError('Titel und lesbarer Inhalt sind erforderlich.')
@@ -532,6 +562,8 @@ class PostgresStore:
             doc_id=row['id']
             db.executemany('INSERT INTO chunks(document_id,ordinal,content) VALUES(?,?,?)',
                            ((doc_id,index+1,part) for index,part in enumerate(chunks(content))))
+            db.execute('INSERT INTO sources(document_id,source_type,account_id,locator) VALUES(?,?,?,?)',
+                       (doc_id,*source))
             return doc_id,True
 
     def list(self):

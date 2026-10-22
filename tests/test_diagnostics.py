@@ -11,6 +11,7 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from migrations import CURRENT_SCHEMA_VERSION
 from diagnostics import (
     DiagnosticResult,
     check_active_database,
@@ -39,6 +40,7 @@ def make_v1_sqlite(path):
     store = Store(path)
     store.add('Altbestand', 'Unveränderte Suche in Schema Version eins')
     with store.connect() as connection:
+        connection.execute('DROP TABLE sources')
         connection.execute('DROP TABLE email_imports')
         connection.execute('DROP TABLE email_accounts')
         connection.execute('DROP TABLE settings')
@@ -441,13 +443,14 @@ class DiagnosticTests(unittest.TestCase):
     def test_legacy_sqlite_versions_warn_without_mutation_then_migrate(self):
         from core import Store
         from database import DatabaseSettings
-        for version in (1, 2, 3):
+        for version in (1, 2, 3, 4):
             with self.subTest(version=version), tempfile.TemporaryDirectory() as folder:
                 path = Path(folder) / 'wissen.db'
                 store = Store(path)
                 store.add('Altbestand', f'Migration Version {version}')
                 with store.connect() as connection:
-                    connection.execute('DROP TABLE email_imports')
+                    connection.execute('DROP TABLE sources')
+                    if version < 4: connection.execute('DROP TABLE email_imports')
                     if version < 3: connection.execute('DROP TABLE email_accounts')
                     if version < 2: connection.execute('DROP TABLE settings')
                     connection.execute(f'PRAGMA user_version={version}')
@@ -460,7 +463,11 @@ class DiagnosticTests(unittest.TestCase):
                 self.assertEqual(sqlite_schema_snapshot(path), before)
                 migrated = Store(path)
                 with migrated.connect() as connection:
-                    self.assertEqual(connection.execute('PRAGMA user_version').fetchone()[0], 4)
+                    self.assertEqual(connection.execute('PRAGMA user_version').fetchone()[0],
+                                     CURRENT_SCHEMA_VERSION)
+                    self.assertEqual(tuple(connection.execute(
+                        'SELECT source_type,account_id,locator FROM sources').fetchall()[0]),
+                        ('note', '', ''))
                 self.assertEqual(migrated.search('Migration')[0]['title'], 'Altbestand')
 
     def test_sqlite_v1_health_executes_real_write_at_custom_path_and_rolls_it_back(self):
@@ -486,7 +493,7 @@ class DiagnosticTests(unittest.TestCase):
 
             self.assertEqual(result.status, 'WARN')
             self.assertEqual(result.details, {'backend': 'SQLite'})
-            self.assertIn('Schema 4', result.message)
+            self.assertIn(f'Schema {CURRENT_SCHEMA_VERSION}', result.message)
             self.assertIn(path.resolve().as_uri() + '?mode=rw', connect_targets)
             self.assertIn('BEGIN IMMEDIATE', traced)
             self.assertTrue(any(statement.startswith('INSERT INTO documents') for statement in traced))
@@ -524,7 +531,7 @@ class DiagnosticTests(unittest.TestCase):
     def test_sqlite_health_rejects_newer_and_incompatible_legacy_schema(self):
         from core import Store
         from database import DatabaseSettings
-        for version,corrupt in ((5,False),(2,True)):
+        for version,corrupt in ((CURRENT_SCHEMA_VERSION + 1,False),(2,True)):
             with self.subTest(version=version), tempfile.TemporaryDirectory() as folder:
                 path = Path(folder) / 'wissen.db'
                 Store(path)

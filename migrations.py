@@ -8,7 +8,11 @@ import uuid
 from contextlib import closing, contextmanager
 from pathlib import Path
 
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 5
+# Unversioned PostgreSQL schemas predate schema_migrations and match version 4.
+POSTGRES_LEGACY_SCHEMA_VERSION = 4
+# ponytail: source_type is validated in application code (core.SOURCE_TYPES), not by a
+# CHECK constraint, because the SQLite contract check cannot read CHECK clauses.
 POSTGRES_MIGRATION_LOCK_ID = 87031904
 POSTGRES_LOCK_TIMEOUT_SECONDS = 20.0
 WINDOWS_SQLITE_MIGRATION_LOCK_OFFSET = 0x7FFFFFFFFFFFFFFE
@@ -70,6 +74,36 @@ SQLITE_MIGRATIONS = (
             PRIMARY KEY(account_id,remote_id)
         )""",
     )),
+    (5, (
+        """CREATE TABLE IF NOT EXISTS sources (
+            document_id INTEGER PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+            source_type TEXT NOT NULL, account_id TEXT NOT NULL DEFAULT '',
+            locator TEXT NOT NULL DEFAULT '',
+            recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """INSERT INTO sources(document_id, source_type, account_id, locator)
+            SELECT id,
+                CASE WHEN filename IS NULL THEN 'note'
+                     WHEN remote_id IS NOT NULL AND substr(remote_id, 1, 6) = 'graph:' THEN 'graph'
+                     WHEN remote_id IS NOT NULL THEN 'imap'
+                     WHEN substr(category, 1, 15) = 'E-Mail · PST · ' THEN 'pst'
+                     WHEN substr(category, 1, 9) = 'E-Mail · '
+                          AND substr(filename, length(filename) - 4) = '.json' THEN 'graph'
+                     WHEN substr(category, 1, 9) = 'E-Mail · ' THEN 'imap'
+                     ELSE 'file' END,
+                COALESCE(account_id, ''),
+                CASE WHEN filename IS NULL THEN ''
+                     WHEN remote_id IS NOT NULL THEN remote_id
+                     WHEN substr(category, 1, 15) = 'E-Mail · PST · ' THEN substr(category, 16)
+                     WHEN substr(category, 1, 9) = 'E-Mail · ' THEN ''
+                     ELSE filename END
+            FROM (SELECT d.id, d.filename, d.category,
+                    (SELECT e.remote_id FROM email_imports e WHERE e.document_id = d.id
+                     ORDER BY e.imported_at, e.account_id, e.remote_id LIMIT 1) AS remote_id,
+                    (SELECT e.account_id FROM email_imports e WHERE e.document_id = d.id
+                     ORDER BY e.imported_at, e.account_id, e.remote_id LIMIT 1) AS account_id
+                  FROM documents d) AS origin""",
+    )),
 )
 
 
@@ -118,6 +152,36 @@ POSTGRES_MIGRATIONS = (
             PRIMARY KEY(account_id,remote_id)
         )""",
     )),
+    (5, (
+        """CREATE TABLE IF NOT EXISTS sources (
+            document_id BIGINT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+            source_type TEXT NOT NULL, account_id TEXT NOT NULL DEFAULT '',
+            locator TEXT NOT NULL DEFAULT '',
+            recorded_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """INSERT INTO sources(document_id, source_type, account_id, locator)
+            SELECT id,
+                CASE WHEN filename IS NULL THEN 'note'
+                     WHEN remote_id IS NOT NULL AND substr(remote_id, 1, 6) = 'graph:' THEN 'graph'
+                     WHEN remote_id IS NOT NULL THEN 'imap'
+                     WHEN substr(category, 1, 15) = 'E-Mail · PST · ' THEN 'pst'
+                     WHEN substr(category, 1, 9) = 'E-Mail · '
+                          AND substr(filename, length(filename) - 4) = '.json' THEN 'graph'
+                     WHEN substr(category, 1, 9) = 'E-Mail · ' THEN 'imap'
+                     ELSE 'file' END,
+                COALESCE(account_id, ''),
+                CASE WHEN filename IS NULL THEN ''
+                     WHEN remote_id IS NOT NULL THEN remote_id
+                     WHEN substr(category, 1, 15) = 'E-Mail · PST · ' THEN substr(category, 16)
+                     WHEN substr(category, 1, 9) = 'E-Mail · ' THEN ''
+                     ELSE filename END
+            FROM (SELECT d.id, d.filename, d.category,
+                    (SELECT e.remote_id FROM email_imports e WHERE e.document_id = d.id
+                     ORDER BY e.imported_at, e.account_id, e.remote_id LIMIT 1) AS remote_id,
+                    (SELECT e.account_id FROM email_imports e WHERE e.document_id = d.id
+                     ORDER BY e.imported_at, e.account_id, e.remote_id LIMIT 1) AS account_id
+                  FROM documents d) AS origin""",
+    )),
 )
 
 POSTGRES_APPLICATION_TABLES = {
@@ -126,7 +190,7 @@ POSTGRES_APPLICATION_TABLES = {
 
 SQLITE_TABLE_VERSIONS = {
     'documents': 1, 'chunks': 1, 'ai_runs': 1, 'settings': 2,
-    'email_accounts': 3, 'email_imports': 4,
+    'email_accounts': 3, 'email_imports': 4, 'sources': 5,
 }
 
 SQLITE_COLUMNS = {
@@ -153,12 +217,15 @@ SQLITE_COLUMNS = {
                       ('remote_id','TEXT',1,None,2),
                       ('document_id','INTEGER',1,None,0),
                       ('imported_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
+    'sources': (('document_id','INTEGER',0,None,1), ('source_type','TEXT',1,None,0),
+                ('account_id','TEXT',1,"''",0), ('locator','TEXT',1,"''",0),
+                ('recorded_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
 }
 
 SQLITE_UNIQUE_CONSTRAINTS = {
     'documents': {('sha256',)}, 'chunks': {('document_id','ordinal')},
     'ai_runs': set(), 'settings': set(), 'email_accounts': set(),
-    'email_imports': set(),
+    'email_imports': set(), 'sources': set(),
 }
 
 SQLITE_FOREIGN_KEYS = {
@@ -169,6 +236,7 @@ SQLITE_FOREIGN_KEYS = {
         ('account_id','email_accounts','id','NO ACTION','CASCADE'),
         ('document_id','documents','id','NO ACTION','CASCADE'),
     },
+    'sources': {('document_id','documents','id','NO ACTION','CASCADE')},
 }
 
 POSTGRES_LEGACY_COLUMNS = {
@@ -208,6 +276,11 @@ POSTGRES_LEGACY_COLUMNS = {
     ('email_imports','remote_id','text','NO','NO',None,None),
     ('email_imports','document_id','bigint','NO','NO',None,None),
     ('email_imports','imported_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('sources','document_id','bigint','NO','NO',None,None),
+    ('sources','source_type','text','NO','NO',None,None),
+    ('sources','account_id','text','NO','NO',"''::text",None),
+    ('sources','locator','text','NO','NO',"''::text",None),
+    ('sources','recorded_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
 }
 
 POSTGRES_LEGACY_CONSTRAINTS = {
@@ -222,6 +295,8 @@ POSTGRES_LEGACY_CONSTRAINTS = {
     ('email_imports', 'p', ('account_id', 'remote_id'), None, (), ' '),
     ('email_imports', 'f', ('account_id',), 'email_accounts', ('id',), 'c'),
     ('email_imports', 'f', ('document_id',), 'documents', ('id',), 'c'),
+    ('sources', 'p', ('document_id',), None, (), ' '),
+    ('sources', 'f', ('document_id',), 'documents', ('id',), 'c'),
 }
 
 
@@ -504,7 +579,7 @@ def _validate_postgres_schema(db, version, legacy=False):
 +        FROM information_schema.columns
 +        WHERE table_schema='wissensraum'
 +          AND table_name IN ('documents','chunks','ai_runs','settings',
-+                             'email_accounts','email_imports')
++                             'email_accounts','email_imports','sources')
 +        ORDER BY table_name, ordinal_position""".replace('\n+', '\n')).fetchall()
     actual_columns = {
         (_value(row, 'table_name'), _value(row, 'column_name', 1),
@@ -531,7 +606,7 @@ def _validate_postgres_schema(db, version, legacy=False):
         LEFT JOIN pg_catalog.pg_class referenced ON referenced.oid=con.confrelid
         WHERE ns.nspname='wissensraum' AND con.contype IN ('p','u','f','c','x')
           AND rel.relname IN ('documents','chunks','ai_runs','settings',
-                              'email_accounts','email_imports')""").fetchall()
+                              'email_accounts','email_imports','sources')""").fetchall()
     actual_constraints = {
         (_value(row, 'table_name'), _value(row, 'constraint_type', 1),
          tuple(_value(row, 'columns', 2) or ()), _value(row, 'referenced_table', 3),
@@ -587,22 +662,23 @@ def migrate_postgres(db, lock_timeout_seconds=POSTGRES_LOCK_TIMEOUT_SECONDS, *, 
     tables = {_value(row, 'table_name') for row in rows}
     if 'schema_migrations' not in tables:
         if tables == POSTGRES_APPLICATION_TABLES:
-            _validate_postgres_schema(db, CURRENT_SCHEMA_VERSION, legacy=True)
+            _validate_postgres_schema(db, POSTGRES_LEGACY_SCHEMA_VERSION, legacy=True)
             db.execute("""CREATE TABLE wissensraum.schema_migrations (
                 version INTEGER PRIMARY KEY,
                 applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
             )""")
-            for target in range(1, CURRENT_SCHEMA_VERSION + 1):
+            for target in range(1, POSTGRES_LEGACY_SCHEMA_VERSION + 1):
                 db.execute('INSERT INTO wissensraum.schema_migrations(version) VALUES(?)',
                            (target,))
-            return
-        if tables:
+            version = POSTGRES_LEGACY_SCHEMA_VERSION
+        elif tables:
             raise ValueError('Unversioniertes PostgreSQL-Schema enthält unerwartete Tabellen.')
-        version = 0
-        db.execute("""CREATE TABLE wissensraum.schema_migrations (
-            version INTEGER PRIMARY KEY,
-            applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )""")
+        else:
+            version = 0
+            db.execute("""CREATE TABLE wissensraum.schema_migrations (
+                version INTEGER PRIMARY KEY,
+                applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )""")
     else:
         history_rows = db.execute(
             'SELECT version FROM wissensraum.schema_migrations ORDER BY version').fetchall()
