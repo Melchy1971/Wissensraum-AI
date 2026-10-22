@@ -70,9 +70,17 @@ jobs:
           python-version: '3.13'
           cache: pip
       - run: python -m pip install -r requirements.txt
+      - name: Install PostgreSQL 18 client tools (pg_dump/pg_restore must match the server)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-client-18
       - name: PostgreSQL contract test
         env:
           PGTEST_PASSWORD: synthetic-ci-password
           PGTEST_DATABASE: wissensraum_test
           PGTEST_ALLOW_DESTRUCTIVE: '1'
+          PGTEST_PG_BIN: /usr/lib/postgresql/18/bin
+          PGTEST_REQUIRE_PG_TOOLS: '1'
         run: python -m unittest tests.test_postgres -v

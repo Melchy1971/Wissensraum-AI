@@ -3,6 +3,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import json
 import os
+import shutil
+import subprocess
 import time
 import tempfile
 import unittest
@@ -174,6 +176,58 @@ class PostgresStoreTests(unittest.TestCase):
         store.delete(file)
         with store.connect() as db:
             self.assertEqual(db.execute('SELECT count(*) AS total FROM sources').fetchone()['total'], 2)
+
+    def _backup_snapshot(self):
+        with self._raw_connect() as connection:
+            connection.execute('SET search_path TO wissensraum')
+            query = lambda sql: [tuple(row) for row in connection.execute(sql)]
+            return {
+                'documents': query('SELECT id, sha256, original FROM documents ORDER BY id'),
+                'chunks': query('SELECT document_id, ordinal, content FROM chunks ORDER BY id'),
+                'sources': query('SELECT document_id, source_type, account_id, locator '
+                                 'FROM sources ORDER BY document_id'),
+                'ai_runs': query('SELECT question, answer, sources_json FROM ai_runs ORDER BY id'),
+                'settings': query('SELECT name, value FROM settings ORDER BY name'),
+                'history': query('SELECT version FROM schema_migrations ORDER BY version'),
+            }
+
+    def test_documented_pg_dump_restore_round_trip_preserves_knowledge_base(self):
+        # Runs exactly the commands documented in README.md (PostgreSQL-Sicherung).
+        tools = {name: shutil.which(name, path=os.environ.get('PGTEST_PG_BIN') or None)
+                 for name in ('pg_dump', 'pg_restore', 'psql')}
+        if not all(tools.values()):
+            if os.environ.get('PGTEST_REQUIRE_PG_TOOLS') == '1':
+                self.fail('pg_dump/pg_restore/psql fehlen, obwohl PGTEST_REQUIRE_PG_TOOLS=1 gesetzt ist')
+            self.skipTest('pg_dump/pg_restore/psql nicht verfügbar')
+        store = PostgresStore(self.profile, self.password)
+        store.add('Notiz', 'Sicherung Notiz')
+        store.add('Datei', 'Sicherung Datei', filename='ordner/a.pdf', original=b'%PDF\x00\xff')
+        store.add('Mail', 'Sicherung Mail', 'E-Mail · Arbeit', 'Mail.eml', b'raw',
+                  ('imap', 'konto', 'imap:INBOX:1'))
+        store.log('ask', 'Frage', 'Antwort [Q1]', [{'title': 'Notiz'}], 'modell')
+        with store.connect() as db:
+            db.execute("INSERT INTO settings(name,value) VALUES('active_provider','ollama')")
+        before = self._backup_snapshot()
+        connection = ['--host', self.profile['host'], '--port', str(self.profile['port']),
+                      '--username', self.profile['username'], '--dbname', self.profile['database']]
+        environment = {**os.environ, 'PGPASSWORD': self.password}
+        with tempfile.TemporaryDirectory() as folder:
+            dump = str(Path(folder) / 'wissensraum.dump')
+            run = lambda *args: subprocess.run(args, env=environment, check=True,
+                                               capture_output=True, text=True, timeout=120)
+            run(tools['pg_dump'], *connection, '--schema=wissensraum', '--format=custom',
+                '--file', dump)
+            self.assertIn('TABLE DATA wissensraum documents', run(tools['pg_restore'], '--list', dump).stdout)
+            run(tools['psql'], *connection, '-c', 'DROP SCHEMA wissensraum CASCADE')
+            run(tools['pg_restore'], *connection, '--single-transaction', '--exit-on-error',
+                '--no-owner', dump)
+        restored = PostgresStore(self.profile, self.password)
+        restored.health()
+        self.assertEqual(self._backup_snapshot(), before)
+        self.assertEqual({hit['title'] for hit in restored.search('Sicherung')}, {'Notiz', 'Datei', 'Mail'})
+        new_id, created = restored.add('Neu', 'Nach Wiederherstellung')
+        self.assertTrue(created)
+        self.assertGreater(new_id, max(row[0] for row in before['documents']))
 
     def test_malformed_legacy_schema_is_rejected_without_stamp(self):
         with self._raw_connect() as connection:
