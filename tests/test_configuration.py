@@ -340,6 +340,16 @@ class ConfigurationTransferTests(unittest.TestCase):
         with self.assertRaisesRegex(ConfigurationTransferError, '^Konfigurationsdatei ist ungültig'):
             self.transfer.import_file(self.base / 'PRIVATE' / 'missing.json')
 
+    def test_restore_uses_platform_newlines_for_local_configuration_files(self):
+        self.configure_all_domains()
+        for path in (self.database.path, self.design.path):
+            with self.subTest(path=path.name):
+                snapshot = self.transfer._read_semantic_snapshot(path)
+                expected_lf = self.transfer._json_bytes(snapshot)
+                with patch('configuration.os.linesep', '\n'):
+                    self.transfer._restore(path, snapshot)
+                self.assertEqual(path.read_bytes(), expected_lf)
+
     def test_each_file_restore_failure_keeps_recovery_journal_and_uses_fatal_message(self):
         self.configure_all_domains()
         imported = self.transfer.export_document()

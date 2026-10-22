@@ -691,7 +691,7 @@ class ConfigurationTransfer:
         try:
             data = cls._json_bytes(snapshot)
             if path.name in ('database.json', 'design.json'):
-                data = data.replace(b'\n', b'\r\n')
+                data = data.replace(b'\n', os.linesep.encode())
             with temporary.open('xb') as output:
                 output.write(data)
                 output.flush()

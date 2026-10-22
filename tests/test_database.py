@@ -476,7 +476,11 @@ class DatabaseSettingsTests(unittest.TestCase):
         calls=[]
         fake=type('Connection',(),{'execute':lambda _,query,parameters:calls.append((query,parameters))})()
         _PostgresConnection(fake).execute('SELECT * FROM settings WHERE name=?',('active_provider',))
-        self.assertEqual(calls,[('SELECT * FROM settings WHERE name=%s',('active_provider',))])
+        _PostgresConnection(fake).execute('SELECT 1 WHERE name LIKE ?',('probe_%',))
+        self.assertEqual(calls,[
+            ('SELECT * FROM settings WHERE name=%s',('active_provider',)),
+            ('SELECT 1 WHERE name LIKE %s',('probe_%',)),
+        ])
 
     def _contract_connection(self,denied_fragment=None,sequence_rows=None):
         class FakeResult:

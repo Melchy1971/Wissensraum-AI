@@ -228,7 +228,8 @@ class PostgresStoreTests(unittest.TestCase):
                 with self.subTest(table=table):
                     self.assertFalse(db.execute(
                         f"SELECT 1 FROM wissensraum.{table} "
-                        f"WHERE {column} LIKE '.wissensraum_health_probe_%' LIMIT 1").fetchone())
+                        f"WHERE {column} LIKE ? LIMIT 1",
+                        ('.wissensraum_health_probe_%',)).fetchone())
 
         document_id, created = store.add(
             'PostgreSQL Test', 'Freigabe für den PostgreSQL Integrationslauf.',
