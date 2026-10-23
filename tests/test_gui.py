@@ -282,6 +282,12 @@ class InterfaceTests(unittest.TestCase):
             window.import_local_folder()
             self.assertEqual(str(window.import_cancel_button.cget('state')),'normal')
             self.wait_until_idle(window)
+            preview=window.import_preview_window
+            self.assertEqual(window.store.list(),[])  # the preview stores nothing
+            self.assertEqual(len(preview.preview_tree.get_children()),3)
+            preview.start_import()
+            self.wait_until_idle(window)
+        self.assertFalse(preview.winfo_exists())
         self.assertIn('2 importiert',info.call_args.args[1])
         self.assertIn('1 in Quarantäne',window.import_message.get())
         self.assertEqual(str(window.import_cancel_button.cget('state')),'disabled')
@@ -294,6 +300,58 @@ class InterfaceTests(unittest.TestCase):
         with patch('app.messagebox.showinfo') as info:
             window.resume_import_job()
         self.assertIn('keinen offenen Importauftrag',info.call_args.args[1])
+
+    def test_preview_shows_title_type_size_excerpt_and_outcome_before_saving(self):
+        window=self.window
+        folder=self.base/'quelle'; folder.mkdir()
+        (folder/'a.txt').write_text('Erste Fassung des Plans',encoding='utf-8')
+        with patch('app.filedialog.askdirectory',return_value=str(folder)), patch('app.messagebox.showinfo'):
+            window.import_local_folder(); self.wait_until_idle(window)
+            window.import_preview_window.start_import(); self.wait_until_idle(window)
+        (folder/'a.txt').write_text('Zweite Fassung des Plans',encoding='utf-8')
+        (folder/'b.txt').write_text('Erste Fassung des Plans',encoding='utf-8')
+        (folder/'c.exe').write_bytes(b'MZ')
+        with patch('app.filedialog.askdirectory',return_value=str(folder)):
+            window.import_local_folder(); self.wait_until_idle(window)
+        preview=window.import_preview_window
+        rows={preview.preview_tree.item(iid,'values')[0]:preview.preview_tree.item(iid,'values')
+              for iid in preview.preview_tree.get_children()}
+        self.assertEqual(rows['a.txt'][1:4],('txt','24 B','a'))
+        self.assertEqual(rows['a.txt'][4],'neue Version 2 von „a“')
+        self.assertEqual(rows['b.txt'][4],'bereits vorhanden')
+        self.assertEqual(rows['c.exe'][4],'Quarantäne: Dateityp nicht unterstützt')
+        self.assertIn('Zweite Fassung',preview.preview_excerpt.get('1.0','end'))
+        self.assertIn('Noch ist nichts gespeichert',preview.preview_summary)
+        self.assertEqual(len(window.store.list(all_versions=True)),1)
+        with patch('app.messagebox.showinfo') as info:
+            preview.start_import(); self.wait_until_idle(window)
+        self.assertIn('1 neue Version',info.call_args.args[1])
+        current=window.store.list()
+        self.assertEqual(len(current),1)
+        window.tree.selection_set(str(current[0]['id'])); window.update()
+        self.assertIn('Version 2 von 2',window.detail.get('1.0','end'))
+        versions=window.show_versions()
+        self.assertEqual([versions.version_tree.item(iid,'values')[0] for iid in versions.version_tree.get_children()],
+                         ['2','1'])
+        versions.version_tree.selection_set(versions.version_tree.get_children()[1]); window.update()
+        self.assertIn('Erste Fassung',versions.version_text.get('1.0','end'))
+        versions.destroy()
+
+    def test_cancelled_preview_stores_nothing(self):
+        window=self.window
+        folder=self.base/'quelle'; folder.mkdir()
+        (folder/'a.txt').write_text('Inhalt',encoding='utf-8')
+        real_preview=window.import_jobs.preview_folder
+        def cancel_early(folder,cancel=None,progress=None):
+            cancel.set()
+            return real_preview(folder,cancel,progress)
+        with patch('app.filedialog.askdirectory',return_value=str(folder)), \
+             patch.object(window.import_jobs,'preview_folder',side_effect=cancel_early):
+            window.import_local_folder(); self.wait_until_idle(window)
+        self.assertIn('Vorschau abgebrochen',window.import_message.get())
+        self.assertEqual(window.store.list(all_versions=True),[])
+        self.assertEqual(window.import_jobs.jobs(),[])
+        self.assertIsNone(window.import_cancel)
 
     def test_cancelled_import_job_can_be_resumed_from_the_interface(self):
         window=self.window
@@ -308,6 +366,8 @@ class InterfaceTests(unittest.TestCase):
              patch('app.messagebox.showinfo') as info, \
              patch.object(window.import_jobs,'run',side_effect=cancel_early):
             window.import_local_folder()
+            self.wait_until_idle(window)
+            window.import_preview_window.start_import()
             self.wait_until_idle(window)
         self.assertIn('abgebrochen',info.call_args.args[1])
         self.assertIn('Auftrag fortsetzen',info.call_args.args[1])

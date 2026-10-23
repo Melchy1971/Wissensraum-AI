@@ -48,6 +48,65 @@ def chunks(text: str, size: int = 1800, overlap: int = 200):
             break
 
 
+# A document is current unless a newer version exists in its lineage.
+CURRENT_VERSION_FILTER = ('NOT EXISTS (SELECT 1 FROM document_versions mine JOIN document_versions newer '
+                          'ON newer.lineage_id=mine.lineage_id AND newer.version>mine.version '
+                          'WHERE mine.document_id=d.id)')
+
+
+def _version_lineage(db, source):
+    """Lineage of earlier documents from the same place, or None."""
+    if not source[2]:
+        return None
+    row = db.execute('SELECT v.lineage_id FROM sources s JOIN document_versions v ON v.document_id=s.document_id '
+                     'WHERE s.source_type=? AND s.account_id=? AND s.locator=? '
+                     'ORDER BY v.version DESC LIMIT 1', source).fetchone()
+    return None if row is None else row['lineage_id']
+
+
+def _current_of_lineage(db, lineage):
+    return db.execute('SELECT d.id,d.title,v.version FROM document_versions v JOIN documents d ON d.id=v.document_id '
+                      'WHERE v.lineage_id=? ORDER BY v.version DESC LIMIT 1', (lineage,)).fetchone()
+
+
+def _record_version(db, doc_id, lineage):
+    if lineage is None:
+        lineage, version = doc_id, 1
+    else:
+        version = _current_of_lineage(db, lineage)['version'] + 1
+    db.execute('INSERT INTO document_versions(document_id,lineage_id,version) VALUES(?,?,?)',
+               (doc_id, lineage, version))
+
+
+def _match(db, content, source, versioned):
+    """Read-only answer to: what would add() do with this content?"""
+    digest = hashlib.sha256(content.strip().encode()).hexdigest()
+    row = db.execute('SELECT id,title FROM documents WHERE sha256=?', (digest,)).fetchone()
+    if row:
+        return {'outcome':'duplicate', 'document_id':row['id'], 'title':row['title']}
+    lineage = _version_lineage(db, source) if versioned else None
+    if lineage is not None:
+        current = _current_of_lineage(db, lineage)
+        return {'outcome':'version', 'document_id':current['id'], 'title':current['title'],
+                'version':current['version']+1}
+    return {'outcome':'new'}
+
+
+def _versions(db, doc_id):
+    return [dict(row) for row in db.execute(
+        'SELECT d.id,d.title,d.category,d.created_at,v.version FROM document_versions v '
+        'JOIN documents d ON d.id=v.document_id '
+        'WHERE v.lineage_id=(SELECT lineage_id FROM document_versions WHERE document_id=?) '
+        'ORDER BY v.version DESC', (doc_id,))]
+
+
+def _list(db, all_versions):
+    where = '' if all_versions else ' WHERE '+CURRENT_VERSION_FILTER
+    return [dict(row) for row in db.execute(
+        'SELECT d.id,d.title,d.category,d.created_at,COALESCE(v.version,1) AS version FROM documents d '
+        'LEFT JOIN document_versions v ON v.document_id=d.id'+where+' ORDER BY d.id DESC')]
+
+
 class Store:
     backend = 'sqlite'
     # Declared type, PRAGMA not-null flag, normalized default, primary-key position.
@@ -93,6 +152,9 @@ class Store:
             'id':('INTEGER',0,None,1), 'item_id':('INTEGER',1,None,0), 'attempt':('INTEGER',1,None,0),
             'reason':('TEXT',1,None,0), 'message':('TEXT',1,None,0),
             'created_at':('TEXT',1,'current_timestamp',0)},
+        'document_versions': {
+            'document_id':('INTEGER',0,None,1), 'lineage_id':('INTEGER',1,None,0),
+            'version':('INTEGER',1,None,0)},
     }
     schema_contract = {table:frozenset(columns) for table,columns in column_contract.items()}
     version_tables = {
@@ -103,6 +165,8 @@ class Store:
                       'email_imports'}),
         5: frozenset({'documents','chunks','search_index','ai_runs','settings','email_accounts',
                       'email_imports','sources'}),
+        6: frozenset({'documents','chunks','search_index','ai_runs','settings','email_accounts',
+                      'email_imports','sources','import_jobs','import_items','import_item_errors'}),
         CURRENT_SCHEMA_VERSION: frozenset(schema_contract),
     }
     primary_keys = {
@@ -110,9 +174,10 @@ class Store:
         'settings': ('name',), 'email_accounts': ('id',),
         'email_imports': ('account_id','remote_id'), 'sources': ('document_id',),
         'import_jobs': ('id',), 'import_items': ('id',), 'import_item_errors': ('id',),
+        'document_versions': ('document_id',),
     }
     unique_keys = {'documents': {('sha256',)}, 'chunks': {('document_id','ordinal')},
-                   'import_items': {('job_id','ordinal')}}
+                   'import_items': {('job_id','ordinal')}, 'document_versions': {('lineage_id','version')}}
     foreign_keys = {
         'chunks': {('document_id','documents','id','CASCADE')},
         'email_imports': {('account_id','email_accounts','id','CASCADE'),
@@ -121,6 +186,7 @@ class Store:
         'import_items': {('job_id','import_jobs','id','CASCADE'),
                          ('document_id','documents','id','SET NULL')},
         'import_item_errors': {('item_id','import_items','id','CASCADE')},
+        'document_versions': {('document_id','documents','id','CASCADE')},
     }
     sql_fragments = {
         ('view','chunks_search'): ('select c.id, d.title, d.category, c.content','join documents d'),
@@ -256,7 +322,9 @@ class Store:
         finally:
             db.close()
 
-    def add(self, title, content, category='Allgemein', filename=None, original=None, source=None):
+    def add(self, title, content, category='Allgemein', filename=None, original=None, source=None,
+            versioned=False):
+        """Store a document; with ``versioned`` a changed file at a known place becomes a new version."""
         source = source_row(filename, source)
         title, content = title.strip(), content.strip()
         if not title or not content:
@@ -268,6 +336,7 @@ class Store:
             existing = db.execute('SELECT id FROM documents WHERE sha256=?', (digest,)).fetchone()
             if existing:
                 return existing['id'], False
+            lineage = _version_lineage(db, source) if versioned else None
             cur = db.execute('INSERT INTO documents(title,category,filename,original,content,sha256) VALUES(?,?,?,?,?,?)',
                              (title, category.strip() or 'Allgemein', filename, original, content, digest))
             doc_id = cur.lastrowid
@@ -275,11 +344,21 @@ class Store:
                            ((doc_id, i+1, part) for i, part in enumerate(chunks(content))))
             db.execute('INSERT INTO sources(document_id,source_type,account_id,locator) VALUES(?,?,?,?)',
                        (doc_id, *source))
+            _record_version(db, doc_id, lineage)
             return doc_id, True
 
-    def list(self):
+    def list(self, all_versions=False):
         with self.connect() as db:
-            return [dict(r) for r in db.execute('SELECT id,title,category,created_at FROM documents ORDER BY id DESC')]
+            return _list(db, all_versions)
+
+    def versions(self, doc_id):
+        """All versions of the document's lineage, newest first."""
+        with self.connect() as db:
+            return _versions(db, doc_id)
+
+    def match(self, content, source=None, versioned=False):
+        with self.connect() as db:
+            return _match(db, content, source_row(None, source) if source else ('note', '', ''), versioned)
 
     def get(self, doc_id):
         with self.connect() as db:
@@ -294,7 +373,7 @@ class Store:
             db.execute('DELETE FROM chunks WHERE document_id=?', (doc_id,))
             db.execute('DELETE FROM documents WHERE id=?', (doc_id,))
 
-    def search(self, query, limit=8):
+    def search(self, query, limit=8, all_versions=False):
         words = list(dict.fromkeys(re.findall(r'\w+', query, re.UNICODE)))[:30]
         if not words:
             return []
@@ -303,7 +382,8 @@ class Store:
             rows = db.execute('''SELECT c.id AS chunk_id,d.id AS document_id,d.title,d.category,
                   c.ordinal,c.content,bm25(search_index,4,2,1) AS rank
                   FROM search_index JOIN chunks c ON c.id=search_index.rowid
-                  JOIN documents d ON d.id=c.document_id WHERE search_index MATCH ?
+                  JOIN documents d ON d.id=c.document_id WHERE search_index MATCH ?'''
+                  + ('' if all_versions else ' AND '+CURRENT_VERSION_FILTER) + '''
                   ORDER BY rank,c.id LIMIT ?''', (fts, max(1, min(limit, 30)))).fetchall()
             return [dict(r) for r in rows]
 
@@ -396,6 +476,9 @@ class PostgresStore:
             'attempt':('integer','int4','NO',None,'NO'), 'reason':('text','text','NO',None,'NO'),
             'message':('text','text','NO',None,'NO'),
             'created_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO')},
+        'document_versions': {
+            'document_id':('bigint','int8','NO',None,'NO'), 'lineage_id':('bigint','int8','NO',None,'NO'),
+            'version':('integer','int4','NO',None,'NO')},
     }
     schema_contract = {table:frozenset(columns) for table,columns in column_contract.items()}
     required_constraints = {
@@ -419,6 +502,9 @@ class PostgresStore:
         'import_items_document_id_fkey': ('import_items','f',('document_id',),'documents',('id',),'n'),
         'import_item_errors_pkey': ('import_item_errors','p',('id',),None,(),None),
         'import_item_errors_item_id_fkey': ('import_item_errors','f',('item_id',),'import_items',('id',),'c'),
+        'document_versions_pkey': ('document_versions','p',('document_id',),None,(),None),
+        'document_versions_lineage_id_version_key': ('document_versions','u',('lineage_id','version'),None,(),None),
+        'document_versions_document_id_fkey': ('document_versions','f',('document_id',),'documents',('id',),'c'),
     }
     required_indexes = {
         'chunks_document_id_idx': ('chunks','(document_id)'),
@@ -593,7 +679,7 @@ class PostgresStore:
         finally:
             connection.close()
 
-    def add(self,title,content,category='Allgemein',filename=None,original=None,source=None):
+    def add(self,title,content,category='Allgemein',filename=None,original=None,source=None,versioned=False):
         source=source_row(filename,source)
         title,content=title.strip(),content.strip()
         if not title or not content:
@@ -605,6 +691,7 @@ class PostgresStore:
             existing=db.execute('SELECT id FROM documents WHERE sha256=?',(digest,)).fetchone()
             if existing:
                 return existing['id'],False
+            lineage=_version_lineage(db,source) if versioned else None
             row=db.execute('''INSERT INTO documents(title,category,filename,original,content,sha256)
                               VALUES(?,?,?,?,?,?) RETURNING id''',
                            (title,category.strip() or 'Allgemein',filename,original,content,digest)).fetchone()
@@ -613,11 +700,20 @@ class PostgresStore:
                            ((doc_id,index+1,part) for index,part in enumerate(chunks(content))))
             db.execute('INSERT INTO sources(document_id,source_type,account_id,locator) VALUES(?,?,?,?)',
                        (doc_id,*source))
+            _record_version(db,doc_id,lineage)
             return doc_id,True
 
-    def list(self):
+    def list(self,all_versions=False):
         with self.connect() as db:
-            return [dict(row) for row in db.execute('SELECT id,title,category,created_at FROM documents ORDER BY id DESC')]
+            return _list(db,all_versions)
+
+    def versions(self,doc_id):
+        with self.connect() as db:
+            return _versions(db,doc_id)
+
+    def match(self,content,source=None,versioned=False):
+        with self.connect() as db:
+            return _match(db,content,source_row(None,source) if source else ('note','',''),versioned)
 
     def get(self,doc_id):
         with self.connect() as db:
@@ -630,7 +726,7 @@ class PostgresStore:
         with self.connect() as db:
             db.execute('DELETE FROM documents WHERE id=?',(doc_id,))
 
-    def search(self,query,limit=8):
+    def search(self,query,limit=8,all_versions=False):
         words=list(dict.fromkeys(re.findall(r'\w+',query,re.UNICODE)))[:30]
         if not words:
             return []
@@ -640,8 +736,9 @@ class PostgresStore:
                   -ts_rank_cd(to_tsvector('simple',d.title || ' ' || d.category || ' ' || c.content),
                               websearch_to_tsquery('simple',?)) AS rank
                   FROM chunks c JOIN documents d ON d.id=c.document_id
-                  WHERE to_tsvector('simple',c.content) @@ websearch_to_tsquery('simple',?)
-                     OR to_tsvector('simple',d.title || ' ' || d.category) @@ websearch_to_tsquery('simple',?)
+                  WHERE (to_tsvector('simple',c.content) @@ websearch_to_tsquery('simple',?)
+                     OR to_tsvector('simple',d.title || ' ' || d.category) @@ websearch_to_tsquery('simple',?))'''
+                  + ('' if all_versions else ' AND '+CURRENT_VERSION_FILTER) + '''
                   ORDER BY rank,c.id LIMIT ?''',(expression,expression,expression,max(1,min(limit,30)))).fetchall()
         return [dict(row) for row in rows]
 

@@ -256,6 +256,17 @@ class CliRestoreTests(unittest.TestCase):
             report = base / 'bericht.csv'
             run('job-report', str(summary['job_id']), str(report))
             self.assertIn('Dateityp nicht unterstützt', report.read_text(encoding='utf-8-sig'))
+            (source / 'a.txt').write_text('CLI Auftrag geändert', encoding='utf-8')
+            preview = {row['locator']: row for row in run('preview', str(source))}
+            self.assertEqual((preview['a.txt']['outcome'], preview['a.txt']['version']), ('version', 2))
+            self.assertEqual(len(run('list')), 1)  # preview stored nothing
+            self.assertEqual(run('import-folder', str(source))['versioned'], 1)
+            current = run('list')
+            self.assertEqual([row['version'] for row in current], [2])
+            self.assertEqual(len(run('list', '--all-versions')), 2)
+            self.assertEqual([row['version'] for row in run('versions', str(current[0]['id']))], [2, 1])
+            single = run('preview', str(source / 'a.txt'))
+            self.assertEqual((single[0]['outcome'], single[0]['title']), ('duplicate', 'a'))
 
     def test_restore_rejects_configured_postgresql(self):
         with tempfile.TemporaryDirectory() as folder:

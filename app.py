@@ -11,7 +11,7 @@ try:
     from tkinter.scrolledtext import ScrolledText
 except (ImportError, OSError):
     tk=ttk=filedialog=messagebox=simpledialog=ScrolledText=None
-from import_jobs import ImportJobs
+from import_jobs import OUTCOME_LABELS, REASON_LABELS, ImportJobs
 from settings import Settings, SystemVault, PROVIDERS
 from database import DatabaseSettings, resolve_sqlite_path
 from diagnostics import DiagnosticResult, format_diagnostics, health_overview, run_diagnostics
@@ -223,7 +223,8 @@ class App(tk.Tk if tk is not None else object):
         self.tree.bind('<<TreeviewSelect>>',lambda _:self.show_document())
         row = ttk.Frame(right)
         row.pack(fill='x',padx=(14,0),pady=(0,8))
-        for label,command in [('Zusammenfassen',self.summarize),('Original exportieren',self.export),('Löschen',self.delete)]:
+        for label,command in [('Zusammenfassen',self.summarize),('Versionen',self.show_versions),
+                              ('Original exportieren',self.export),('Löschen',self.delete)]:
             b = ttk.Button(row,text=label,command=command)
             b.pack(side='left',padx=(0,5))
             self.buttons.append(b)
@@ -407,7 +408,39 @@ class App(tk.Tk if tk is not None else object):
     def show_document(self):
         if self.tree.selection():
             doc = self.store.get(self.selected())
-            self.write(self.detail,f'{doc["title"]}\nBereich: {doc["category"]}\nErfasst: {doc["created_at"]} UTC\n\n{doc["content"]}')
+            versions = self.store.versions(doc['id'])
+            version = next((row['version'] for row in versions if row['id']==doc['id']),1)
+            line = f'Version {version} von {len(versions)}' if len(versions)>1 else 'Version 1'
+            self.write(self.detail,f'{doc["title"]}\nBereich: {doc["category"]}\nErfasst: {doc["created_at"]} UTC\n'
+                                   f'{line}\n\n{doc["content"]}')
+
+    def show_versions(self):
+        doc_id=self.selected()
+        versions=self.store.versions(doc_id)
+        window=tk.Toplevel(self)
+        window.title('Versionen')
+        window.geometry('900x560')
+        window.transient(self)
+        ttk.Label(window,text='Versionen',font=('Segoe UI',18,'bold'),padding=(18,16,18,0)).pack(anchor='w')
+        ttk.Label(window,text='Neueste zuerst. Suche und Fragen verwenden nur die aktuelle Version.',
+                  padding=(18,5,18,10)).pack(anchor='w')
+        body=ttk.Panedwindow(window,orient='horizontal'); body.pack(fill='both',expand=True,padx=18,pady=(0,16))
+        tree=ttk.Treeview(body,columns=('version','created','title'),show='headings',selectmode='browse')
+        for col,title,width in [('version','Version',70),('created','Erfasst (UTC)',150),('title','Titel',200)]:
+            tree.heading(col,text=title); tree.column(col,width=width)
+        text=ScrolledText(body,wrap='word',font=('Segoe UI',11),padx=12,pady=10)
+        body.add(tree,weight=2); body.add(text,weight=3)
+        for row in versions:
+            tree.insert('','end',iid=str(row['id']),values=(row['version'],row['created_at'],row['title']))
+        def show(_=None):
+            if tree.selection():
+                self.write(text,self.store.get(int(tree.selection()[0]))['content'])
+        tree.bind('<<TreeviewSelect>>',show)
+        window.version_tree=tree; window.version_text=text
+        if versions:
+            tree.selection_set(str(doc_id) if tree.exists(str(doc_id)) else tree.get_children()[0])
+            show()
+        return window
 
     def work(self, fn, done):
         if self.busy:
@@ -454,13 +487,92 @@ class App(tk.Tk if tk is not None else object):
         paths = filedialog.askopenfilenames(filetypes=[('Dokumente','*.txt *.md *.pdf *.docx')])
         if not paths:
             return
-        self.run_import_job(lambda:self.import_jobs.create_for_files(paths))
+        self.preview_import(lambda cancel,progress:self.import_jobs.preview_files(paths,cancel,progress),
+                            lambda:self.import_jobs.create_for_files(paths))
 
     def import_local_folder(self):
         folder=filedialog.askdirectory(title='Ordner mit Dokumenten auswählen')
         if not folder:
             return
-        self.run_import_job(lambda:self.import_jobs.create_for_folder(folder))
+        self.preview_import(lambda cancel,progress:self.import_jobs.preview_folder(folder,cancel,progress),
+                            lambda:self.import_jobs.create_for_folder(folder))
+
+    def preview_import(self,analyse,create_job):
+        """Read the files in the background and show what an import would do; nothing is stored yet."""
+        cancel=threading.Event()
+        self.import_cancel=cancel
+        self.import_cancel_button.configure(state='normal')
+        def progress(done,total,locator):
+            self.import_progress=f'Vorschau: {done} von {total} · {locator}'
+        def finish(rows):
+            self.end_import_job()
+            if rows is None:
+                self.import_message.set('Vorschau abgebrochen. Es wurde nichts gespeichert.')
+                return
+            self.show_import_preview(rows,create_job)
+        self.work(lambda:analyse(cancel,progress),finish)
+
+    @staticmethod
+    def preview_outcome(row):
+        if row['outcome']=='version':
+            return f'neue Version {row["version"]} von „{row["existing_title"]}“'
+        if row['outcome']=='quarantined':
+            return 'Quarantäne: '+REASON_LABELS.get(row['reason'],row['reason'])
+        return OUTCOME_LABELS[row['outcome']]
+
+    @staticmethod
+    def file_size_text(size):
+        if size is None:
+            return ''
+        return f'{size} B' if size<1024 else (f'{size/1024:.1f} KB' if size<1024*1024 else f'{size/1024/1024:.1f} MB')
+
+    def show_import_preview(self,rows,create_job):
+        window=tk.Toplevel(self)
+        window.title('Importvorschau')
+        window.geometry('1080x650')
+        window.minsize(820,480)
+        window.transient(self)
+        ttk.Label(window,text='Importvorschau',font=('Segoe UI',18,'bold'),padding=(18,16,18,0)).pack(anchor='w')
+        counts={key:sum(row['outcome']==key for row in rows) for key in OUTCOME_LABELS}
+        window.preview_summary=(f'{len(rows)} Dateien · {counts["new"]} neu · {counts["version"]} neue Version · '
+                                f'{counts["duplicate"]} bereits vorhanden · {counts["quarantined"]} Quarantäne · '
+                                'Noch ist nichts gespeichert.')
+        ttk.Label(window,text=window.preview_summary,padding=(18,5,18,10)).pack(anchor='w')
+        body=ttk.Panedwindow(window,orient='vertical'); body.pack(fill='both',expand=True,padx=18)
+        columns=('file','type','size','title','outcome')
+        tree=ttk.Treeview(body,columns=columns,show='headings',selectmode='browse')
+        for col,title,width in [('file','Datei',260),('type','Typ',55),('size','Größe',80),
+                                ('title','Titel',230),('outcome','Ergebnis',300)]:
+            tree.heading(col,text=title); tree.column(col,width=width,stretch=col in ('file','title','outcome'))
+        excerpt=ScrolledText(body,wrap='word',font=('Segoe UI',11),padx=12,pady=10,height=8)
+        body.add(tree,weight=3); body.add(excerpt,weight=1)
+        for index,row in enumerate(rows):
+            tree.insert('','end',iid=str(index),values=(row['locator'],row['type'],self.file_size_text(row['size']),
+                                                       row['title'],self.preview_outcome(row)))
+        def show(_=None):
+            if tree.selection():
+                row=rows[int(tree.selection()[0])]
+                self.write(excerpt,row['excerpt'] or 'Kein lesbarer Text.')
+        tree.bind('<<TreeviewSelect>>',show)
+        window.preview_tree=tree; window.preview_excerpt=excerpt
+        actions=ttk.Frame(window,padding=(18,10,18,16)); actions.pack(fill='x')
+        def start():
+            close()
+            self.run_import_job(create_job)
+        def close():
+            if window.import_button in self.buttons: self.buttons.remove(window.import_button)
+            if window.winfo_exists(): window.destroy()
+        window.import_button=ttk.Button(actions,text='Importieren',style='Accent.TButton',command=start)
+        window.import_button.pack(side='right')
+        ttk.Button(actions,text='Abbrechen',command=close).pack(side='right',padx=(0,8))
+        self.buttons.append(window.import_button)
+        window.protocol('WM_DELETE_WINDOW',close)
+        window.start_import=start
+        if rows:
+            tree.selection_set('0'); show()
+        self.import_message.set('Vorschau bereit: '+window.preview_summary)
+        self.import_preview_window=window
+        return window
 
     def resume_import_job(self):
         open_jobs=[job for job in self.import_jobs.jobs() if job['resumable']]
@@ -495,7 +607,7 @@ class App(tk.Tk if tk is not None else object):
     def local_report_text(summary):
         state={'completed':'abgeschlossen','cancelled':'abgebrochen'}.get(summary['status'],summary['status'])
         text=(f'Auftrag {summary["job_id"]} {state}: {summary["total"]} Dateien · {summary["imported"]} importiert · '
-              f'{summary["duplicate"]} bereits vorhanden · {summary["quarantined"]} in Quarantäne · '
+              f'{summary["versioned"]} neue Version · {summary["duplicate"]} bereits vorhanden · {summary["quarantined"]} in Quarantäne · '
               f'{summary["failed"]} fehlgeschlagen')
         return text+(' · mit „Auftrag fortsetzen“ weiterführen' if summary['resumable'] else '')
 

@@ -1,7 +1,8 @@
 """Persistent, resumable import jobs for local files and folders (Phase 6.1).
 
 A job lists every discovered file as an item. Items move from ``pending`` through
-``running`` to a final status. ``failed`` items (transient problems such as a locked
+``running`` to a final status. A changed file at a known place (same absolute
+path) becomes a new version of the earlier document (status ``versioned``). ``failed`` items (transient problems such as a locked
 file) are retried when a job is resumed; ``quarantined`` items have content problems
 that a retry cannot fix and keep the reason from ``core.QUARANTINE_REASONS``.
 """
@@ -13,11 +14,20 @@ from pathlib import Path
 
 from core import QUARANTINE_REASONS, ImportRejected, discover_documents, import_document
 
-FINAL_STATUSES = ('imported', 'duplicate', 'quarantined')
+FINAL_STATUSES = ('imported', 'versioned', 'duplicate', 'quarantined')
 OPEN_STATUSES = ('pending', 'running', 'failed')
 STATUS_LABELS = {'pending': 'offen', 'running': 'in Bearbeitung', 'imported': 'importiert',
+                 'versioned': 'neue Version',
                  'duplicate': 'bereits vorhanden', 'quarantined': 'Quarantäne', 'failed': 'fehlgeschlagen'}
 REASON_LABELS = {**QUARANTINE_REASONS, 'error': 'Unerwarteter Fehler'}
+OUTCOME_LABELS = {'new': 'neu', 'version': 'neue Version', 'duplicate': 'bereits vorhanden',
+                  'quarantined': 'Quarantäne'}
+PREVIEW_EXCERPT = 400
+
+
+def file_source(path):
+    """Source of a local file: the absolute path identifies the place across imports."""
+    return ('file', '', str(Path(path).resolve()))
 
 
 class ImportJobs:
@@ -77,12 +87,15 @@ class ImportJobs:
                        'WHERE id=?', (attempt, item['id']))
         try:
             title, text, filename, data = import_document(item['path'])
+            source = file_source(item['path'])
             document_id, created = self.store.add(title, text, job['category'], item['locator'], data,
-                                                  ('file', '', item['locator']))
-            if not created and recovering and self._source_locator(document_id) == item['locator']:
+                                                  source, versioned=True)
+            if not created and recovering and self._source_locator(document_id) == source[2]:
                 created = True  # created by this item before the interruption: no second document
-            self._finish(item['id'], 'imported' if created else 'duplicate', '', document_id,
-                         len(data), hashlib.sha256(data).hexdigest())
+            status = 'duplicate'
+            if created:
+                status = 'versioned' if self._version(document_id) > 1 else 'imported'
+            self._finish(item['id'], status, '', document_id, len(data), hashlib.sha256(data).hexdigest())
         except ImportRejected as rejected:
             self._finish(item['id'], 'quarantined', rejected.reason, error=(attempt, str(rejected)))
         except OSError as error:
@@ -105,6 +118,50 @@ class ImportJobs:
             row = db.execute("SELECT locator FROM sources WHERE document_id=? AND source_type='file'",
                              (document_id,)).fetchone()
         return row['locator'] if row else None
+
+    def _version(self, document_id):
+        with self.store.connect() as db:
+            row = db.execute('SELECT version FROM document_versions WHERE document_id=?',
+                             (document_id,)).fetchone()
+        return row['version'] if row else 1
+
+    def preview(self, entries, cancel=None, progress=None):
+        """Read files and report what an import would do; never writes to the database.
+
+        ``entries`` are (path, locator) pairs as returned by ``discover_documents``.
+        Returns None when cancelled.
+        """
+        rows = []
+        total = len(entries)
+        for done, (path, locator) in enumerate(entries, start=1):
+            if cancel is not None and cancel.is_set():
+                return None
+            path = Path(path)
+            row = {'path': str(path), 'locator': locator, 'type': path.suffix.lower().lstrip('.') or '?',
+                   'size': None, 'title': '', 'excerpt': '', 'outcome': 'quarantined', 'reason': '',
+                   'document_id': None, 'existing_title': '', 'version': None}
+            try:
+                row['size'] = path.stat().st_size
+                title, text, _, _ = import_document(path)
+                row.update(title=title, excerpt=text.strip()[:PREVIEW_EXCERPT])
+                match = self.store.match(text, file_source(path), versioned=True)
+                row.update(outcome=match['outcome'], document_id=match.get('document_id'),
+                           existing_title=match.get('title', ''), version=match.get('version'))
+            except ImportRejected as rejected:
+                row['reason'] = rejected.reason
+            except OSError:
+                row['reason'] = 'unreadable'
+            rows.append(row)
+            if progress is not None:
+                progress(done, total, locator)
+        return rows
+
+    def preview_files(self, paths, cancel=None, progress=None):
+        return self.preview([(Path(path), Path(path).name) for path in paths], cancel, progress)
+
+    def preview_folder(self, folder, cancel=None, progress=None):
+        entries, _, _ = discover_documents(Path(folder).resolve(), include_unsupported=True)
+        return self.preview(entries, cancel, progress)
 
     def _set_job_status(self, job_id, status):
         with self.store.connect() as db:

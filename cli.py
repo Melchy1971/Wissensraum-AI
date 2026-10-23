@@ -45,7 +45,12 @@ def main(argv=None):
     commands.add_parser('doctor')
     commands.add_parser('status',help='Gesundheit von Datenbank, aktiver KI und E-Mail-Konten anzeigen')
     commands.add_parser('config-sync')
-    commands.add_parser('list')
+    listing = commands.add_parser('list')
+    listing.add_argument('--all-versions',action='store_true',help='auch ältere Versionen anzeigen')
+    versions = commands.add_parser('versions',help='Alle Versionen eines Dokuments anzeigen')
+    versions.add_argument('id',type=int)
+    preview = commands.add_parser('preview',help='Datei oder Ordner prüfen, ohne etwas zu speichern')
+    preview.add_argument('path',type=Path)
     imp = commands.add_parser('import')
     imp.add_argument('path',type=Path)
     imp.add_argument('--category',default='Allgemein')
@@ -148,7 +153,13 @@ def main(argv=None):
         _log_event(logger,'command_started',metadata=metadata)
         try:
             if args.command == 'list':
-                result = store.list()
+                result = store.list(all_versions=args.all_versions)
+            elif args.command == 'versions':
+                result = store.versions(args.id)
+            elif args.command == 'preview':
+                jobs = ImportJobs(store)
+                result = (jobs.preview_folder(args.path) if args.path.is_dir()
+                          else jobs.preview_files([args.path]))
             elif args.command == 'config-sync':
                 ConfigurationAuthority(BASE).synchronize(store)
                 result = {'status':'synchronisiert','restart_required':False}

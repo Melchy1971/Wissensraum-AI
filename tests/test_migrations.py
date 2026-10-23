@@ -82,6 +82,31 @@ SQLITE_HISTORICAL_MIGRATIONS = (
             recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )""",
     )),
+    (6, (
+        """CREATE TABLE import_jobs (
+            id INTEGER PRIMARY KEY, kind TEXT NOT NULL, root TEXT NOT NULL DEFAULT '',
+            category TEXT NOT NULL DEFAULT 'Allgemein', status TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE import_items (
+            id INTEGER PRIMARY KEY,
+            job_id INTEGER NOT NULL REFERENCES import_jobs(id) ON DELETE CASCADE,
+            ordinal INTEGER NOT NULL, path TEXT NOT NULL, locator TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending', reason TEXT NOT NULL DEFAULT '',
+            size INTEGER, sha256 TEXT NOT NULL DEFAULT '',
+            document_id INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(job_id, ordinal)
+        )""",
+        """CREATE TABLE import_item_errors (
+            id INTEGER PRIMARY KEY,
+            item_id INTEGER NOT NULL REFERENCES import_items(id) ON DELETE CASCADE,
+            attempt INTEGER NOT NULL, reason TEXT NOT NULL, message TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+    )),
 )
 
 
@@ -214,7 +239,7 @@ class FakePostgres:
         elif self.version == CURRENT_SCHEMA_VERSION:
             tables |= {'documents', 'chunks', 'ai_runs', 'settings', 'email_accounts',
                        'email_imports', 'sources', 'import_jobs', 'import_items',
-                       'import_item_errors'}
+                       'import_item_errors', 'document_versions'}
         return tables
 
 
@@ -273,6 +298,9 @@ class SQLiteMigrationTests(unittest.TestCase):
                         self.assertEqual(db.execute('SELECT label FROM email_accounts').fetchone()[0], 'Alt')
                     self.assertEqual(db.execute(
                         "SELECT count(*) FROM search_index WHERE search_index MATCH 'Migrationsbeleg'").fetchone()[0], 1)
+                    # Migration 7: every existing document starts its own lineage as version 1.
+                    self.assertEqual(db.execute('SELECT document_id,lineage_id,version FROM document_versions'
+                                                ).fetchall(), [(1, 1, 1)])
 
     def test_historical_fixtures_do_not_depend_on_runtime_migrations(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -569,7 +597,7 @@ class PostgresMigrationTests(unittest.TestCase):
                'referenced_table':referenced,'referenced_columns':list(referenced_columns),
                'delete_action':action}
               for table,kind,columns,referenced,referenced_columns,action in POSTGRES_LEGACY_CONSTRAINTS
-              if table.startswith('import_')),
+              if table.startswith('import_') or table == 'document_versions'),
         ]
         indexes = [
             {'table_name':'chunks','index_name':'chunks_document_id_idx','index_definition':'CREATE INDEX chunks_document_id_idx ON wissensraum.chunks USING btree (document_id)'},

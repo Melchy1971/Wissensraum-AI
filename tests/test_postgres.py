@@ -263,6 +263,38 @@ class PostgresStoreTests(unittest.TestCase):
         store.delete(first['document_id'])
         self.assertIsNone(jobs.items(job_id)[0]['document_id'])
 
+    def test_document_versions_preview_and_current_search_on_real_postgresql(self):
+        from import_jobs import ImportJobs
+        store = PostgresStore(self.profile, self.password)
+        jobs = ImportJobs(store)
+        with tempfile.TemporaryDirectory() as folder:
+            folder = Path(folder)
+            (folder / 'plan.txt').write_text('Plan Altwert Budget', encoding='utf-8')
+            first_job = jobs.create_for_folder(folder)
+            self.assertEqual(jobs.run(first_job)['imported'], 1)
+            (folder / 'plan.txt').write_text('Plan Neuwert Budget', encoding='utf-8')
+            with store.connect() as db:
+                before = db.execute('SELECT (SELECT count(*) FROM documents) AS d,'
+                                    '(SELECT count(*) FROM document_versions) AS v').fetchone()
+            preview = jobs.preview_folder(folder)
+            with store.connect() as db:
+                after = db.execute('SELECT (SELECT count(*) FROM documents) AS d,'
+                                   '(SELECT count(*) FROM document_versions) AS v').fetchone()
+            self.assertEqual(after, before)
+            self.assertEqual((preview[0]['outcome'], preview[0]['version'], preview[0]['type']), ('version', 2, 'txt'))
+            self.assertEqual(jobs.run(jobs.create_for_folder(folder))['versioned'], 1)
+        current = store.list()
+        self.assertEqual([row['version'] for row in current], [2])
+        versions = store.versions(current[0]['id'])
+        self.assertEqual([row['version'] for row in versions], [2, 1])
+        self.assertEqual(store.get(versions[1]['id'])['content'], 'Plan Altwert Budget')
+        self.assertEqual({row['document_id'] for row in store.search('Budget')}, {current[0]['id']})
+        self.assertEqual(store.search('Altwert'), [])
+        self.assertEqual([row['document_id'] for row in store.search('Altwert', all_versions=True)],
+                         [versions[1]['id']])
+        store.delete(current[0]['id'])
+        self.assertEqual([row['id'] for row in store.list()], [versions[1]['id']])
+
     def test_malformed_legacy_schema_is_rejected_without_stamp(self):
         with self._raw_connect() as connection:
             with connection.transaction():
@@ -408,7 +440,7 @@ class PostgresStoreTests(unittest.TestCase):
         reset = DatabaseSettings(Path.cwd(), vault, environ={}).reset_postgresql(
             self.profile, self.password, self.profile['database'])
         self.assertEqual(reset['tables'], [
-            'ai_runs', 'chunks', 'documents', 'email_accounts', 'email_imports',
+            'ai_runs', 'chunks', 'document_versions', 'documents', 'email_accounts', 'email_imports',
             'import_item_errors', 'import_items', 'import_jobs',
             'schema_migrations', 'settings', 'sources'])
         with PostgresStore(self.profile, self.password).connect() as db:

@@ -56,7 +56,9 @@ class ImportJobTests(unittest.TestCase):
                 self.assertEqual(len(self.jobs.errors(item['id'])), 1)  # error history
         with self.store.connect() as db:
             sources = {row[0] for row in db.execute("SELECT locator FROM sources WHERE source_type='file'")}
-        self.assertEqual(sources, {'a.txt', 'd.docx', 'unter/b.md', 'unter/c.pdf'})
+        # The absolute path identifies the place, so a later changed file becomes a new version.
+        self.assertEqual(sources, {str((self.folder / name).resolve())
+                                   for name in ('a.txt', 'd.docx', 'unter/b.md', 'unter/c.pdf')})
         report = self.jobs.write_report(job_id, self.base / 'bericht.csv')
         with report.open(encoding='utf-8-sig', newline='') as file:
             rows = list(csv.reader(file, delimiter=';'))

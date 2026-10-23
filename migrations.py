@@ -9,7 +9,7 @@ import uuid
 from contextlib import closing, contextmanager
 from pathlib import Path
 
-CURRENT_SCHEMA_VERSION = 6
+CURRENT_SCHEMA_VERSION = 7
 # Unversioned PostgreSQL schemas predate schema_migrations and match version 4.
 POSTGRES_LEGACY_SCHEMA_VERSION = 4
 # ponytail: source_type is validated in application code (core.SOURCE_TYPES), not by a
@@ -130,6 +130,14 @@ SQLITE_MIGRATIONS = (
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )""",
     )),
+    (7, (
+        """CREATE TABLE IF NOT EXISTS document_versions (
+            document_id INTEGER PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+            lineage_id INTEGER NOT NULL, version INTEGER NOT NULL,
+            UNIQUE(lineage_id, version)
+        )""",
+        "INSERT INTO document_versions(document_id, lineage_id, version) SELECT id, id, 1 FROM documents",
+    )),
 )
 
 
@@ -234,6 +242,14 @@ POSTGRES_MIGRATIONS = (
             created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
         )""",
     )),
+    (7, (
+        """CREATE TABLE IF NOT EXISTS document_versions (
+            document_id BIGINT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+            lineage_id BIGINT NOT NULL, version INTEGER NOT NULL,
+            UNIQUE(lineage_id, version)
+        )""",
+        "INSERT INTO document_versions(document_id, lineage_id, version) SELECT id, id, 1 FROM documents",
+    )),
 )
 
 POSTGRES_APPLICATION_TABLES = {
@@ -243,7 +259,7 @@ POSTGRES_APPLICATION_TABLES = {
 SQLITE_TABLE_VERSIONS = {
     'documents': 1, 'chunks': 1, 'ai_runs': 1, 'settings': 2,
     'email_accounts': 3, 'email_imports': 4, 'sources': 5,
-    'import_jobs': 6, 'import_items': 6, 'import_item_errors': 6,
+    'import_jobs': 6, 'import_items': 6, 'import_item_errors': 6, 'document_versions': 7,
 }
 
 # Constant SQL list of all application tables, derived from the catalog so that
@@ -292,6 +308,8 @@ SQLITE_COLUMNS = {
                            ('attempt','INTEGER',1,None,0), ('reason','TEXT',1,None,0),
                            ('message','TEXT',1,None,0),
                            ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
+    'document_versions': (('document_id','INTEGER',0,None,1), ('lineage_id','INTEGER',1,None,0),
+                          ('version','INTEGER',1,None,0)),
 }
 
 SQLITE_UNIQUE_CONSTRAINTS = {
@@ -299,6 +317,7 @@ SQLITE_UNIQUE_CONSTRAINTS = {
     'ai_runs': set(), 'settings': set(), 'email_accounts': set(),
     'email_imports': set(), 'sources': set(),
     'import_jobs': set(), 'import_items': {('job_id','ordinal')}, 'import_item_errors': set(),
+    'document_versions': {('lineage_id','version')},
 }
 
 SQLITE_FOREIGN_KEYS = {
@@ -316,6 +335,7 @@ SQLITE_FOREIGN_KEYS = {
         ('document_id','documents','id','NO ACTION','SET NULL'),
     },
     'import_item_errors': {('item_id','import_items','id','NO ACTION','CASCADE')},
+    'document_versions': {('document_id','documents','id','NO ACTION','CASCADE')},
 }
 
 POSTGRES_LEGACY_COLUMNS = {
@@ -385,6 +405,9 @@ POSTGRES_LEGACY_COLUMNS = {
     ('import_item_errors','reason','text','NO','NO',None,None),
     ('import_item_errors','message','text','NO','NO',None,None),
     ('import_item_errors','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('document_versions','document_id','bigint','NO','NO',None,None),
+    ('document_versions','lineage_id','bigint','NO','NO',None,None),
+    ('document_versions','version','integer','NO','NO',None,None),
 }
 
 POSTGRES_LEGACY_CONSTRAINTS = {
@@ -408,6 +431,9 @@ POSTGRES_LEGACY_CONSTRAINTS = {
     ('import_items', 'f', ('document_id',), 'documents', ('id',), 'n'),
     ('import_item_errors', 'p', ('id',), None, (), ' '),
     ('import_item_errors', 'f', ('item_id',), 'import_items', ('id',), 'c'),
+    ('document_versions', 'p', ('document_id',), None, (), ' '),
+    ('document_versions', 'u', ('lineage_id', 'version'), None, (), ' '),
+    ('document_versions', 'f', ('document_id',), 'documents', ('id',), 'c'),
 }
 
 
