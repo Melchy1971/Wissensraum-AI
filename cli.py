@@ -11,6 +11,7 @@ from configuration_authority import ConfigurationAuthority, identity_for_profile
 from diagnostics import DiagnosticResult, format_diagnostics, health_overview, run_diagnostics
 from importer import MailAccounts
 from import_jobs import ImportJobs
+import mail_cleanup
 from configuration import (APPLY_ERROR, EXPORT_ERROR, ConfigurationTransfer,
                            ConfigurationTransferError, RECOVERY_ERROR,
                            pending_configuration_recovery,
@@ -49,6 +50,11 @@ def main(argv=None):
     listing.add_argument('--all-versions',action='store_true',help='auch ältere Versionen anzeigen')
     versions = commands.add_parser('versions',help='Alle Versionen eines Dokuments anzeigen')
     versions.add_argument('id',type=int)
+    strip = commands.add_parser('strip-mail-attachments',
+                                help='Anhänge aus vor Schritt 6.3a gespeicherten IMAP-Originalen entfernen')
+    strip.add_argument('--dry-run',action='store_true',help='nur zählen, nichts ändern')
+    strip.add_argument('--backup-confirmed',action='store_true',
+                       help='PostgreSQL: eine aktuelle pg_dump-Sicherung liegt vor')
     preview = commands.add_parser('preview',help='Datei oder Ordner prüfen, ohne etwas zu speichern')
     preview.add_argument('path',type=Path)
     imp = commands.add_parser('import')
@@ -154,6 +160,9 @@ def main(argv=None):
         try:
             if args.command == 'list':
                 result = store.list(all_versions=args.all_versions)
+            elif args.command == 'strip-mail-attachments':
+                result = mail_cleanup.strip_stored_attachments(store,dry_run=args.dry_run,
+                                                               backup_confirmed=args.backup_confirmed)
             elif args.command == 'versions':
                 result = store.versions(args.id)
             elif args.command == 'preview':

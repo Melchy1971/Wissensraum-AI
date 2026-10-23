@@ -481,17 +481,64 @@ class InterfaceTests(unittest.TestCase):
         self.window.toggle_preview_selected(preview,('mail-0',))  # without its e-mail, no attachment
         self.assertFalse(preview.preview_items['mail-0:0']['active'])
         self.window.toggle_preview_selected(preview,('mail-0:0',))
-        report={'found':1,'imported':1,'duplicates':0,'errors':0,'attachments_imported':1,
-                'attachments_duplicates':0,'attachments_quarantined':1,'attachments_errors':0,
-                'quarantine':[{'name':'foto.png','reason':'no_text'}]}
-        with patch.object(self.window.importer,'import_selected',return_value=report) as run:
-            self.window.authorize_mail_import(preview,'synthetic-account','INBOX')
-            self.wait_until_idle(self.window)
-        args=run.call_args.args
-        self.assertEqual([item['id'] for item in args[2]],['101'])
-        self.assertEqual(args[3],{'101':['2'],'202':['2']})
-        message=self.window.import_message.get()
-        self.assertIn('Anhänge: 1 importiert, 0 bereits vorhanden, 1 in Quarantäne, 0 Fehler',message)
-        self.assertIn('foto.png: Kein lesbarer Text',message)
+        created=[]
+        with patch.object(self.window.importer,'create_mail_job',
+                          side_effect=lambda *args:created.append(args) or 1/0):
+            with patch('app.messagebox.showerror'):
+                self.window.authorize_mail_import(preview,'synthetic-account','INBOX')
+                self.wait_until_idle(self.window)
+        jobs,account_id,folder,selected,released=created[0]
+        self.assertEqual((account_id,folder),('synthetic-account','INBOX'))
+        self.assertEqual([item['id'] for item in selected],['101'])
+        self.assertEqual(released,{'101':['2'],'202':['2']})
+        self.assertIsNone(self.window.import_cancel)  # a failed start resets the job controls
+        self.assertEqual(self.window.report_text({'found':1,'imported':1,'duplicates':0,'errors':0,
+            'attachments_imported':1,'attachments_duplicates':0,'attachments_quarantined':1,'attachments_errors':0,
+            'quarantine':[{'name':'foto.png','reason':'no_text'}]}),
+            '1 gefunden · 1 importiert · 0 bereits vorhanden · 0 Fehler · Anhänge: 1 importiert, 0 bereits vorhanden, '
+            '1 in Quarantäne, 0 Fehler (foto.png: Kein lesbarer Text)')
+        self.window.close_mail_preview(preview)
+
+    def test_old_mail_attachments_are_removed_only_after_confirmation(self):
+        import import_fixtures as fx
+        from mail_fakes import mail
+        window=self.window
+        raw=mail('Altmail','Alter Text.',[('alt.pdf','application/pdf',fx.pdf_with_text('Alt'))])
+        document_id,_=window.importer._add_email(raw,'Arbeit',('imap','','imap:INBOX:1'))
+        with patch('app.messagebox.askyesno',return_value=False) as ask:
+            window.strip_old_mail_attachments(); self.wait_until_idle(window)
+        self.assertIn('1 mit Anhängen im Original',ask.call_args.args[1])
+        self.assertEqual(window.store.get(document_id)['original'],raw)  # declined: unchanged
+        with patch('app.messagebox.askyesno',return_value=True), patch('app.messagebox.showinfo') as info:
+            window.strip_old_mail_attachments(); self.wait_until_idle(window)
+            self.wait_until_idle(window)
+        self.assertIn('Sicherung:',info.call_args.args[1])
+        self.assertIn(b'X-Wissensraum-Anhaenge-nicht-gespeichert: 1',window.store.get(document_id)['original'])
+
+    def test_pst_import_runs_as_job_with_released_attachment_only(self):
+        import import_fixtures as fx
+        from mail_fakes import FakePstArchive, mail
+        archive=FakePstArchive([
+            (mail('Archiv Bericht','Bericht im Archiv.'),[('bericht.pdf','application/pdf',fx.pdf_with_text('Archivanhang')),
+                                                          ('foto.png','image/png',b'\x89PNGx')]),
+            (mail('Archiv Notiz','Notiz im Archiv.'),[])])
+        path=self.base/'archiv.pst'; path.write_bytes(b'!BDN')
+        window=self.window
+        with patch('app.filedialog.askopenfilename',return_value=str(path)), \
+             patch.object(window.importer,'_pst_archive',side_effect=lambda p,factory=None:archive):
+            window.import_pst_file(); self.wait_until_idle(window)
+            preview=window.mail_preview_window
+            self.assertEqual(preview.preview_tree.get_children('mail-0'),('mail-0:0','mail-0:1'))
+            self.assertEqual(archive.read_log,[])
+            window.toggle_preview_selected(preview,('mail-0:0','mail-1'))
+            with patch('app.messagebox.showinfo') as info:
+                window.authorize_mail_import(preview,None,str(path))
+                self.wait_until_idle(window)
+        self.assertEqual(archive.read_log,['bericht.pdf'])
+        self.assertIn('3 Einträge · 3 importiert',info.call_args.args[1])
+        self.assertTrue(window.import_message.get().startswith('PST: Auftrag'))
+        self.assertFalse(preview.winfo_exists())
+        titles={row['title'] for row in window.store.list()}
+        self.assertEqual(titles,{'Archiv Bericht','Archiv Notiz','bericht'})
 
 if __name__=='__main__': unittest.main()

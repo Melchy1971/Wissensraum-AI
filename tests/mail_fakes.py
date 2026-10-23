@@ -217,17 +217,28 @@ class FakePstAttachment:
 
 
 class FakePstMessage:
-    def __init__(self, raw, attachments, log):
+    def __init__(self, raw, attachments, log, identifier=0):
         self.raw = raw
+        self.identifier = identifier
+        parsed = BytesParser(policy=policy.default).parsebytes(raw)
+        self.subject = str(parsed.get('Subject') or '')
+        self.sender_name = str(parsed.get('From') or '')
+        self.delivery_time = '2026-10-23 10:00:00'
         self.attachments = [FakePstAttachment(name, data, log) for name, _, data in attachments]
         self.meta = [type('Meta', (), {'name': name, 'mime_type': mimetype, 'size': len(data)})()
                      for name, mimetype, data in attachments]
 
 
 class FakePstArchive:
+    """PST archive like libratom's PffArchive; ``read_log`` lists every attachment content read."""
+
     def __init__(self, messages):
         self.read_log = []
-        self.items = [FakePstMessage(raw, attachments, self.read_log) for raw, attachments in messages]
+        self.items = [FakePstMessage(raw, attachments, self.read_log, 2100 + index)
+                      for index, (raw, attachments) in enumerate(messages)]
+
+    def get_message_by_id(self, identifier):
+        return next((item for item in self.items if item.identifier == identifier), None)
 
     def __call__(self, path):
         return self

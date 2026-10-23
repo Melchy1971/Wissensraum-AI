@@ -272,7 +272,7 @@ class Importer:
         sender=decoded(message.get('From'))
         body=email_body(message)
         if not body and not attachments:
-            raise ValueError('E-Mail enthält keinen lesbaren Nachrichtentext.')
+            raise ImportRejected('no_text','E-Mail enthält keinen lesbaren Nachrichtentext.')
         body=body or '(Kein Nachrichtentext)'
         content='\n'.join(filter(None,[
             'Betreff: '+subject,
@@ -290,14 +290,9 @@ class Importer:
                            (account_id,key)).fetchone()
         return row['document_id'] if row else None
 
-    def _add_attachment(self,report,name,data,content_type,account_id,locator,email_document_id,label):
-        """Store one released attachment as its own document linked to its e-mail."""
-        try:
-            title,text,name,data=extract_document(name,data)
-        except ImportRejected as rejected:
-            report['attachments_quarantined']+=1
-            report['quarantine'].append({'name':name,'reason':rejected.reason})
-            return None
+    def _store_attachment(self,name,data,content_type,account_id,locator,email_document_id,label):
+        """Store one released attachment as its own document linked to its e-mail; raises ImportRejected."""
+        title,text,name,data=extract_document(name,data)
         document_id,created=self.store.add(title,text,'E-Mail · '+label+' · Anhang',name,data,
                                            ('attachment',account_id,locator))
         with self.store.connect() as db:
@@ -306,8 +301,25 @@ class Importer:
                        (document_id,email_document_id,name,content_type or '',len(data)))
         if account_id:
             self._record_import(account_id,locator,document_id)
+        return document_id,created
+
+    def _add_attachment(self,report,name,data,content_type,account_id,locator,email_document_id,label):
+        try:
+            document_id,created=self._store_attachment(name,data,content_type,account_id,locator,
+                                                       email_document_id,label)
+        except ImportRejected as rejected:
+            report['attachments_quarantined']+=1
+            report['quarantine'].append({'name':name,'reason':rejected.reason})
+            return None
         report['attachments_imported' if created else 'attachments_duplicates']+=1
         return document_id
+
+    def _source_matches(self,document_id,source):
+        """True when the document was stored for exactly this source (crash recovery)."""
+        with self.store.connect() as db:
+            row=db.execute('SELECT source_type,account_id,locator FROM sources WHERE document_id=?',
+                           (document_id,)).fetchone()
+        return row is not None and (row['source_type'],row['account_id'],row['locator'])==tuple(source)
 
     def _imported_ids(self,account_id,remote_ids):
         remote_ids=list(dict.fromkeys(str(value) for value in remote_ids))
@@ -559,7 +571,7 @@ class Importer:
         if item.get('body',{}).get('contentType','').lower()=='html': body=html_text(body)
         subject=item.get('subject') or '(Ohne Betreff)'
         if not body.strip():
-            if not attachments: raise ValueError('Kein Nachrichtentext')
+            if not attachments: raise ImportRejected('no_text','E-Mail enthält keinen lesbaren Nachrichtentext.')
             body='(Kein Nachrichtentext)'
         content='\n'.join(filter(None,['Betreff: '+subject,'Von: '+sender,'An: '+recipients,
             'Datum: '+item.get('receivedDateTime',''),'Nachrichten-ID: '+item.get('internetMessageId',''),
@@ -655,6 +667,228 @@ class Importer:
                 except Exception:
                     report['errors']+=1
         return report
+
+    # --- PST selection (step 6.3b) ---------------------------------------------------
+    @staticmethod
+    def _pst_archive(path,archive_factory=None):
+        path=Path(path)
+        if path.suffix.lower()!='.pst' or not path.is_file():
+            raise ValueError('Eine vorhandene Outlook-PST-Datei auswählen.')
+        if archive_factory is None:
+            try:
+                from libratom.lib.pff import PffArchive
+                archive_factory=PffArchive
+            except ImportError:
+                raise ValueError('PST-Unterstützung fehlt. install-pst-support.bat im Programmordner ausführen.') from None
+        return archive_factory(path)
+
+    @staticmethod
+    def _pst_key(path,identifier):
+        return 'pst:'+str(Path(path).resolve())+':'+str(identifier)
+
+    @staticmethod
+    def _pst_attachment_list(message):
+        """Name and size from the attachment records; the content is not read."""
+        import mimetypes
+        items=[]
+        for index,attachment in enumerate(getattr(message,'attachments',None) or ()):
+            name=getattr(attachment,'name',None) or f'Anhang-{index+1}'
+            items.append({'id':str(index),'name':name,'content_type':mimetypes.guess_type(name)[0] or '',
+                          'size':int(getattr(attachment,'size',0) or 0)})
+        return items
+
+    def preview_pst(self,path,limit=500,archive_factory=None):
+        """List messages and attachment metadata of a PST file; nothing is stored or read beyond metadata."""
+        limit=self._limit(limit)
+        items=[]
+        with self._pst_archive(path,archive_factory) as archive:
+            for message in archive.messages():
+                if len(items)>=limit: break
+                date=getattr(message,'delivery_time',None) or getattr(message,'client_submit_time',None)
+                items.append({'id':str(message.identifier),'subject':(getattr(message,'subject',None) or '(Ohne Betreff)'),
+                              'sender':getattr(message,'sender_name',None) or '','date':str(date or ''),
+                              'attachments':self._pst_attachment_list(message)})
+        keys={item['id']:self._pst_key(path,item['id']) for item in items}
+        wanted=list(keys.values())+[keys[item['id']]+'#'+part['id'] for item in items for part in item['attachments']]
+        with self.store.connect() as db:
+            known=set()
+            for start in range(0,len(wanted),500):
+                chunk=wanted[start:start+500]
+                rows=db.execute('SELECT locator FROM sources WHERE source_type IN (?,?) AND account_id=? AND locator IN ('
+                                +','.join('?' for _ in chunk)+')',('pst','attachment','',*chunk)).fetchall()
+                known|={row['locator'] for row in rows}
+        for item in items:
+            item['imported']=keys[item['id']] in known
+            for part in item['attachments']:
+                part['imported']=keys[item['id']]+'#'+part['id'] in known
+        return items
+
+    # --- import jobs (step 6.3b) -----------------------------------------------------
+    @staticmethod
+    def _job_entries(items,attachments):
+        """Job items in mailbox order: each message, then its released attachments."""
+        released={str(key):[str(value) for value in values] for key,values in (attachments or {}).items() if values}
+        known={str(item['id']):item for item in items}
+        entries=[]
+        order=list(dict.fromkeys([str(item['id']) for item in items]+list(released)))
+        for message_id in order:
+            item=known.get(message_id) or {}
+            subject=item.get('subject') or message_id
+            if message_id in known:
+                entries.append(('E-Mail: '+subject,message_id))
+            names={str(part.get('id')):part.get('name') for part in item.get('attachments',())}
+            for part in released.get(message_id,()):
+                entries.append(('Anhang: '+(names.get(part) or part)+' (E-Mail: '+subject+')',message_id+'#'+part))
+        return entries
+
+    def create_mail_job(self,jobs,account_id,folder,items,attachments=None):
+        """Create an import job for selected messages and released attachments of a mailbox."""
+        account=self.accounts.get(account_id)
+        kind='graph' if account['provider']=='microsoft' else 'imap'
+        root=json.dumps({'account_id':account_id,'folder':folder or 'INBOX'},ensure_ascii=False)
+        entries=self._job_entries(items,attachments)
+        for _,locator in entries:
+            message_id,_,part=locator.partition('#')
+            if kind=='imap' and (not re.fullmatch(r'\d+',message_id) or (part and not re.fullmatch(r'\d+(\.\d+)*',part))):
+                raise ValueError('Keine gültige E-Mail-Auswahl vorhanden.')
+            if not message_id or len(locator)>2100 or any(ord(c)<32 for c in locator):
+                raise ValueError('Keine gültige E-Mail-Auswahl vorhanden.')
+        return jobs.create_entries(kind,root,'E-Mail · '+account['label'],entries)
+
+    def create_pst_job(self,jobs,path,items,attachments=None):
+        path=Path(path).resolve()
+        entries=self._job_entries(items,attachments)
+        if any(not re.fullmatch(r'\d+(#\d+)?',locator) for _,locator in entries):
+            raise ValueError('Keine gültige PST-Auswahl vorhanden.')
+        return jobs.create_entries('pst',json.dumps({'path':str(path)},ensure_ascii=False),
+                                   'E-Mail · PST · '+path.stem,entries)
+
+    @contextmanager
+    def job_handler(self,job,client_factory=None,transport=None,archive_factory=None):
+        """Open the mailbox or archive once per run and yield ``handle(item, recovering)``.
+
+        ``handle`` returns (status, document_id, stored bytes) or raises ImportRejected (quarantine),
+        OSError or another exception (failed, retried on resume).
+        """
+        settings=json.loads(job['root'])
+        if job['kind']=='imap':
+            account=self.accounts.get(settings['account_id'])
+            folder=settings['folder']
+            client,_=self._imap_login(settings['account_id'],folder,client_factory)
+            structures={}
+            def structure_of(uid):
+                if uid not in structures:
+                    structure=self._imap_fetch(client,uid,'(BODYSTRUCTURE)').get('BODYSTRUCTURE')
+                    structures[uid]=(structure,mail_structure.parts(structure))
+                return structures[uid]
+            def handle(item,recovering):
+                uid,_,section=item['locator'].partition('#')
+                structure,leaves=structure_of(uid)
+                key=self._imap_import_key(folder,uid)
+                if not section:
+                    raw=self._imap_message(client,uid,structure,leaves)
+                    names=[{'name':mail_structure.attachment_name(leaf),'content_type':leaf['content_type'],
+                            'size':leaf['size']} for leaf in leaves if leaf['attachment']]
+                    return self._job_email(raw,account,('imap',account['id'],key),names,recovering)
+                leaf=next((leaf for leaf in leaves if leaf['attachment'] and leaf['section']==section),None)
+                if leaf is None:
+                    raise ValueError('Anhang wurde nicht gefunden.')
+                name=mail_structure.attachment_name(leaf)
+                if leaf['size']>MAX_ATTACHMENT_ENCODED_BYTES:  # rejected before any download
+                    raise ImportRejected('too_large','Anhang überschreitet das Limit von 20 MB.')
+                data=self._imap_attachment(client,uid,structure,leaf)
+                return self._job_attachment(name,data,leaf['content_type'],account['id'],key+'#'+section,
+                                            self._email_document(account['id'],key),account['label'],recovering)
+            try:
+                yield handle
+            finally:
+                try: client.logout()
+                except Exception: pass
+        elif job['kind']=='graph':
+            account=self.accounts.get(settings['account_id'])
+            token=self.accounts.microsoft_token(account['id'])
+            get=transport or self._graph_get
+            fields='id,subject,from,toRecipients,ccRecipients,receivedDateTime,body,internetMessageId,hasAttachments'
+            def handle(item,recovering):
+                message_id,_,attachment_id=item['locator'].partition('#')
+                key=self._microsoft_import_key(message_id)
+                if not attachment_id:
+                    detail=get(self._graph_message_url(message_id,'?'+urllib.parse.urlencode({'$select':fields})),token)
+                    names=self._graph_attachments(get,token,message_id) if detail.get('hasAttachments') else []
+                    raw=json.dumps(detail,ensure_ascii=False).encode()
+                    source=('graph',account['id'],key)
+                    document_id,created=self._add_graph_item(detail,account['label'],source,names)
+                    return self._job_result(document_id,created,source,recovering,raw,account['id'],key)
+                detail=get(self._graph_message_url(message_id,'/attachments/'+urllib.parse.quote(attachment_id,safe='')),token)
+                name=detail.get('name') or 'Anhang'
+                if detail.get('@odata.type')!='#microsoft.graph.fileAttachment' or 'contentBytes' not in detail:
+                    raise ImportRejected('unsupported','Weitergeleitete Elemente und Verweise werden nicht unterstützt.')
+                if int(detail.get('size') or 0)>MAX_ATTACHMENT_ENCODED_BYTES:
+                    raise ImportRejected('too_large','Anhang überschreitet das Limit von 20 MB.')
+                data=base64.b64decode(detail['contentBytes'],validate=True)
+                return self._job_attachment(name,data,detail.get('contentType') or '',account['id'],
+                                            key+'#'+attachment_id,self._email_document(account['id'],key),
+                                            account['label'],recovering)
+            yield handle
+        elif job['kind']=='pst':
+            path=Path(settings['path'])
+            with self._pst_archive(path,archive_factory) as archive:
+                def message_of(identifier):
+                    message=archive.get_message_by_id(int(identifier))
+                    if message is None:
+                        raise ValueError('Nachricht wurde im PST-Archiv nicht gefunden.')
+                    return message
+                def handle(item,recovering):
+                    identifier,_,index=item['locator'].partition('#')
+                    message=message_of(identifier)
+                    key=self._pst_key(path,identifier)
+                    label='PST · '+path.stem
+                    if not index:
+                        raw=archive.format_message(message,with_headers=True).encode('utf-8',errors='replace')
+                        names=self._pst_attachment_list(message)
+                        source=('pst','',key)
+                        document_id,created=self._add_email(raw,label,source,names)
+                        return self._job_result(document_id,created,source,recovering,raw)
+                    attachments=list(getattr(message,'attachments',None) or ())
+                    if int(index)>=len(attachments):
+                        raise ValueError('Anhang wurde nicht gefunden.')
+                    attachment=attachments[int(index)]
+                    name=getattr(attachment,'name',None) or f'Anhang-{int(index)+1}'
+                    size=int(getattr(attachment,'size',0) or 0)
+                    if size>MAX_DOCUMENT_BYTES:  # rejected before reading
+                        raise ImportRejected('too_large','Anhang überschreitet das Limit von 20 MB.')
+                    data=attachment.read_buffer(size) if size else b''
+                    email_document_id=self._pst_email_document(key)
+                    import mimetypes
+                    return self._job_attachment(name,bytes(data),mimetypes.guess_type(name)[0] or '','',
+                                                key+'#'+index,email_document_id,label,recovering)
+                yield handle
+        else:
+            raise ValueError('Unbekannte Auftragsart.')
+
+    def _pst_email_document(self,key):
+        with self.store.connect() as db:
+            row=db.execute("SELECT document_id FROM sources WHERE source_type='pst' AND account_id='' AND locator=?",
+                           (key,)).fetchone()
+        return row['document_id'] if row else None
+
+    def _job_result(self,document_id,created,source,recovering,raw,account_id=None,key=None):
+        if not created and recovering and self._source_matches(document_id,source):
+            created=True  # stored by this item before the interruption
+        if account_id:
+            self._record_import(account_id,key,document_id)
+        return ('imported' if created else 'duplicate'),document_id,raw
+
+    def _job_email(self,raw,account,source,names,recovering):
+        document_id,created=self._add_email(raw,account['label'],source,names)
+        return self._job_result(document_id,created,source,recovering,raw,account['id'],source[2])
+
+    def _job_attachment(self,name,data,content_type,account_id,locator,email_document_id,label,recovering):
+        document_id,created=self._store_attachment(name,data,content_type,account_id,locator,
+                                                   email_document_id,label)
+        if not created and recovering and self._source_matches(document_id,('attachment',account_id,locator)):
+            created=True
+        return ('imported' if created else 'duplicate'),document_id,data
 
     @staticmethod
     def _pst_attachment_names(archive,message):

@@ -11,7 +11,8 @@ try:
     from tkinter.scrolledtext import ScrolledText
 except (ImportError, OSError):
     tk=ttk=filedialog=messagebox=simpledialog=ScrolledText=None
-from import_jobs import OUTCOME_LABELS, REASON_LABELS, ImportJobs
+from import_jobs import MAIL_KINDS, OUTCOME_LABELS, REASON_LABELS, ImportJobs
+import mail_cleanup
 from settings import Settings, SystemVault, PROVIDERS
 from database import DatabaseSettings, resolve_sqlite_path
 from diagnostics import DiagnosticResult, format_diagnostics, health_overview, run_diagnostics
@@ -155,7 +156,7 @@ class App(tk.Tk if tk is not None else object):
         self.theme_mode = self.design_settings.theme()
         self.mail_accounts = MailAccounts(self.store, self.settings.vault, BASE)
         self.importer = Importer(self.store, self.mail_accounts)
-        self.import_jobs = ImportJobs(self.store)
+        self.import_jobs = ImportJobs(self.store, self.importer)
         self.import_cancel = None
         self.import_progress = ''
         self.docs = {}
@@ -606,7 +607,8 @@ class App(tk.Tk if tk is not None else object):
     @staticmethod
     def local_report_text(summary):
         state={'completed':'abgeschlossen','cancelled':'abgebrochen'}.get(summary['status'],summary['status'])
-        text=(f'Auftrag {summary["job_id"]} {state}: {summary["total"]} Dateien · {summary["imported"]} importiert · '
+        unit='Einträge' if summary.get('kind') in MAIL_KINDS else 'Dateien'
+        text=(f'Auftrag {summary["job_id"]} {state}: {summary["total"]} {unit} · {summary["imported"]} importiert · '
               f'{summary["versioned"]} neue Version · {summary["duplicate"]} bereits vorhanden · {summary["quarantined"]} in Quarantäne · '
               f'{summary["failed"]} fehlgeschlagen')
         return text+(' · mit „Auftrag fortsetzen“ weiterführen' if summary['resumable'] else '')
@@ -614,9 +616,14 @@ class App(tk.Tk if tk is not None else object):
     def finish_import_job(self,summary):
         self.end_import_job()
         self.refresh()
+        window=getattr(self,'mail_preview_window',None)
+        if window is not None and summary.get('kind') in MAIL_KINDS:
+            self.close_mail_preview(window)
+            self.mail_preview_window=None
         text=self.local_report_text(summary)
-        self.import_message.set('Lokale Dokumente: '+text)
-        messagebox.showinfo('Importergebnis',text+'\n\nDetails je Datei: „Bericht speichern“.',parent=self)
+        source={'imap':'Postfach','graph':'Postfach','pst':'PST'}.get(summary.get('kind'),'Lokale Dokumente')
+        self.import_message.set(source+': '+text)
+        messagebox.showinfo('Importergebnis',text+'\n\nDetails je Eintrag: „Bericht speichern“.',parent=self)
 
     def save_import_report(self):
         jobs=self.import_jobs.jobs(1)
@@ -772,7 +779,11 @@ class App(tk.Tk if tk is not None else object):
         try: limit=int(self.import_limit.get())
         except ValueError:
             messagebox.showerror('PST-Import','Gültige maximale Anzahl eingeben.',parent=self); return
-        self.work(lambda:self.importer.import_pst(path,limit),lambda result:(self.refresh(),self.import_message.set('PST: '+self.report_text(result))))
+        self.import_message.set('PST-Vorschau wird geladen …')
+        label='PST · '+Path(path).stem
+        self.work(lambda:self.importer.preview_pst(path,limit),
+                  lambda items:self.show_mail_preview(items,None,path,label,
+                      create_job=lambda selected,released:self.importer.create_pst_job(self.import_jobs,path,selected,released)))
 
     def import_mailbox(self):
         account_id=self.import_account_ids.get(self.import_account_value.get())
@@ -787,7 +798,7 @@ class App(tk.Tk if tk is not None else object):
         self.work(lambda:self.importer.preview_account(account_id,folder,limit),
                   lambda items:self.show_mail_preview(items,account_id,folder,account_name))
 
-    def show_mail_preview(self,items,account_id,folder,account_name='E-Mail-Konto'):
+    def show_mail_preview(self,items,account_id,folder,account_name='E-Mail-Konto',create_job=None):
         window=tk.Toplevel(self)
         window.title('E-Mails für Import auswählen')
         window.geometry('1080x650')
@@ -837,6 +848,9 @@ class App(tk.Tk if tk is not None else object):
         ttk.Button(actions,text='Abbrechen',command=lambda:self.close_mail_preview(window)).pack(side='right',padx=(0,8))
         self.buttons.append(window.import_button)
         window.protocol('WM_DELETE_WINDOW',lambda:self.close_mail_preview(window))
+        window.create_job=create_job or (lambda selected,released:self.importer.create_mail_job(
+            self.import_jobs,account_id,folder,selected,released))
+        self.mail_preview_window=window
         self.update_preview_status(window)
         self.import_message.set(f'{len(items)} E-Mails zur Auswahl geladen; noch keine E-Mail ist zum Import aktiviert.')
         return window
@@ -898,13 +912,8 @@ class App(tk.Tk if tk is not None else object):
                 released.setdefault(row['item']['id'],[]).append(row['attachment']['id'])
         if not selected and not released:
             messagebox.showinfo('E-Mail-Import','Mindestens eine E-Mail oder einen Anhang aktivieren.',parent=window); return
-        self.work(lambda:self.importer.import_selected(account_id,folder,selected,released),
-                  lambda result:self.finish_mail_import(window,result))
-
-    def finish_mail_import(self,window,result):
-        self.refresh()
-        self.import_message.set('Postfach: '+self.report_text(result))
-        self.close_mail_preview(window)
+        # The selection becomes an import job: progress, cancel, resume and report as for files.
+        self.run_import_job(lambda:window.create_job(selected,released))
 
     def close_mail_preview(self,window):
         button=getattr(window,'import_button',None)
@@ -1228,6 +1237,10 @@ class App(tk.Tk if tk is not None else object):
             button=ttk.Button(operations,text=title,command=command)
             button.pack(side='left',padx=(0,8)); self.buttons.append(button)
         ttk.Label(operations,text='Wiederherstellung nur für SQLite.').pack(side='left',padx=4)
+        cleanup=ttk.Frame(frame); cleanup.pack(fill='x',pady=(4,2))
+        button=ttk.Button(cleanup,text='Anhänge aus alten E-Mails entfernen',command=self.strip_old_mail_attachments)
+        button.pack(side='left',padx=(0,8)); self.buttons.append(button)
+        ttk.Label(cleanup,text='Für IMAP-E-Mails, die vor Release 2.0 importiert wurden.').pack(side='left',padx=4)
         self.database_message=tk.StringVar()
         ttk.Label(frame,textvariable=self.database_message,wraplength=950).pack(anchor='w',pady=(5,4))
         ttk.Label(frame,text='Eine Aktivierung gilt ab dem nächsten Programmstart. Vorhandene SQLite-Dokumente werden nicht automatisch '
@@ -1531,6 +1544,24 @@ class App(tk.Tk if tk is not None else object):
             show = messagebox.showinfo if healthy else messagebox.showwarning
             show('Systemstatus',format_diagnostics(results),parent=self)
         self.work(lambda:health_overview(self.store,self.settings,self.mail_accounts,PROVIDERS),done)
+
+    def strip_old_mail_attachments(self):
+        """Remove attachment content from IMAP originals stored before step 6.3a, after confirmation."""
+        def confirm(result):
+            if not result['changed']:
+                messagebox.showinfo('Anhänge entfernen','Keine gespeicherte E-Mail enthält Anhangsinhalte. '
+                                    'Es wurde nichts geändert.\n\n'+mail_cleanup.describe(result),parent=self)
+                return
+            postgres=self.store.backend=='postgresql'
+            question=('Gefunden: '+mail_cleanup.describe(result)+'.\n\nDie Anhänge werden aus den gespeicherten '
+                      'Originalen entfernt. Nachrichtentext und Suche bleiben unverändert. ')
+            question+=('Hast du eine aktuelle pg_dump-Sicherung der PostgreSQL-Datenbank?' if postgres else
+                       'Vorher wird eine geprüfte Sicherung neben der Datenbank abgelegt. Fortfahren?')
+            if not messagebox.askyesno('Anhänge entfernen',question,parent=self):
+                return
+            self.work(lambda:mail_cleanup.strip_stored_attachments(self.store,backup_confirmed=postgres),
+                      lambda done:messagebox.showinfo('Anhänge entfernt',mail_cleanup.describe(done),parent=self))
+        self.work(lambda:mail_cleanup.strip_stored_attachments(self.store,dry_run=True),confirm)
 
     def restore(self):
         if self.store.backend != 'sqlite':

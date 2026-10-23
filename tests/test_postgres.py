@@ -329,6 +329,33 @@ class PostgresStoreTests(unittest.TestCase):
         with store.connect() as db:
             self.assertIsNone(db.execute('SELECT email_document_id FROM email_attachments').fetchone()['email_document_id'])
 
+    def test_pst_job_and_attachment_cleanup_on_real_postgresql(self):
+        import import_fixtures as fx
+        import mail_cleanup
+        from import_jobs import ImportJobs
+        from importer import Importer, MailAccounts
+        from mail_fakes import FakePstArchive, mail
+        from test_settings import FakeVault
+        store = PostgresStore(self.profile, self.password)
+        pdf = fx.pdf_with_text('PG Archivanhang')
+        archive = FakePstArchive([(mail('PG Archiv', 'Archivtext.'), [('anhang.pdf', 'application/pdf', pdf)])])
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'archiv.pst'; path.write_bytes(b'!BDN')
+            importer = Importer(store, MailAccounts(store, FakeVault(), Path(folder)))
+            importer._pst_archive = lambda p, factory=None: archive
+            jobs = ImportJobs(store, importer)
+            job_id = importer.create_pst_job(jobs, path, importer.preview_pst(path), {'2100': ['0']})
+            self.assertEqual(jobs.run(job_id)['imported'], 2)
+            self.assertEqual(archive.read_log, ['anhang.pdf'])
+            raw = mail('PG Altmail', 'Alter Text.', [('alt.pdf', 'application/pdf', pdf)])
+            old_id, _ = importer._add_email(raw, 'Arbeit', ('imap', '', 'imap:INBOX:1'))
+        with self.assertRaisesRegex(ValueError, 'pg_dump'):
+            mail_cleanup.strip_stored_attachments(store)
+        self.assertEqual(store.get(old_id)['original'], raw)
+        result = mail_cleanup.strip_stored_attachments(store, backup_confirmed=True)
+        self.assertEqual((result['changed'], result['backup']), (1, ''))
+        self.assertIn(b'X-Wissensraum-Anhaenge-nicht-gespeichert: 1', store.get(old_id)['original'])
+
     def test_malformed_legacy_schema_is_rejected_without_stamp(self):
         with self._raw_connect() as connection:
             with connection.transaction():
