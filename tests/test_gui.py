@@ -455,4 +455,43 @@ class InterfaceTests(unittest.TestCase):
         self.assertTrue(all(not row['active'] for row in preview.preview_items.values()))
         self.window.close_mail_preview(preview)
 
+    def test_attachments_are_released_one_by_one_and_never_by_select_all(self):
+        pdf={'id':'2','name':'vertrag.pdf','content_type':'application/pdf','size':2048}
+        png={'id':'3','name':'foto.png','content_type':'image/png','size':900,'imported':True}
+        items=[{'id':'101','date':'23.10.2026','sender':'a@example.com','subject':'Vertrag','attachments':[pdf,png]},
+               {'id':'202','date':'22.10.2026','sender':'b@example.com','subject':'Alt','imported':True,
+                'attachments':[{'id':'2','name':'anlage.docx','content_type':'','size':10}]}]
+        preview=self.window.show_mail_preview(items,'synthetic-account','INBOX','Testkonto')
+        preview.update()
+        tree=preview.preview_tree
+        self.assertEqual(tree.get_children('mail-0'),('mail-0:0','mail-0:1'))
+        self.assertEqual(tree.item('mail-0:0','values')[3:],('Anhang','vertrag.pdf · application/pdf · 2.0 KB'))
+        self.assertIn('✓ Importiert',tree.item('mail-0:1','values'))
+        self.window.set_preview_active(preview,True)  # e-mails only
+        self.assertFalse(any(row['active'] for row in preview.preview_items.values() if row['attachment']))
+        self.assertIn('0 von 3 Anhängen freigegeben',preview.preview_status.get())
+        self.window.set_preview_active(preview,False)
+        self.window.toggle_preview_selected(preview,('mail-0:0',))  # release brings the e-mail along
+        self.assertTrue(preview.preview_items['mail-0:0']['active'])
+        self.assertTrue(preview.preview_items['mail-0']['active'])
+        self.window.toggle_preview_selected(preview,('mail-0:1','mail-1:0'))  # imported row stays off
+        self.assertFalse(preview.preview_items['mail-0:1']['active'])
+        self.assertFalse(preview.preview_items['mail-1']['active'])  # e-mail already imported
+        self.assertTrue(preview.preview_items['mail-1:0']['active'])
+        self.window.toggle_preview_selected(preview,('mail-0',))  # without its e-mail, no attachment
+        self.assertFalse(preview.preview_items['mail-0:0']['active'])
+        self.window.toggle_preview_selected(preview,('mail-0:0',))
+        report={'found':1,'imported':1,'duplicates':0,'errors':0,'attachments_imported':1,
+                'attachments_duplicates':0,'attachments_quarantined':1,'attachments_errors':0,
+                'quarantine':[{'name':'foto.png','reason':'no_text'}]}
+        with patch.object(self.window.importer,'import_selected',return_value=report) as run:
+            self.window.authorize_mail_import(preview,'synthetic-account','INBOX')
+            self.wait_until_idle(self.window)
+        args=run.call_args.args
+        self.assertEqual([item['id'] for item in args[2]],['101'])
+        self.assertEqual(args[3],{'101':['2'],'202':['2']})
+        message=self.window.import_message.get()
+        self.assertIn('Anhänge: 1 importiert, 0 bereits vorhanden, 1 in Quarantäne, 0 Fehler',message)
+        self.assertIn('foto.png: Kein lesbarer Text',message)
+
 if __name__=='__main__': unittest.main()

@@ -58,7 +58,7 @@ class FakeResetConnection:
         if query.startswith('DROP SCHEMA'):
             self.schema=None
         if 'FROM information_schema.tables' in query:
-            tables=['ai_runs','chunks','document_versions','documents','email_accounts','email_imports',
+            tables=['ai_runs','chunks','document_versions','documents','email_accounts','email_attachments','email_imports',
                     'import_item_errors','import_items','import_jobs',
                     'schema_migrations','settings','sources'] if self.schema == 'new' else []
             rows=[(name,) for name in tables] if self.tuple_rows else [{'table_name':name} for name in tables]
@@ -475,7 +475,7 @@ class DatabaseSettingsTests(unittest.TestCase):
         self.assertLess(next(i for i,q in enumerate(queries) if q.startswith('SET LOCAL lock_timeout')),
                         next(i for i,q in enumerate(queries) if 'pg_advisory_xact_lock' in q))
         self.assertEqual(result['tables'],['ai_runs','chunks','document_versions','documents','email_accounts',
-                                           'email_imports','import_item_errors','import_items',
+                                           'email_attachments','email_imports','import_item_errors','import_items',
                                            'import_jobs','schema_migrations','settings','sources'])
         self.assertTrue(connection.closed)
 

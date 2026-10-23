@@ -754,7 +754,17 @@ class App(tk.Tk if tk is not None else object):
 
     @staticmethod
     def report_text(report):
-        return f'{report["found"]} gefunden · {report["imported"]} importiert · {report["duplicates"]} bereits vorhanden · {report["errors"]} Fehler'
+        text=f'{report["found"]} gefunden · {report["imported"]} importiert · {report["duplicates"]} bereits vorhanden · {report["errors"]} Fehler'
+        counts=[report.get(key,0) for key in ('attachments_imported','attachments_duplicates',
+                                               'attachments_quarantined','attachments_errors')]
+        if any(counts):
+            text+=(f' · Anhänge: {counts[0]} importiert, {counts[1]} bereits vorhanden, '
+                   f'{counts[2]} in Quarantäne, {counts[3]} Fehler')
+        quarantine=report.get('quarantine') or []
+        if quarantine:
+            text+=' ('+'; '.join(f'{entry["name"]}: {REASON_LABELS.get(entry["reason"],entry["reason"])}'
+                                  for entry in quarantine[:5])+(' …' if len(quarantine)>5 else '')+')'
+        return text
 
     def import_pst_file(self):
         path=filedialog.askopenfilename(title='Outlook-PST-Datei auswählen',filetypes=[('Outlook-PST','*.pst')])
@@ -784,12 +794,14 @@ class App(tk.Tk if tk is not None else object):
         window.minsize(820,480)
         window.transient(self)
         ttk.Label(window,text='E-Mails für Import auswählen',font=('Segoe UI',18,'bold'),padding=(18,16,18,0)).pack(anchor='w')
-        ttk.Label(window,text=account_name+' · '+folder+' · Vollständige Inhalte werden erst nach der Freigabe geladen.',
-                  padding=(18,5,18,12)).pack(anchor='w')
+        ttk.Label(window,text=account_name+' · '+folder+' · Vollständige Inhalte werden erst nach der Freigabe geladen. '
+                  'Anhänge werden nur geladen, wenn du sie einzeln freigibst.',
+                  padding=(18,5,18,12),wraplength=1000).pack(anchor='w')
         body=ttk.Frame(window,padding=(18,0,18,8)); body.pack(fill='both',expand=True)
         columns=('active','status','date','sender','subject')
-        tree=ttk.Treeview(body,columns=columns,show='headings',selectmode='extended')
-        for col,title,width in [('active','Auswahl',75),('status','Status',120),('date','Datum',165),('sender','Absender',245),('subject','Betreff',380)]:
+        tree=ttk.Treeview(body,columns=columns,show='tree headings',selectmode='extended')
+        tree.column('#0',width=28,stretch=False)
+        for col,title,width in [('active','Auswahl',75),('status','Status',120),('date','Datum',165),('sender','Absender',245),('subject','Betreff / Anhang',380)]:
             tree.heading(col,text=title); tree.column(col,width=width,stretch=col not in ('active','status'))
         scroll=ttk.Scrollbar(body,orient='vertical',command=tree.yview); tree.configure(yscrollcommand=scroll.set)
         scroll.pack(side='right',fill='y'); tree.pack(fill='both',expand=True)
@@ -798,9 +810,17 @@ class App(tk.Tk if tk is not None else object):
         for index,item in enumerate(items):
             iid='mail-'+str(index)
             imported=bool(item.get('imported'))
-            window.preview_items[iid]={'item':item,'active':False,'imported':imported}
+            window.preview_items[iid]={'item':item,'active':False,'imported':imported,'attachment':None,'parent':None}
             tree.insert('','end',iid=iid,values=('NEIN','✓ Importiert' if imported else '',item.get('date',''),item.get('sender',''),item.get('subject','')),
-                        tags=('imported',) if imported else ())
+                        tags=('imported',) if imported else (),open=bool(item.get('attachments')))
+            for number,attachment in enumerate(item.get('attachments') or ()):
+                child=f'{iid}:{number}'
+                done=bool(attachment.get('imported'))
+                window.preview_items[child]={'item':item,'active':False,'imported':done,'attachment':attachment,'parent':iid}
+                label=(f'{attachment.get("name","Anhang")} · {attachment.get("content_type") or "unbekannt"} · '
+                       f'{self.file_size_text(attachment.get("size"))}')
+                tree.insert(iid,'end',iid=child,values=('NEIN','✓ Importiert' if done else '','','Anhang',label),
+                            tags=('imported',) if done else ())
         tree.tag_configure('active',foreground=self.palette['accent'],font=('Segoe UI',11,'bold'))
         tree.tag_configure('imported',foreground=self.palette['success'],font=('Segoe UI',11,'bold'))
         tree.bind('<Double-1>',lambda event:self.toggle_preview_at(window,event))
@@ -822,25 +842,47 @@ class App(tk.Tk if tk is not None else object):
         return window
 
     def update_preview_status(self,window):
-        active=sum(row['active'] for row in window.preview_items.values())
-        imported=sum(row['imported'] for row in window.preview_items.values())
-        window.preview_status.set(f'{active} zum Import aktiviert · {imported} bereits importiert · {len(window.preview_items)} angezeigt.')
+        mails=[row for row in window.preview_items.values() if row['attachment'] is None]
+        attachments=[row for row in window.preview_items.values() if row['attachment'] is not None]
+        active=sum(row['active'] for row in mails)
+        imported=sum(row['imported'] for row in mails)
+        released=sum(row['active'] for row in attachments)
+        window.preview_status.set(f'{active} zum Import aktiviert · {imported} bereits importiert · '
+                                  f'{released} von {len(attachments)} Anhängen freigegeben · {len(mails)} angezeigt.')
+
+    def _show_preview_row(self,window,iid):
+        row=window.preview_items[iid]
+        values=list(window.preview_tree.item(iid,'values')); values[0]='JA' if row['active'] else 'NEIN'
+        tags=('imported',) if row['imported'] else (('active',) if row['active'] else ())
+        window.preview_tree.item(iid,values=values,tags=tags)
+
+    def _set_preview_row(self,window,iid,active):
+        row=window.preview_items[iid]
+        if row['imported']:
+            return
+        row['active']=active
+        self._show_preview_row(window,iid)
+        if row['attachment'] is not None and active:  # a released attachment brings its e-mail along
+            parent=window.preview_items[row['parent']]
+            if not parent['imported'] and not parent['active']:
+                parent['active']=True; self._show_preview_row(window,row['parent'])
+        if row['attachment'] is None and not active:  # without its e-mail, no attachment
+            for child in window.preview_tree.get_children(iid):
+                if window.preview_items[child]['active']:
+                    window.preview_items[child]['active']=False; self._show_preview_row(window,child)
 
     def set_preview_active(self,window,active):
+        """Applies to e-mails only. Attachments are always released one by one."""
         for iid,row in window.preview_items.items():
-            row['active']=active and not row['imported']
-            values=list(window.preview_tree.item(iid,'values')); values[0]='JA' if row['active'] else 'NEIN'
-            tags=('imported',) if row['imported'] else (('active',) if row['active'] else ())
-            window.preview_tree.item(iid,values=values,tags=tags)
+            if row['attachment'] is None:
+                self._set_preview_row(window,iid,active)
         self.update_preview_status(window)
 
     def toggle_preview_selected(self,window,iids=None):
         for iid in (iids or window.preview_tree.selection()):
             row=window.preview_items.get(iid)
             if not row or row['imported']: continue
-            row['active']=not row['active']
-            values=list(window.preview_tree.item(iid,'values')); values[0]='JA' if row['active'] else 'NEIN'
-            window.preview_tree.item(iid,values=values,tags=('active',) if row['active'] else ())
+            self._set_preview_row(window,iid,not row['active'])
         self.update_preview_status(window)
 
     def toggle_preview_at(self,window,event):
@@ -849,10 +891,14 @@ class App(tk.Tk if tk is not None else object):
             self.toggle_preview_selected(window,(iid,))
 
     def authorize_mail_import(self,window,account_id,folder):
-        selected=[row['item'] for row in window.preview_items.values() if row['active']]
-        if not selected:
-            messagebox.showinfo('E-Mail-Import','Mindestens eine E-Mail für den Import aktivieren.',parent=window); return
-        self.work(lambda:self.importer.import_selected(account_id,folder,selected),
+        selected=[row['item'] for row in window.preview_items.values() if row['active'] and row['attachment'] is None]
+        released={}
+        for row in window.preview_items.values():
+            if row['active'] and row['attachment'] is not None:
+                released.setdefault(row['item']['id'],[]).append(row['attachment']['id'])
+        if not selected and not released:
+            messagebox.showinfo('E-Mail-Import','Mindestens eine E-Mail oder einen Anhang aktivieren.',parent=window); return
+        self.work(lambda:self.importer.import_selected(account_id,folder,selected,released),
                   lambda result:self.finish_mail_import(window,result))
 
     def finish_mail_import(self,window,result):

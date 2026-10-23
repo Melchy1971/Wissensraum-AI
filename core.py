@@ -27,7 +27,9 @@ SCHEMA = ('PRAGMA foreign_keys = ON;\n' + '\n'.join(
     ', content TEXT NOT NULL, UNIQUE(document_id, ordinal)')
 
 SUPPORTED_DOCUMENT_SUFFIXES = frozenset({'.txt', '.md', '.pdf', '.docx'})
-SOURCE_TYPES = frozenset({'note', 'file', 'pst', 'imap', 'graph'})
+SOURCE_TYPES = frozenset({'note', 'file', 'pst', 'imap', 'graph', 'attachment'})
+# Image files have no text layer; they wait in quarantine for OCR (step 6.4).
+IMAGE_SUFFIXES = frozenset({'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tif', '.tiff', '.webp', '.heic'})
 
 
 def source_row(filename=None, source=None):
@@ -155,6 +157,9 @@ class Store:
         'document_versions': {
             'document_id':('INTEGER',0,None,1), 'lineage_id':('INTEGER',1,None,0),
             'version':('INTEGER',1,None,0)},
+        'email_attachments': {
+            'document_id':('INTEGER',0,None,1), 'email_document_id':('INTEGER',0,None,0),
+            'name':('TEXT',1,None,0), 'content_type':('TEXT',1,"''",0), 'size':('INTEGER',0,None,0)},
     }
     schema_contract = {table:frozenset(columns) for table,columns in column_contract.items()}
     version_tables = {
@@ -167,6 +172,9 @@ class Store:
                       'email_imports','sources'}),
         6: frozenset({'documents','chunks','search_index','ai_runs','settings','email_accounts',
                       'email_imports','sources','import_jobs','import_items','import_item_errors'}),
+        7: frozenset({'documents','chunks','search_index','ai_runs','settings','email_accounts',
+                      'email_imports','sources','import_jobs','import_items','import_item_errors',
+                      'document_versions'}),
         CURRENT_SCHEMA_VERSION: frozenset(schema_contract),
     }
     primary_keys = {
@@ -174,7 +182,7 @@ class Store:
         'settings': ('name',), 'email_accounts': ('id',),
         'email_imports': ('account_id','remote_id'), 'sources': ('document_id',),
         'import_jobs': ('id',), 'import_items': ('id',), 'import_item_errors': ('id',),
-        'document_versions': ('document_id',),
+        'document_versions': ('document_id',), 'email_attachments': ('document_id',),
     }
     unique_keys = {'documents': {('sha256',)}, 'chunks': {('document_id','ordinal')},
                    'import_items': {('job_id','ordinal')}, 'document_versions': {('lineage_id','version')}}
@@ -187,6 +195,8 @@ class Store:
                          ('document_id','documents','id','SET NULL')},
         'import_item_errors': {('item_id','import_items','id','CASCADE')},
         'document_versions': {('document_id','documents','id','CASCADE')},
+        'email_attachments': {('document_id','documents','id','CASCADE'),
+                              ('email_document_id','documents','id','SET NULL')},
     }
     sql_fragments = {
         ('view','chunks_search'): ('select c.id, d.title, d.category, c.content','join documents d'),
@@ -479,6 +489,10 @@ class PostgresStore:
         'document_versions': {
             'document_id':('bigint','int8','NO',None,'NO'), 'lineage_id':('bigint','int8','NO',None,'NO'),
             'version':('integer','int4','NO',None,'NO')},
+        'email_attachments': {
+            'document_id':('bigint','int8','NO',None,'NO'), 'email_document_id':('bigint','int8','YES',None,'NO'),
+            'name':('text','text','NO',None,'NO'), 'content_type':('text','text','NO',"''",'NO'),
+            'size':('bigint','int8','YES',None,'NO')},
     }
     schema_contract = {table:frozenset(columns) for table,columns in column_contract.items()}
     required_constraints = {
@@ -505,6 +519,9 @@ class PostgresStore:
         'document_versions_pkey': ('document_versions','p',('document_id',),None,(),None),
         'document_versions_lineage_id_version_key': ('document_versions','u',('lineage_id','version'),None,(),None),
         'document_versions_document_id_fkey': ('document_versions','f',('document_id',),'documents',('id',),'c'),
+        'email_attachments_pkey': ('email_attachments','p',('document_id',),None,(),None),
+        'email_attachments_document_id_fkey': ('email_attachments','f',('document_id',),'documents',('id',),'c'),
+        'email_attachments_email_document_id_fkey': ('email_attachments','f',('email_document_id',),'documents',('id',),'n'),
     }
     required_indexes = {
         'chunks_document_id_idx': ('chunks','(document_id)'),
@@ -800,10 +817,21 @@ def import_document(path):
     path = Path(path)
     if path.stat().st_size > MAX_DOCUMENT_BYTES:
         raise ImportRejected('too_large', 'Datei überschreitet das Limit von 20 MB.')
-    suffix = path.suffix.lower()
+    if path.suffix.lower() not in SUPPORTED_DOCUMENT_SUFFIXES:
+        extract_document(path.name, b'')  # raises the matching quarantine reason
+    return extract_document(path.name, path.read_bytes())
+
+
+def extract_document(name, data):
+    """Extract text from file bytes; return (title, text, name, data) or raise ImportRejected."""
+    name = Path(str(name)).name or 'Dokument'
+    suffix = Path(name).suffix.lower()
+    if suffix in IMAGE_SUFFIXES:
+        raise ImportRejected('no_text', 'Bild enthält keinen lesbaren Text. OCR folgt mit Schritt 6.4.')
     if suffix not in SUPPORTED_DOCUMENT_SUFFIXES:
         raise ImportRejected('unsupported', 'Unterstützt werden TXT, Markdown, PDF und DOCX.')
-    data = path.read_bytes()
+    if len(data) > MAX_DOCUMENT_BYTES:
+        raise ImportRejected('too_large', 'Datei überschreitet das Limit von 20 MB.')
     if suffix in ('.txt', '.md'):
         if data.startswith((b'\xff\xfe', b'\xfe\xff')):
             text = data.decode('utf-16')
@@ -850,7 +878,7 @@ def import_document(path):
         raise ImportRejected('no_text', 'Datei enthält keinen lesbaren Text.')
     if len(text.strip()) > MAX_DOCUMENT_CHARACTERS:
         raise ImportRejected('too_large', 'Maximal 2 Millionen Textzeichen pro Dokument.')
-    return path.stem, text, path.name, data
+    return Path(name).stem or name, text, name, data
 
 
 def discover_documents(folder, include_unsupported=False):

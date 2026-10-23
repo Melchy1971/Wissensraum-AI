@@ -12,8 +12,11 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
+import base64
 import uuid
 from contextlib import contextmanager
+from core import MAX_DOCUMENT_BYTES, ImportRejected, extract_document
+import mail_structure
 from configuration_authority import (CONFIGURATION_OPERATION_BUSY, ConfigurationAuthority,
                                      configuration_operation_lock, store_identity)
 
@@ -24,6 +27,22 @@ MAIL_PROVIDERS = {
     'imap': {'name':'Sonstiges IMAP-Konto', 'host':'', 'port':993, 'auth':'password'},
 }
 MS_SCOPES = ['Mail.Read']
+MAX_MESSAGE_TEXT_BYTES = 25*1024*1024
+# Transfer encoding (base64) makes a part about a third larger than the decoded file.
+MAX_ATTACHMENT_ENCODED_BYTES = MAX_DOCUMENT_BYTES*4//3+4096
+
+
+def attachment_line(attachments):
+    """Readable list of attachment names for the e-mail text; content is never included."""
+    if not attachments:
+        return ''
+    return 'Anhänge: '+'; '.join(f'{item["name"]} ({item.get("content_type") or "unbekannt"}, '
+                                  f'{item.get("size") or 0} Bytes)' for item in attachments)
+
+
+def _report():
+    return {'found':0,'imported':0,'duplicates':0,'errors':0,'attachments_imported':0,
+            'attachments_duplicates':0,'attachments_quarantined':0,'attachments_errors':0,'quarantine':[]}
 
 
 class _HTMLText(HTMLParser):
@@ -247,21 +266,48 @@ class Importer:
             raise ValueError(f'Anzahl muss zwischen 1 und {maximum} liegen.')
         return value
 
-    def _add_email(self,raw,label='E-Mail',source=None):
+    def _add_email(self,raw,label='E-Mail',source=None,attachments=()):
         message=BytesParser(policy=policy.default).parsebytes(raw)
         subject=decoded(message.get('Subject')) or '(Ohne Betreff)'
         sender=decoded(message.get('From'))
         body=email_body(message)
-        if not body:
+        if not body and not attachments:
             raise ValueError('E-Mail enthält keinen lesbaren Nachrichtentext.')
+        body=body or '(Kein Nachrichtentext)'
         content='\n'.join(filter(None,[
             'Betreff: '+subject,
             'Von: '+sender if sender else '',
             'An: '+decoded(message.get('To')) if message.get('To') else '',
             'Datum: '+decoded(message.get('Date')) if message.get('Date') else '',
             'Nachrichten-ID: '+decoded(message.get('Message-ID')) if message.get('Message-ID') else '',
+            attachment_line(attachments),
             '',body]))
         return self.store.add(subject,content,'E-Mail · '+label,subject+'.eml',raw,source)
+
+    def _email_document(self,account_id,key):
+        with self.store.connect() as db:
+            row=db.execute('SELECT document_id FROM email_imports WHERE account_id=? AND remote_id=?',
+                           (account_id,key)).fetchone()
+        return row['document_id'] if row else None
+
+    def _add_attachment(self,report,name,data,content_type,account_id,locator,email_document_id,label):
+        """Store one released attachment as its own document linked to its e-mail."""
+        try:
+            title,text,name,data=extract_document(name,data)
+        except ImportRejected as rejected:
+            report['attachments_quarantined']+=1
+            report['quarantine'].append({'name':name,'reason':rejected.reason})
+            return None
+        document_id,created=self.store.add(title,text,'E-Mail · '+label+' · Anhang',name,data,
+                                           ('attachment',account_id,locator))
+        with self.store.connect() as db:
+            db.execute('INSERT INTO email_attachments(document_id,email_document_id,name,content_type,size) '
+                       'VALUES(?,?,?,?,?) ON CONFLICT(document_id) DO NOTHING',
+                       (document_id,email_document_id,name,content_type or '',len(data)))
+        if account_id:
+            self._record_import(account_id,locator,document_id)
+        report['attachments_imported' if created else 'attachments_duplicates']+=1
+        return document_id
 
     def _imported_ids(self,account_id,remote_ids):
         remote_ids=list(dict.fromkeys(str(value) for value in remote_ids))
@@ -324,40 +370,124 @@ class Importer:
             ids=(data[0].split() if data and data[0] else [])[-limit:]
             for uid in reversed(ids):
                 try:
-                    status,payload=client.uid('fetch',uid,'(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM DATE MESSAGE-ID)])')
-                    raw=self._imap_raw(payload)
-                    if status!='OK' or not raw: raise ValueError('Kopfzeile nicht lesbar')
+                    # Structure and selected header fields only: no message text, no attachment content.
+                    status,payload=client.uid('fetch',uid,
+                        '(BODYSTRUCTURE BODY.PEEK[HEADER.FIELDS (SUBJECT FROM DATE MESSAGE-ID)])')
+                    if status!='OK': raise ValueError('Kopfzeile nicht lesbar')
+                    fields=mail_structure.fetch_items(payload)
+                    raw=next((value for key,value in fields.items() if key.startswith('BODY[HEADER')),None)
+                    if not isinstance(raw,bytes): raise ValueError('Kopfzeile nicht lesbar')
                     message=BytesParser(policy=policy.default).parsebytes(raw)
+                    attachments=[{'id':part['section'],'name':mail_structure.attachment_name(part),
+                                  'content_type':part['content_type'],'size':part['size']}
+                                 for part in mail_structure.parts(fields.get('BODYSTRUCTURE')) if part['attachment']]
                     items.append({'id':uid.decode('ascii'),'subject':decoded(message.get('Subject')) or '(Ohne Betreff)',
-                                  'sender':decoded(message.get('From')),'date':decoded(message.get('Date'))})
+                                  'sender':decoded(message.get('From')),'date':decoded(message.get('Date')),
+                                  'attachments':attachments})
                 except Exception:
-                    items.append({'id':uid.decode('ascii',errors='ignore'),'subject':'(Kopfzeile nicht lesbar)','sender':'','date':''})
+                    items.append({'id':uid.decode('ascii',errors='ignore'),'subject':'(Kopfzeile nicht lesbar)',
+                                  'sender':'','date':'','attachments':[]})
         finally:
             try: client.logout()
             except Exception: pass
-        imported=self._imported_ids(account_id,[self._imap_import_key(folder,item['id']) for item in items])
-        for item in items: item['imported']=self._imap_import_key(folder,item['id']) in imported
+        self._mark_imported(account_id,items,lambda item:self._imap_import_key(folder,item['id']))
         return items
 
-    def import_imap_ids(self,account_id,folder,uids,client_factory=None):
+    def _mark_imported(self,account_id,items,key):
+        keys=[key(item) for item in items]
+        keys+=[key(item)+'#'+str(part['id']) for item in items for part in item.get('attachments',())]
+        imported=self._imported_ids(account_id,keys)
+        for item in items:
+            item['imported']=key(item) in imported
+            for part in item.get('attachments',()):
+                part['imported']=key(item)+'#'+str(part['id']) in imported
+
+    @staticmethod
+    def _imap_fetch(client,uid,spec):
+        status,payload=client.uid('fetch',uid.encode('ascii'),spec)
+        if status!='OK':
+            raise ValueError('E-Mail konnte nicht gelesen werden.')
+        return mail_structure.fetch_items(payload)
+
+    def _imap_message(self,client,uid,structure,leaves):
+        """Fetch header and text parts only; return an RFC 822 message without attachment content."""
+        attachments=[leaf for leaf in leaves if leaf['attachment']]
+        texts=[leaf for leaf in leaves if not leaf['attachment']]
+        if sum(leaf['size'] for leaf in texts)>MAX_MESSAGE_TEXT_BYTES:
+            raise ValueError('Nachrichtentext ist größer als 25 MB.')
+        if not mail_structure.is_multipart(structure):
+            if attachments:  # the whole message is one attachment
+                header=self._imap_fetch(client,uid,'(BODY.PEEK[HEADER])').get('BODY[HEADER]') or b''
+                return mail_structure.rebuild_message(header,[],1)
+            fields=self._imap_fetch(client,uid,'(BODY.PEEK[HEADER] BODY.PEEK[TEXT])')
+            return (fields.get('BODY[HEADER]') or b'')+(fields.get('BODY[TEXT]') or b'')
+        spec=' '.join(['BODY.PEEK[HEADER]']+[f'BODY.PEEK[{leaf["section"]}.MIME] BODY.PEEK[{leaf["section"]}]'
+                                               for leaf in texts])
+        fields=self._imap_fetch(client,uid,'('+spec+')')
+        parts=[(fields.get(f'BODY[{leaf["section"]}.MIME]') or b'',fields.get(f'BODY[{leaf["section"]}]') or b'')
+               for leaf in texts]
+        return mail_structure.rebuild_message(fields.get('BODY[HEADER]') or b'',parts,len(attachments))
+
+    def _imap_attachment(self,client,uid,structure,leaf):
+        if not mail_structure.is_multipart(structure):
+            fields=self._imap_fetch(client,uid,'(BODY.PEEK[HEADER] BODY.PEEK[1])')
+            return mail_structure.part_payload(fields.get('BODY[HEADER]') or b'',fields.get('BODY[1]') or b'')
+        section=leaf['section']
+        fields=self._imap_fetch(client,uid,f'(BODY.PEEK[{section}.MIME] BODY.PEEK[{section}])')
+        return mail_structure.part_payload(fields.get(f'BODY[{section}.MIME]') or b'',fields.get(f'BODY[{section}]') or b'')
+
+    def import_imap_ids(self,account_id,folder,uids,client_factory=None,attachments=None):
+        """Import the selected messages; attachments only when released in ``attachments``.
+
+        ``attachments`` maps a message UID to the released attachment section numbers. It may
+        name messages that were imported earlier. The full message (``BODY.PEEK[]``) is never fetched.
+        """
         uids=list(dict.fromkeys(str(uid) for uid in uids))
-        if not uids or len(uids)>2000 or any(not re.fullmatch(r'\d+',uid) for uid in uids):
+        released={str(uid):list(dict.fromkeys(str(part) for part in parts))
+                  for uid,parts in (attachments or {}).items() if parts}
+        everything=list(dict.fromkeys(uids+list(released)))
+        if (not everything or len(everything)>2000 or any(not re.fullmatch(r'\d+',uid) for uid in everything)
+                or any(not re.fullmatch(r'\d+(\.\d+)*',part) for parts in released.values() for part in parts)):
             raise ValueError('Keine gültige E-Mail-Auswahl vorhanden.')
         client,account=self._imap_login(account_id,folder,client_factory)
-        report={'found':len(uids),'imported':0,'duplicates':0,'errors':0}
+        report=_report(); report['found']=len(uids)
         try:
-            for uid in uids:
+            for uid in everything:
+                key=self._imap_import_key(folder,uid)
                 try:
-                    status,payload=client.uid('fetch',uid.encode('ascii'),'(BODY.PEEK[])')
-                    raw=self._imap_raw(payload)
-                    if status!='OK' or not raw or len(raw)>25*1024*1024:
-                        raise ValueError('E-Mail konnte nicht gelesen werden oder ist größer als 25 MB.')
-                    key=self._imap_import_key(folder,uid)
-                    document_id,created=self._add_email(raw,account['label'],('imap',account_id,key))
-                    self._record_import(account_id,key,document_id)
-                    report['imported' if created else 'duplicates']+=1
-                except Exception:
-                    report['errors']+=1
+                    structure=self._imap_fetch(client,uid,'(BODYSTRUCTURE)').get('BODYSTRUCTURE')
+                    leaves=mail_structure.parts(structure)
+                except Exception:  # without the structure nothing is fetched, not even the text
+                    if uid in uids: report['errors']+=1
+                    report['attachments_errors']+=len(released.get(uid,()))
+                    continue
+                if uid in uids:
+                    try:
+                        raw=self._imap_message(client,uid,structure,leaves)
+                        names=[{'name':mail_structure.attachment_name(leaf),'content_type':leaf['content_type'],
+                                'size':leaf['size']} for leaf in leaves if leaf['attachment']]
+                        document_id,created=self._add_email(raw,account['label'],('imap',account_id,key),names)
+                        self._record_import(account_id,key,document_id)
+                        report['imported' if created else 'duplicates']+=1
+                    except Exception:
+                        report['errors']+=1
+                email_document_id=self._email_document(account_id,key)
+                by_section={leaf['section']:leaf for leaf in leaves if leaf['attachment']}
+                for section in released.get(uid,()):
+                    leaf=by_section.get(section)
+                    try:
+                        if leaf is None:
+                            raise ValueError('Anhang wurde nicht gefunden.')
+                        name=mail_structure.attachment_name(leaf)
+                        if leaf['size']>MAX_ATTACHMENT_ENCODED_BYTES:  # rejected before any download
+                            report['attachments_quarantined']+=1
+                            report['quarantine'].append({'name':name,'reason':'too_large'})
+                            continue
+                        data=self._imap_attachment(client,uid,structure,leaf)
+                        self._add_attachment(report,name,data,leaf['content_type'],account_id,key+'#'+section,
+                                             email_document_id,account['label'])
+                    except Exception:
+                        report['attachments_errors']+=1
         finally:
             try: client.logout()
             except Exception: pass
@@ -389,7 +519,7 @@ class Importer:
         limit=self._limit(limit,1000)
         token=self.accounts.microsoft_token(account_id)
         get=transport or self._graph_get
-        fields='id,subject,from,receivedDateTime'
+        fields='id,subject,from,receivedDateTime,hasAttachments'
         url='https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?'+urllib.parse.urlencode({'$top':min(limit,100),'$select':fields,'$orderby':'receivedDateTime desc'})
         items=[]
         while url and len(items)<limit:
@@ -400,43 +530,87 @@ class Importer:
                 if not message_id: continue
                 items.append({'id':message_id,'subject':item.get('subject') or '(Ohne Betreff)',
                               'sender':item.get('from',{}).get('emailAddress',{}).get('address',''),
-                              'date':item.get('receivedDateTime','')})
+                              'date':item.get('receivedDateTime',''),
+                              'attachments':(self._graph_attachments(get,token,message_id)
+                                             if item.get('hasAttachments') else [])})
             url=page.get('@odata.nextLink')
-        imported=self._imported_ids(account_id,[self._microsoft_import_key(item['id']) for item in items])
-        for item in items: item['imported']=self._microsoft_import_key(item['id']) in imported
+        self._mark_imported(account_id,items,lambda item:self._microsoft_import_key(item['id']))
         return items
 
-    def _add_graph_item(self,item,label,source=None):
+    @staticmethod
+    def _graph_message_url(message_id,suffix=''):
+        return 'https://graph.microsoft.com/v1.0/me/messages/'+urllib.parse.quote(message_id,safe='')+suffix
+
+    def _graph_attachments(self,get,token,message_id):
+        """Attachment metadata only: contentBytes is never selected here."""
+        url=self._graph_message_url(message_id,'/attachments?'+urllib.parse.urlencode(
+            {'$select':'id,name,contentType,size,isInline'}))
+        try:
+            page=get(url,token)
+        except Exception:
+            return []
+        return [{'id':str(item.get('id','')),'name':item.get('name') or 'Anhang','content_type':item.get('contentType') or '',
+                 'size':int(item.get('size') or 0)} for item in page.get('value',[]) if item.get('id')]
+
+    def _add_graph_item(self,item,label,source=None,attachments=()):
         sender=item.get('from',{}).get('emailAddress',{}).get('address','')
         recipients=', '.join(x.get('emailAddress',{}).get('address','') for x in item.get('toRecipients',[]))
         body=item.get('body',{}).get('content','')
         if item.get('body',{}).get('contentType','').lower()=='html': body=html_text(body)
         subject=item.get('subject') or '(Ohne Betreff)'
+        if not body.strip():
+            if not attachments: raise ValueError('Kein Nachrichtentext')
+            body='(Kein Nachrichtentext)'
         content='\n'.join(filter(None,['Betreff: '+subject,'Von: '+sender,'An: '+recipients,
-            'Datum: '+item.get('receivedDateTime',''),'Nachrichten-ID: '+item.get('internetMessageId',''),'',body]))
-        if not body.strip(): raise ValueError('Kein Nachrichtentext')
+            'Datum: '+item.get('receivedDateTime',''),'Nachrichten-ID: '+item.get('internetMessageId',''),
+            attachment_line(attachments),'',body]))
         raw=json.dumps(item,ensure_ascii=False).encode()
         return self.store.add(subject,content,'E-Mail · '+label,subject+'.json',raw,source)
 
-    def import_microsoft_ids(self,account_id,message_ids,transport=None):
+    def import_microsoft_ids(self,account_id,message_ids,transport=None,attachments=None):
+        """Import selected messages; download only attachments released in ``attachments``."""
         account=self.accounts.get(account_id)
         message_ids=list(dict.fromkeys(str(value) for value in message_ids))
-        if not message_ids or len(message_ids)>1000 or any(not value or len(value)>1000 or any(ord(c)<32 for c in value) for value in message_ids):
+        released={str(key):list(dict.fromkeys(str(value) for value in values))
+                  for key,values in (attachments or {}).items() if values}
+        everything=list(dict.fromkeys(message_ids+list(released)))
+        valid=lambda value:value and len(value)<=1000 and not any(ord(c)<32 for c in value)
+        if (not everything or len(everything)>1000 or not all(valid(value) for value in everything)
+                or not all(valid(value) for values in released.values() for value in values)):
             raise ValueError('Keine gültige E-Mail-Auswahl vorhanden.')
         token=self.accounts.microsoft_token(account_id)
         get=transport or self._graph_get
-        fields='id,subject,from,toRecipients,ccRecipients,receivedDateTime,body,internetMessageId'
-        report={'found':len(message_ids),'imported':0,'duplicates':0,'errors':0}
-        for message_id in message_ids:
-            try:
-                url='https://graph.microsoft.com/v1.0/me/messages/'+urllib.parse.quote(message_id,safe='')+'?'+urllib.parse.urlencode({'$select':fields})
-                item=get(url,token)
-                key=self._microsoft_import_key(message_id)
-                document_id,created=self._add_graph_item(item,account['label'],('graph',account_id,key))
-                self._record_import(account_id,key,document_id)
-                report['imported' if created else 'duplicates']+=1
-            except Exception:
-                report['errors']+=1
+        fields='id,subject,from,toRecipients,ccRecipients,receivedDateTime,body,internetMessageId,hasAttachments'
+        report=_report(); report['found']=len(message_ids)
+        for message_id in everything:
+            key=self._microsoft_import_key(message_id)
+            if message_id in message_ids:
+                try:
+                    item=get(self._graph_message_url(message_id,'?'+urllib.parse.urlencode({'$select':fields})),token)
+                    names=self._graph_attachments(get,token,message_id) if item.get('hasAttachments') else []
+                    document_id,created=self._add_graph_item(item,account['label'],('graph',account_id,key),names)
+                    self._record_import(account_id,key,document_id)
+                    report['imported' if created else 'duplicates']+=1
+                except Exception:
+                    report['errors']+=1
+            email_document_id=self._email_document(account_id,key)
+            for attachment_id in released.get(message_id,()):
+                try:
+                    item=get(self._graph_message_url(message_id,'/attachments/'+urllib.parse.quote(attachment_id,safe='')),token)
+                    name=item.get('name') or 'Anhang'
+                    if item.get('@odata.type')!='#microsoft.graph.fileAttachment' or 'contentBytes' not in item:
+                        report['attachments_quarantined']+=1
+                        report['quarantine'].append({'name':name,'reason':'unsupported'})
+                        continue
+                    if int(item.get('size') or 0)>MAX_ATTACHMENT_ENCODED_BYTES:
+                        report['attachments_quarantined']+=1
+                        report['quarantine'].append({'name':name,'reason':'too_large'})
+                        continue
+                    data=base64.b64decode(item['contentBytes'],validate=True)
+                    self._add_attachment(report,name,data,item.get('contentType') or '',account_id,
+                                         key+'#'+attachment_id,email_document_id,account['label'])
+                except Exception:
+                    report['attachments_errors']+=1
         return report
 
     def import_microsoft(self,account_id,limit=100,transport=None):
@@ -449,12 +623,13 @@ class Importer:
             return self.preview_microsoft(account_id,limit)
         return self.preview_imap(account_id,folder,limit)
 
-    def import_selected(self,account_id,folder,items):
+    def import_selected(self,account_id,folder,items,attachments=None):
+        """``items``: messages to import; ``attachments``: {message id: [released attachment ids]}."""
         account=self.accounts.get(account_id)
         ids=[item['id'] for item in items]
         if account['provider']=='microsoft':
-            return self.import_microsoft_ids(account_id,ids)
-        return self.import_imap_ids(account_id,folder,ids)
+            return self.import_microsoft_ids(account_id,ids,attachments=attachments)
+        return self.import_imap_ids(account_id,folder,ids,attachments=attachments)
 
     def import_pst(self,path,limit=500,archive_factory=None):
         path=Path(path)
@@ -474,8 +649,20 @@ class Importer:
                 report['found']+=1
                 try:
                     raw=archive.format_message(message,with_headers=True).encode('utf-8',errors='replace')
-                    _,created=self._add_email(raw,'PST · '+path.stem,('pst','',path.stem))
+                    names=self._pst_attachment_names(archive,message)
+                    _,created=self._add_email(raw,'PST · '+path.stem,('pst','',path.stem),names)
                     report['imported' if created else 'duplicates']+=1
                 except Exception:
                     report['errors']+=1
         return report
+
+    @staticmethod
+    def _pst_attachment_names(archive,message):
+        """Names, types and sizes from libratom metadata; attachment content is not read (step 6.3b)."""
+        metadata=getattr(archive,'get_attachment_metadata',None)
+        if metadata is None:
+            return []
+        try:
+            return [{'name':item.name,'content_type':item.mime_type or '','size':item.size} for item in metadata(message)]
+        except Exception:
+            return []

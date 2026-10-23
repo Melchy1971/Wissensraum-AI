@@ -9,7 +9,7 @@ import uuid
 from contextlib import closing, contextmanager
 from pathlib import Path
 
-CURRENT_SCHEMA_VERSION = 7
+CURRENT_SCHEMA_VERSION = 8
 # Unversioned PostgreSQL schemas predate schema_migrations and match version 4.
 POSTGRES_LEGACY_SCHEMA_VERSION = 4
 # ponytail: source_type is validated in application code (core.SOURCE_TYPES), not by a
@@ -138,6 +138,13 @@ SQLITE_MIGRATIONS = (
         )""",
         "INSERT INTO document_versions(document_id, lineage_id, version) SELECT id, id, 1 FROM documents",
     )),
+    (8, (
+        """CREATE TABLE IF NOT EXISTS email_attachments (
+            document_id INTEGER PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+            email_document_id INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+            name TEXT NOT NULL, content_type TEXT NOT NULL DEFAULT '', size INTEGER
+        )""",
+    )),
 )
 
 
@@ -250,6 +257,13 @@ POSTGRES_MIGRATIONS = (
         )""",
         "INSERT INTO document_versions(document_id, lineage_id, version) SELECT id, id, 1 FROM documents",
     )),
+    (8, (
+        """CREATE TABLE IF NOT EXISTS email_attachments (
+            document_id BIGINT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+            email_document_id BIGINT REFERENCES documents(id) ON DELETE SET NULL,
+            name TEXT NOT NULL, content_type TEXT NOT NULL DEFAULT '', size BIGINT
+        )""",
+    )),
 )
 
 POSTGRES_APPLICATION_TABLES = {
@@ -260,6 +274,7 @@ SQLITE_TABLE_VERSIONS = {
     'documents': 1, 'chunks': 1, 'ai_runs': 1, 'settings': 2,
     'email_accounts': 3, 'email_imports': 4, 'sources': 5,
     'import_jobs': 6, 'import_items': 6, 'import_item_errors': 6, 'document_versions': 7,
+    'email_attachments': 8,
 }
 
 # Constant SQL list of all application tables, derived from the catalog so that
@@ -310,6 +325,9 @@ SQLITE_COLUMNS = {
                            ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
     'document_versions': (('document_id','INTEGER',0,None,1), ('lineage_id','INTEGER',1,None,0),
                           ('version','INTEGER',1,None,0)),
+    'email_attachments': (('document_id','INTEGER',0,None,1), ('email_document_id','INTEGER',0,None,0),
+                          ('name','TEXT',1,None,0), ('content_type','TEXT',1,"''",0),
+                          ('size','INTEGER',0,None,0)),
 }
 
 SQLITE_UNIQUE_CONSTRAINTS = {
@@ -317,7 +335,7 @@ SQLITE_UNIQUE_CONSTRAINTS = {
     'ai_runs': set(), 'settings': set(), 'email_accounts': set(),
     'email_imports': set(), 'sources': set(),
     'import_jobs': set(), 'import_items': {('job_id','ordinal')}, 'import_item_errors': set(),
-    'document_versions': {('lineage_id','version')},
+    'document_versions': {('lineage_id','version')}, 'email_attachments': set(),
 }
 
 SQLITE_FOREIGN_KEYS = {
@@ -336,6 +354,8 @@ SQLITE_FOREIGN_KEYS = {
     },
     'import_item_errors': {('item_id','import_items','id','NO ACTION','CASCADE')},
     'document_versions': {('document_id','documents','id','NO ACTION','CASCADE')},
+    'email_attachments': {('document_id','documents','id','NO ACTION','CASCADE'),
+                          ('email_document_id','documents','id','NO ACTION','SET NULL')},
 }
 
 POSTGRES_LEGACY_COLUMNS = {
@@ -408,6 +428,11 @@ POSTGRES_LEGACY_COLUMNS = {
     ('document_versions','document_id','bigint','NO','NO',None,None),
     ('document_versions','lineage_id','bigint','NO','NO',None,None),
     ('document_versions','version','integer','NO','NO',None,None),
+    ('email_attachments','document_id','bigint','NO','NO',None,None),
+    ('email_attachments','email_document_id','bigint','YES','NO',None,None),
+    ('email_attachments','name','text','NO','NO',None,None),
+    ('email_attachments','content_type','text','NO','NO',"''::text",None),
+    ('email_attachments','size','bigint','YES','NO',None,None),
 }
 
 POSTGRES_LEGACY_CONSTRAINTS = {
@@ -434,6 +459,9 @@ POSTGRES_LEGACY_CONSTRAINTS = {
     ('document_versions', 'p', ('document_id',), None, (), ' '),
     ('document_versions', 'u', ('lineage_id', 'version'), None, (), ' '),
     ('document_versions', 'f', ('document_id',), 'documents', ('id',), 'c'),
+    ('email_attachments', 'p', ('document_id',), None, (), ' '),
+    ('email_attachments', 'f', ('document_id',), 'documents', ('id',), 'c'),
+    ('email_attachments', 'f', ('email_document_id',), 'documents', ('id',), 'n'),
 }
 
 

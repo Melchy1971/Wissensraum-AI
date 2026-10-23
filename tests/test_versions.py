@@ -167,7 +167,7 @@ class ImportVersionTests(unittest.TestCase):
         self.assertEqual((a['outcome'], a['version'], a['existing_title']), ('version', 2, 'a'))
         self.assertEqual(rows['d.txt']['outcome'], 'duplicate')
         self.assertEqual(rows['c.pdf']['outcome'], 'duplicate')
-        self.assertEqual((rows['e.png']['outcome'], rows['e.png']['reason']), ('quarantined', 'unsupported'))
+        self.assertEqual((rows['e.png']['outcome'], rows['e.png']['reason']), ('quarantined', 'no_text'))
         self.assertEqual((rows['f.pdf']['outcome'], rows['f.pdf']['reason']), ('quarantined', 'no_text'))
         self.assertEqual(rows['f.pdf']['type'], 'pdf')
         self.assertGreater(rows['f.pdf']['size'], 0)

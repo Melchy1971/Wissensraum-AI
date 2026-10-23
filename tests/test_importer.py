@@ -11,25 +11,27 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from core import Store
 from importer import Importer, MailAccounts
 from test_settings import FakeVault
+from mail_fakes import FakeImapClient, FakeImapServer
 
 RAW_MAIL=(b'From: sender@example.com\r\nTo: owner@example.com\r\nSubject: Projektstatus\r\n'
           b'Date: Thu, 15 Oct 2026 08:00:00 +0000\r\nMessage-ID: <one@example.com>\r\n'
           b'Content-Type: text/plain; charset=utf-8\r\n\r\nDie Freigabe wurde erteilt.')
 
-class FakeImap:
+class FakeImap(FakeImapClient):
+    """Read-only IMAP fake that answers structure and section fetches like a server."""
     def __init__(self,host,port):
+        super().__init__(FakeImapServer(self.messages()))
         self.host,self.port=host,port
         self.logged_out=False
         self.uid_calls=[]
+    def messages(self): return {101:RAW_MAIL,202:RAW_MAIL}
     def login(self,user,password):
         self.login_values=(user,password); return 'OK',[]
     def select(self,folder,readonly=False):
-        self.selected=(folder,readonly); return 'OK',[b'2']
+        self.selected=(folder,readonly); return super().select(folder,readonly)
     def uid(self,command,*args):
         self.uid_calls.append((command,args))
-        if command=='search': return 'OK',[b'101 202']
-        if command=='fetch': return 'OK',[(b'RFC822',RAW_MAIL)]
-        raise AssertionError(command)
+        return super().uid(command,*args)
     def logout(self): self.logged_out=True
 
 class FakeArchive:
@@ -133,12 +135,15 @@ class ImportTests(unittest.TestCase):
         preview=self.importer.preview_imap(account_id,'INBOX',100,factory)
         self.assertEqual([item['id'] for item in preview],['202','101'])
         report=self.importer.import_imap_ids(account_id,'INBOX',[preview[0]['id']],factory)
-        self.assertEqual(report,{'found':1,'imported':1,'duplicates':0,'errors':0})
+        self.assertEqual({key:report[key] for key in ('found','imported','duplicates','errors','attachments_imported')},
+                         {'found':1,'imported':1,'duplicates':0,'errors':0,'attachments_imported':0})
         self.assertEqual(clients[0].selected,('INBOX',True))
         self.assertEqual(len(clients),2)
         self.assertTrue(all(client.logged_out for client in clients))
         self.assertTrue(all('HEADER.FIELDS' in call[1][1] for call in clients[0].uid_calls if call[0]=='fetch'))
-        self.assertEqual(clients[1].uid_calls[-1][1][1],'(BODY.PEEK[])')
+        # Structure first, then header and text: never the full message with attachments.
+        self.assertEqual([call[1][1] for call in clients[1].uid_calls if call[0]=='fetch'],
+                         ['(BODYSTRUCTURE)','(BODY.PEEK[HEADER] BODY.PEEK[TEXT])'])
         self.assertEqual(self.store.search('Freigabe')[0]['title'],'Projektstatus')
         doc=self.store.get(1)
         self.assertEqual(doc['original'],RAW_MAIL)
@@ -194,9 +199,7 @@ class ImportTests(unittest.TestCase):
         def mail(body):
             return RAW_MAIL.replace(b'Die Freigabe wurde erteilt.',body)
         class Imap(FakeImap):
-            def uid(self,command,*args):
-                if command=='fetch': return 'OK',[(b'RFC822',mail(b'IMAP Inhalt'))]
-                return super().uid(command,*args)
+            def messages(self): return {202:mail(b'IMAP Inhalt')}
         class Archive(FakeArchive):
             def format_message(self,message,with_headers=True): return mail(b'PST Inhalt').decode()
         expected={}

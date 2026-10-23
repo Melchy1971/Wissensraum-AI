@@ -111,8 +111,9 @@ def build_reference_corpus(folder) -> dict:
     for index in range(40):
         put(f'scan/scan-{index:03}.pdf', blank, 'quarantined', 'no_text')
     for index in range(30):
-        put(f'fremd/datei-{index:03}.{("png", "exe", "xlsx")[index % 3]}', b'\x89PNG' + bytes([index]),
-            'quarantined', 'unsupported')
+        suffix = ('png', 'exe', 'xlsx')[index % 3]
+        put(f'fremd/datei-{index:03}.{suffix}', b'\x89PNG' + bytes([index]),
+            'quarantined', 'no_text' if suffix == 'png' else 'unsupported')  # images wait for OCR (6.4)
     encrypted = encrypted_pdf()
     for index in range(20):
         put(f'geschuetzt/vertraulich-{index:03}.pdf', encrypted, 'quarantined', 'encrypted')

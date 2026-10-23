@@ -295,6 +295,40 @@ class PostgresStoreTests(unittest.TestCase):
         store.delete(current[0]['id'])
         self.assertEqual([row['id'] for row in store.list()], [versions[1]['id']])
 
+    def test_released_mail_attachment_is_linked_on_real_postgresql(self):
+        import import_fixtures as fx
+        from importer import Importer, MailAccounts
+        from mail_fakes import FakeGraph, graph_attachment
+        from test_settings import FakeVault
+        store = PostgresStore(self.profile, self.password)
+        with tempfile.TemporaryDirectory() as folder:
+            accounts = MailAccounts(store, FakeVault(), Path(folder))
+            account_id = accounts.save({'label': 'M365', 'provider': 'microsoft', 'email': 'm@example.test',
+                                        'username': 'm@example.test',
+                                        'client_id': '11111111-2222-3333-4444-555555555555'})
+            accounts.microsoft_token = lambda _: 'token'
+            pdf = fx.pdf_with_text('PG Anhang Lieferschein')
+            graph = FakeGraph({'MSG=': ({'subject': 'PG Lieferung', 'from': {'emailAddress': {'address': 'a@example.test'}},
+                                         'toRecipients': [], 'receivedDateTime': '2026-10-23T10:00:00Z',
+                                         'body': {'contentType': 'text', 'content': 'Lieferung anbei.'}},
+                                        [graph_attachment('A1', 'lieferschein.pdf', 'application/pdf', pdf)])})
+            importer = Importer(store, accounts)
+            self.assertEqual(importer.import_microsoft_ids(account_id, ['MSG='], transport=graph)['attachments_imported'], 0)
+            self.assertEqual(graph.content_requests(), [])
+            first = importer.import_microsoft_ids(account_id, [], transport=graph, attachments={'MSG=': ['A1']})
+            again = importer.import_microsoft_ids(account_id, [], transport=graph, attachments={'MSG=': ['A1']})
+        self.assertEqual((first['attachments_imported'], again['attachments_duplicates']), (1, 1))
+        with store.connect() as db:
+            link = db.execute('SELECT * FROM email_attachments').fetchall()
+            email_id = db.execute("SELECT document_id FROM sources WHERE source_type='graph'").fetchone()['document_id']
+        self.assertEqual([(row['email_document_id'], row['name'], row['size']) for row in link],
+                         [(email_id, 'lieferschein.pdf', len(pdf))])
+        self.assertEqual(store.get(link[0]['document_id'])['original'], pdf)
+        self.assertTrue(importer.preview_microsoft(account_id, transport=graph)[0]['attachments'][0]['imported'])
+        store.delete(email_id)
+        with store.connect() as db:
+            self.assertIsNone(db.execute('SELECT email_document_id FROM email_attachments').fetchone()['email_document_id'])
+
     def test_malformed_legacy_schema_is_rejected_without_stamp(self):
         with self._raw_connect() as connection:
             with connection.transaction():
@@ -440,7 +474,8 @@ class PostgresStoreTests(unittest.TestCase):
         reset = DatabaseSettings(Path.cwd(), vault, environ={}).reset_postgresql(
             self.profile, self.password, self.profile['database'])
         self.assertEqual(reset['tables'], [
-            'ai_runs', 'chunks', 'document_versions', 'documents', 'email_accounts', 'email_imports',
+            'ai_runs', 'chunks', 'document_versions', 'documents', 'email_accounts', 'email_attachments',
+            'email_imports',
             'import_item_errors', 'import_items', 'import_jobs',
             'schema_migrations', 'settings', 'sources'])
         with PostgresStore(self.profile, self.password).connect() as db:
