@@ -208,6 +208,34 @@ class InterfaceTests(unittest.TestCase):
         window.remove_design_logo()
         self.assertFalse(window.design_settings.logo_path.exists())
 
+    def test_toolbar_buttons_stay_fully_visible_at_minimum_width(self):
+        window=self.window
+        width,height=window.minsize()
+        window.geometry(f'{width}x{height}')
+        window.update()
+        for button in window.exit_button.master.winfo_children():
+            with self.subTest(button=button.cget('text')):
+                self.assertTrue(button.winfo_ismapped())
+                self.assertLessEqual(button.winfo_rootx()+button.winfo_width(),
+                                     window.winfo_rootx()+window.winfo_width())
+        def texts(widget):
+            yield widget.cget('text') if widget.winfo_class()=='TButton' else None
+            for child in widget.winfo_children():
+                yield from texts(child)
+        self.assertLessEqual({'Sicherung wiederherstellen','Systemstatus prüfen'},
+                             set(texts(window.database_settings_frame)))
+
+    def test_database_settings_fit_at_default_window_size(self):
+        window=self.window
+        window.geometry('1180x780')
+        window.open_settings()
+        window.settings_sections.select(window.database_settings_frame)
+        window.database_message.set('Kennwort: Betriebssystem-Schlüsselspeicher')
+        window.update()
+        frame=window.database_settings_frame
+        bottom=max(child.winfo_y()+child.winfo_height() for child in frame.winfo_children())
+        self.assertLessEqual(bottom,frame.winfo_height())
+
     def test_damaged_logo_names_the_file_not_the_library(self):
         window=self.window
         window.design_settings.directory.mkdir(parents=True,exist_ok=True)

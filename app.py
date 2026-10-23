@@ -173,10 +173,7 @@ class App(tk.Tk if tk is not None else object):
         tools.pack(fill='x')
         self.buttons = []
         for label, command in [('Import',self.open_import),('Notiz erfassen',self.note),
-                               ('Datenbank sichern',self.backup),
-                               ('Sicherung wiederherstellen',self.restore),
-                               ('Systemstatus',self.show_health),
-                               ('Einstellungen',self.open_settings)]:
+                               ('Datenbank sichern',self.backup),('Einstellungen',self.open_settings)]:
             b = ttk.Button(tools,text=label,command=command)
             b.pack(side='left',padx=(0,8))
             self.buttons.append(b)
@@ -937,6 +934,11 @@ class App(tk.Tk if tk is not None else object):
         button=ttk.Button(reset_actions,text='Anwendungsschema zurücksetzen',command=self.reset_postgresql)
         button.pack(side='left'); self.buttons.append(button)
         ttk.Label(reset_actions,text='Löscht alle Wissensraum-Daten in PostgreSQL.',style='Warning.TLabel').pack(side='left',padx=12)
+        operations=ttk.Frame(frame); operations.pack(fill='x',pady=(4,2))
+        for title,command in (('Sicherung wiederherstellen',self.restore),('Systemstatus prüfen',self.show_health)):
+            button=ttk.Button(operations,text=title,command=command)
+            button.pack(side='left',padx=(0,8)); self.buttons.append(button)
+        ttk.Label(operations,text='Wiederherstellung nur für SQLite.').pack(side='left',padx=4)
         self.database_message=tk.StringVar()
         ttk.Label(frame,textvariable=self.database_message,wraplength=950).pack(anchor='w',pady=(5,4))
         ttk.Label(frame,text='Eine Aktivierung gilt ab dem nächsten Programmstart. Vorhandene SQLite-Dokumente werden nicht automatisch '

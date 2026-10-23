@@ -256,8 +256,8 @@ def postgres_contract(_work):
 MANUAL_CHECKS = (
     'Neuinstallation auf sauberem Windows-System: `start_windows.bat` zweimal starten, keine Reparaturschleife',
     'Startdiagnose: `python cli.py doctor` ohne FAIL',
-    'Systemstatus-Dialog in Hell- und Dunkelmodus lesbar, keine Schlüssel sichtbar',
-    'Sicherung wiederherstellen in der Oberfläche mit einer Testdatenbank (`WISSEN_DB` auf eine Kopie setzen), '
+    'Einstellungen → Datenbank → „Systemstatus prüfen“: Dialog in Hell- und Dunkelmodus lesbar, keine Schlüssel sichtbar',
+    'Einstellungen → Datenbank → „Sicherung wiederherstellen“ mit einer Testdatenbank (`WISSEN_DB` auf eine Kopie setzen), '
     'Bestätigung mit falschem und richtigem Dateinamen',
     'Konfigurationsexport und -import auf dem sauberen System ohne Schlüssel in der Exportdatei',
     'GitHub Actions: Link zum Lauf mit allen sieben grünen Jobs eintragen',
