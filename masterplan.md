@@ -12,7 +12,7 @@
 
 **Ablage:** Einziger Masterplan ist diese Datei `masterplan.md`. Die frühere Kopie `docs/masterplan.md` wurde am 22.10.2026 entfernt.
 
-**Status:** Phasen- und Testplan · Release 1.9 freigegeben, Phasen 0 bis 5 ✅
+**Status:** Phasen- und Testplan · Release 1.9 freigegeben, Phasen 0 bis 5 ✅ · Phase 6 (Release 2.0) in Arbeit
 
 **Legende:** ✅ vollständig implementiert und gesamtes Gate nachweislich bestanden · 🟡 implementiert oder teilweise geprüft, aber noch nicht vollständig abgenommen · ❌ Gate fehlgeschlagen oder Freigabe blockiert · ⬜ geplant und noch nicht begonnen
 
@@ -20,7 +20,7 @@
 
 **Synchronisation:** Der bisherige Root-Masterplan (Dokumentversion 1.5, 89 Tests, Phase 5 ⬜) war gegenüber `docs/masterplan.md` (Dokumentversion 1.0, 321 Tests, Release-1.9-Checkliste) veraltet. Beide Dateien wurden in dieser Datei zusammengeführt, `docs/masterplan.md` wurde danach gelöscht. Der Ist-Stand, die Release-1.9-Checkliste und die DoD-Nachweise stammen aus `docs/masterplan.md`. Phasenplan, Test-Gates und Phase-4-Historie stammen aus dem Root-Plan.
 
-**Testzahl:** `docs/masterplan.md` nannte 321 Tests. Nach diesem Stand ergänzte `e4a75ae` einen Test, der Head `c5503bc` hatte 322. Mit acht neuen Wiederherstellungstests, vier Tests zur Gesundheitsanzeige, sieben Negativtests, sieben Tests zum Quellenmodell einem PostgreSQL-Rundlauftest, einem WAL-Wiederherstellungstest, einem Logo-Test und zwei Layout-Tests sind es jetzt 353.
+**Testzahl:** `docs/masterplan.md` nannte 321 Tests. Nach diesem Stand ergänzte `e4a75ae` einen Test, der Head `c5503bc` hatte 322. Mit acht neuen Wiederherstellungstests, vier Tests zur Gesundheitsanzeige, sieben Negativtests, sieben Tests zum Quellenmodell einem PostgreSQL-Rundlauftest, einem WAL-Wiederherstellungstest, einem Logo-Test und zwei Layout-Tests waren es 353 (Abnahme Release 1.9). Schritt 6.1 ergänzt 17 Tests (4 Importgrenzen, 7 Importaufträge, 2 Referenzbestand, 2 Oberfläche, 1 CLI, 1 PostgreSQL): jetzt 370.
 
 | Bereich | Ergebnis | Status |
 |---|---|---|
@@ -43,7 +43,7 @@
 | Tests Windows, Python 3.11, 3.12 und 3.13 | 353 Tests, je 337 bestanden, 16 übersprungen (3 POSIX-Logging-Fälle, 10 PostgreSQL, 3 `start.sh`-Tests ohne `sh` im Suchpfad). 3.12 und 3.13: 0 Fehler. 3.11 auf dem Entwicklungsrechner: in jedem Lauf ein bis fünf Fehler beim Löschen des Temp-Ordners nach bestandenem Test (WinError 145), jedes Mal in anderen, überwiegend bereits vorhandenen Tests; der CI-Job Windows/3.11 war in allen geprüften Läufen grün. Vermutlich lokales Zusammenspiel mit dem Virenscanner. | 🟡 lokal, nicht release-blockierend (CI Windows/3.11 grün) |
 | CI-Matrix | Lauf [39918310287](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39918310287) auf `4b37177` (23.10.2026): alle sieben Jobs grün, Windows/Linux × Python 3.11/3.12/3.13 und `postgres` (PostgreSQL 18 einschließlich `pg_dump`/`pg_restore`-Rundlauf). Davor grün: `39914353899` auf `ea7d929`. Läufe bis `585ae5a` rot im Vorschauschritt. | ✅ für `4b37177` |
 
-**Nächster kleinster Schritt:** Release 1.9 ist freigegeben. Offen außerhalb des Release-Gates: P0 „Veröffentlichtes Datenbankkennwort ändern“ auf dem VPS. Release 2.0 (Phase 6) beginnt erst nach ausdrücklicher Freigabe durch den Product Owner; dafür sind vorher die Entscheidungen D-009 (OCR-Engine und Lizenz) und der Zuschnitt der Importaufträge zu treffen.
+**Nächster kleinster Schritt:** Teilschritt 6.1 committen und CI-Lauf prüfen; danach 6.2 Versionen und Vorschau. Offen außerhalb der Gates: P0 „Veröffentlichtes Datenbankkennwort ändern“ auf dem VPS.
 
 ## Aktualisierung 22.10.2026 – Release 1.9 nach Hermes-Merge
 
@@ -248,7 +248,7 @@ Die Phasen werden in der angegebenen Reihenfolge getestet. Eine Phase wird erst 
 | 3 | Ordner-, PST- und E-Mail-Import | ✅ | freigegeben; PST bleibt optional |
 | 4 | Versionierte SQLite-/PostgreSQL-Migrationen | ✅ | freigegeben 23.10.2026 |
 | 5 | Release 1.9 Betriebsfähigkeit | ✅ | freigegeben 23.10.2026 |
-| 6 | Release 2.0 Importplattform | ⬜ | nach Phase 5 |
+| 6 | Release 2.0 Importplattform | 🟡 | freigegeben 23.10.2026, in vier Teilschritten (D-010); 6.1 lokal erfüllt, CI-Nachweis ausstehend |
 | 7 | Release 2.1 Hybrid-RAG | ⬜ | nach Phase 6 |
 | 8 | Wissensorganisation und Wissensgraph | ⬜ | nach Phase 7 |
 | 9 | Betrieb und Governance | ⬜ | nach Phase 8 |
@@ -446,7 +446,7 @@ PostgreSQL-Destruktivtests dürfen ausschließlich gegen eine Wegwerfdatenbank m
 
 **Gate:** Phase 5 ist erst freigegeben, wenn Phase 4 grün ist und Installation, Diagnose, Backup und Restore auf einem sauberen Windows-Testsystem protokolliert wurden. **Erfüllt:** abgenommen 23.10.2026: CI-Lauf [39918310287](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39918310287) auf `4b37177`, Release-Gate-Protokoll `release-gate-20261022-184843.md`.
 
-### Phase 6 – Release 2.0 Robuste Importplattform ⬜
+### Phase 6 – Release 2.0 Robuste Importplattform 🟡
 
 **Ziel:** Große und heterogene Quellen werden kontrolliert, transparent und wiederaufnehmbar verarbeitet.
 
@@ -475,6 +475,15 @@ PostgreSQL-Destruktivtests dürfen ausschließlich gegen eine Wegwerfdatenbank m
 - Anhänge werden niemals ohne Freigabe gespeichert
 
 **Gate:** Ein referenzierter Import-Testbestand und ein wiederholbarer Abbruch-/Fortsetzungstest sind vollständig grün.
+
+**Zuschnitt (D-010, Entscheidung Product Owner 23.10.2026):** Release 2.0 wird in vier Teilschritten mit jeweils eigenem Gate umgesetzt. Ein Teilschritt beginnt erst, wenn der vorherige grün ist.
+
+| Teilschritt | Umfang | Gate | Status |
+|---|---|---|---|
+| 6.1 Importaufträge | Schema 6 mit `import_jobs`, `import_items` und `import_item_errors` für SQLite und PostgreSQL. Datei- und Ordnerimporte laufen als persistente Aufträge mit Fortschritt, Fehlerliste, Abbruch und Wiederaufnahme ohne Doppelanlage. Grenzen: Dateigröße (20 MB, bestehend), Dateisignatur passend zur Endung, Entpackgrenzen für DOCX (Gesamtgröße, Verhältnis, Eintragszahl), Seitengrenze für PDF, Textgrenze (bestehend). Quarantäne als Status mit Grund (nicht unterstützt, zu groß, Signatur falsch, verschlüsselt, beschädigt, kein lesbarer Text); die Originaldatei bleibt unberührt und wird nicht kopiert. Importbericht als CSV. E-Mail- und PST-Importe bleiben vorerst außerhalb der Aufträge und folgen mit 6.3. | Referenzierter Testbestand aus 1.000 gemischten Dateien: mindestens 99 % technisch korrekt abgeschlossen, nicht extrahierbare Dateien eindeutig als Quarantäne ausgewiesen. Wiederholbarer Abbruch-/Fortsetzungstest ohne Doppelanlage, auch bei Abbruch zwischen Dokument und Statuseintrag. Jede Einheit mit Quelle, Prüfsumme, Status und Fehlerhistorie. Beide Backends, CI grün. | 🟡 lokal erfüllt 23.10.2026: Referenzbestand 1.000 Dateien (850 Text, PDF, DOCX, 10 Dubletten, 140 Quarantäne in sieben Gründen) zu 100 % korrekt klassifiziert, Ziel 99 %. Drei Abbrüche, ein Absturz nach dem fünften gespeicherten Dokument, Fortsetzung: identisches Ergebnis, 850 Dokumente, 850 Quellen, kein Duplikat (`tests/test_import_reference.py`). PostgreSQL: Abbruch, Fortsetzung und Absturzerholung gegen echten Dienst (`test_import_job_with_cancel_resume_and_crash_recovery_on_real_postgresql`). Linux 3.11/3.12/3.13 mit PostgreSQL: je 368 bestanden, 2 übersprungen. Windows 3.12/3.13: je 353 bestanden, 17 übersprungen; 3.11 zusätzlich der bekannte WinError 145. Mutationsproben: Entfernen der Absturzerkennung erzeugt ein Duplikat, Entfernen der DOCX-Grenzen lässt die Bombentests fehlschlagen. CI ausstehend. |
+| 6.2 Versionen und Vorschau | Dokumentversionen statt unverbundener Neuimporte; Vorschau der erkannten Metadaten vor endgültiger Speicherung | wird vor Beginn festgelegt | ⬜ |
+| 6.3 E-Mail-Anhänge | Anhänge mit separater Benutzerfreigabe; E-Mail- und PST-Importe als Aufträge | „Anhänge werden niemals ohne Freigabe gespeichert“ nachgewiesen | ⬜ |
+| 6.4 OCR | OCR für bildbasierte PDF- und Bilddateien mit Tesseract (D-009) als optionale Erweiterung | wird vor Beginn festgelegt | ⬜ |
 
 ### Phase 7 – Release 2.1 Hybrid-RAG und Antwortqualität ⬜
 
@@ -726,7 +735,8 @@ Ein Arbeitspaket ist abgeschlossen, wenn:
 | D-006 | Hybrid-RAG wird erst nach Aufbau eines Evaluationsdatensatzes freigegeben | Beschlossen |
 | D-007 | Mehrbenutzerbetrieb benötigt ein separates Architektur- und Sicherheits-Gate | Beschlossen |
 | D-008 | Lokale Vektorsuche für SQLite ist vor Release 2.1 technisch zu entscheiden | Offen |
-| D-009 | OCR-Engine und Lizenzmodell sind vor Release 2.0 festzulegen | Offen |
+| D-009 | OCR mit Tesseract (Apache 2.0) über `pytesseract`, PDF-Seiten mit `pypdfium2` gerendert; lokal, optionale Erweiterung wie die PST-Unterstützung; kein Ghostscript (AGPL) und keine Cloud-OCR | Entschieden 23.10.2026 (Product Owner) |
+| D-010 | Release 2.0 in vier Teilschritten mit eigenem Gate: 6.1 Importaufträge, 6.2 Versionen und Vorschau, 6.3 E-Mail-Anhänge, 6.4 OCR | Entschieden 23.10.2026 (Product Owner) |
 
 ## 14. Hauptrisiken
 
@@ -752,6 +762,6 @@ Release **1.9 – Stabilisierung und Betriebsfähigkeit** ist am 23.10.2026 frei
 - ✅ Dokumentation widerspruchsfrei
 - ✅ SQLite- und PostgreSQL-Wiederherstellung geprüft
 - ✅ strukturierte, geheimnisfreie Diagnose vorhanden
-- ✅ vollständiger Gesamtlauf (aktuell 353 Tests) grün; plattform- oder dienstbedingte Übersprünge transparent ausgewiesen
+- ✅ vollständiger Gesamtlauf (aktuell 370 Tests) grün; plattform- oder dienstbedingte Übersprünge transparent ausgewiesen
 
 Damit wird zuerst die Betriebs- und Datensicherheit des vorhandenen Funktionsumfangs abgesichert. Danach folgen Importausbau und Hybrid-RAG in getrennten Phasen.

@@ -229,6 +229,40 @@ class PostgresStoreTests(unittest.TestCase):
         self.assertTrue(created)
         self.assertGreater(new_id, max(row[0] for row in before['documents']))
 
+    def test_import_job_with_cancel_resume_and_crash_recovery_on_real_postgresql(self):
+        import threading
+        import import_fixtures as fx
+        from import_jobs import ImportJobs
+        store = PostgresStore(self.profile, self.password)
+        jobs = ImportJobs(store)
+        with tempfile.TemporaryDirectory() as folder:
+            folder = Path(folder)
+            for name, data in {'a.txt': b'PG Auftrag eins', 'b.pdf': fx.pdf_with_text('PG Auftrag zwei'),
+                               'c.docx': fx.docx_with_text('PG Auftrag drei'), 'd.exe': b'MZ',
+                               'e.txt': b'PG Auftrag eins'}.items():
+                (folder / name).write_bytes(data)
+            job_id = jobs.create_for_folder(folder)
+            cancel = threading.Event()
+            self.assertEqual(jobs.run(job_id, cancel, lambda done, total, _: cancel.set())['status'], 'cancelled')
+            real_add = store.add
+            def add_then_crash(*args, **kwargs):
+                real_add(*args, **kwargs)
+                raise KeyboardInterrupt
+            with patch.object(store, 'add', side_effect=add_then_crash):
+                with self.assertRaises(KeyboardInterrupt):
+                    jobs.run(job_id)
+            summary = jobs.run(job_id)
+            report = jobs.write_report(job_id, folder / 'bericht.csv').read_text(encoding='utf-8-sig')
+        self.assertEqual((summary['status'], summary['imported'], summary['duplicate'], summary['quarantined']),
+                         ('completed', 3, 1, 1))
+        with store.connect() as db:
+            self.assertEqual(db.execute('SELECT count(*) AS total FROM documents').fetchone()['total'], 3)
+            self.assertEqual(db.execute('SELECT count(*) AS total FROM sources').fetchone()['total'], 3)
+        self.assertIn('Dateityp nicht unterstützt', report)
+        first = jobs.items(job_id)[0]
+        store.delete(first['document_id'])
+        self.assertIsNone(jobs.items(job_id)[0]['document_id'])
+
     def test_malformed_legacy_schema_is_rejected_without_stamp(self):
         with self._raw_connect() as connection:
             with connection.transaction():
@@ -375,6 +409,7 @@ class PostgresStoreTests(unittest.TestCase):
             self.profile, self.password, self.profile['database'])
         self.assertEqual(reset['tables'], [
             'ai_runs', 'chunks', 'documents', 'email_accounts', 'email_imports',
+            'import_item_errors', 'import_items', 'import_jobs',
             'schema_migrations', 'settings', 'sources'])
         with PostgresStore(self.profile, self.password).connect() as db:
             data_tables = [table for table in reset['tables'] if table != 'schema_migrations']

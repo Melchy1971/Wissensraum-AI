@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import PostgresStore, Store
 from migrations import (CURRENT_SCHEMA_VERSION, POSTGRES_LEGACY_COLUMNS,
-                        SQLITE_MIGRATIONS, _database_file_lock, migrate_postgres,
+                        POSTGRES_LEGACY_CONSTRAINTS, SQLITE_MIGRATIONS, _database_file_lock, migrate_postgres,
                         migrate_sqlite, restore_sqlite)
 
 
@@ -72,6 +72,14 @@ SQLITE_HISTORICAL_MIGRATIONS = (
             document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
             imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY(account_id,remote_id)
+        )""",
+    )),
+    (5, (
+        """CREATE TABLE sources (
+            document_id INTEGER PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+            source_type TEXT NOT NULL, account_id TEXT NOT NULL DEFAULT '',
+            locator TEXT NOT NULL DEFAULT '',
+            recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )""",
     )),
 )
@@ -204,8 +212,9 @@ class FakePostgres:
         if self.current_tables is not None:
             tables = set(self.current_tables) | {'schema_migrations'}
         elif self.version == CURRENT_SCHEMA_VERSION:
-            tables |= {'documents', 'chunks', 'ai_runs', 'settings',
-                       'email_accounts', 'email_imports', 'sources'}
+            tables |= {'documents', 'chunks', 'ai_runs', 'settings', 'email_accounts',
+                       'email_imports', 'sources', 'import_jobs', 'import_items',
+                       'import_item_errors'}
         return tables
 
 
@@ -228,6 +237,8 @@ class SQLiteMigrationTests(unittest.TestCase):
             if version >= 3:
                 db.execute("INSERT INTO email_accounts(id,label,provider,email,username) "
                            "VALUES('konto','Alt','imap','alt@example.test','alt@example.test')")
+            if version >= 5:
+                db.execute("INSERT INTO sources(document_id,source_type,locator) VALUES(1,'file','alt.bin')")
             db.commit()
 
     def test_empty_database_reaches_current_version(self):
@@ -554,6 +565,11 @@ class PostgresMigrationTests(unittest.TestCase):
              'referenced_table':None,'referenced_columns':[],'delete_action':' '},
             {'table_name':'sources','constraint_type':'f','columns':['document_id'],
              'referenced_table':'documents','referenced_columns':['id'],'delete_action':'c'},
+            *({'table_name':table,'constraint_type':kind,'columns':list(columns),
+               'referenced_table':referenced,'referenced_columns':list(referenced_columns),
+               'delete_action':action}
+              for table,kind,columns,referenced,referenced_columns,action in POSTGRES_LEGACY_CONSTRAINTS
+              if table.startswith('import_')),
         ]
         indexes = [
             {'table_name':'chunks','index_name':'chunks_document_id_idx','index_definition':'CREATE INDEX chunks_document_id_idx ON wissensraum.chunks USING btree (document_id)'},
@@ -577,7 +593,8 @@ class PostgresMigrationTests(unittest.TestCase):
         self.assertEqual(db.history, list(range(1, CURRENT_SCHEMA_VERSION + 1)))
         self.assertTrue(any('CREATE TABLE' in query and 'wissensraum.schema_migrations' in query
                             for query in statements))
-        self.assertFalse(any('GENERATED ALWAYS AS IDENTITY' in query for query in statements))
+        self.assertFalse(any(query.startswith('CREATE TABLE IF NOT EXISTS documents')
+                             for query in statements))
         stamp_4 = next(i for i, (query, parameters) in enumerate(db.calls)
                        if query.startswith('INSERT INTO wissensraum.schema_migrations')
                        and parameters == (4,))

@@ -9,7 +9,7 @@ import uuid
 from contextlib import closing, contextmanager
 from pathlib import Path
 
-CURRENT_SCHEMA_VERSION = 5
+CURRENT_SCHEMA_VERSION = 6
 # Unversioned PostgreSQL schemas predate schema_migrations and match version 4.
 POSTGRES_LEGACY_SCHEMA_VERSION = 4
 # ponytail: source_type is validated in application code (core.SOURCE_TYPES), not by a
@@ -105,6 +105,31 @@ SQLITE_MIGRATIONS = (
                      ORDER BY e.imported_at, e.account_id, e.remote_id LIMIT 1) AS account_id
                   FROM documents d) AS origin""",
     )),
+    (6, (
+        """CREATE TABLE IF NOT EXISTS import_jobs (
+            id INTEGER PRIMARY KEY, kind TEXT NOT NULL, root TEXT NOT NULL DEFAULT '',
+            category TEXT NOT NULL DEFAULT 'Allgemein', status TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE IF NOT EXISTS import_items (
+            id INTEGER PRIMARY KEY,
+            job_id INTEGER NOT NULL REFERENCES import_jobs(id) ON DELETE CASCADE,
+            ordinal INTEGER NOT NULL, path TEXT NOT NULL, locator TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending', reason TEXT NOT NULL DEFAULT '',
+            size INTEGER, sha256 TEXT NOT NULL DEFAULT '',
+            document_id INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(job_id, ordinal)
+        )""",
+        """CREATE TABLE IF NOT EXISTS import_item_errors (
+            id INTEGER PRIMARY KEY,
+            item_id INTEGER NOT NULL REFERENCES import_items(id) ON DELETE CASCADE,
+            attempt INTEGER NOT NULL, reason TEXT NOT NULL, message TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+    )),
 )
 
 
@@ -183,6 +208,32 @@ POSTGRES_MIGRATIONS = (
                      ORDER BY e.imported_at, e.account_id, e.remote_id LIMIT 1) AS account_id
                   FROM documents d) AS origin""",
     )),
+    (6, (
+        """CREATE TABLE IF NOT EXISTS import_jobs (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, kind TEXT NOT NULL,
+            root TEXT NOT NULL DEFAULT '', category TEXT NOT NULL DEFAULT 'Allgemein',
+            status TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE IF NOT EXISTS import_items (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            job_id BIGINT NOT NULL REFERENCES import_jobs(id) ON DELETE CASCADE,
+            ordinal INTEGER NOT NULL, path TEXT NOT NULL, locator TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending', reason TEXT NOT NULL DEFAULT '',
+            size BIGINT, sha256 TEXT NOT NULL DEFAULT '',
+            document_id BIGINT REFERENCES documents(id) ON DELETE SET NULL,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(job_id, ordinal)
+        )""",
+        """CREATE TABLE IF NOT EXISTS import_item_errors (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            item_id BIGINT NOT NULL REFERENCES import_items(id) ON DELETE CASCADE,
+            attempt INTEGER NOT NULL, reason TEXT NOT NULL, message TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+    )),
 )
 
 POSTGRES_APPLICATION_TABLES = {
@@ -192,7 +243,12 @@ POSTGRES_APPLICATION_TABLES = {
 SQLITE_TABLE_VERSIONS = {
     'documents': 1, 'chunks': 1, 'ai_runs': 1, 'settings': 2,
     'email_accounts': 3, 'email_imports': 4, 'sources': 5,
+    'import_jobs': 6, 'import_items': 6, 'import_item_errors': 6,
 }
+
+# Constant SQL list of all application tables, derived from the catalog so that
+# schema checks cannot drift from the migrations.
+_APPLICATION_TABLE_LIST = ','.join(f"'{name}'" for name in sorted(SQLITE_TABLE_VERSIONS))
 
 SQLITE_COLUMNS = {
     'documents': (('id','INTEGER',0,None,1), ('title','TEXT',1,None,0),
@@ -221,12 +277,28 @@ SQLITE_COLUMNS = {
     'sources': (('document_id','INTEGER',0,None,1), ('source_type','TEXT',1,None,0),
                 ('account_id','TEXT',1,"''",0), ('locator','TEXT',1,"''",0),
                 ('recorded_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
+    'import_jobs': (('id','INTEGER',0,None,1), ('kind','TEXT',1,None,0),
+                    ('root','TEXT',1,"''",0), ('category','TEXT',1,"'Allgemein'",0),
+                    ('status','TEXT',1,None,0), ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0),
+                    ('updated_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
+    'import_items': (('id','INTEGER',0,None,1), ('job_id','INTEGER',1,None,0),
+                     ('ordinal','INTEGER',1,None,0), ('path','TEXT',1,None,0),
+                     ('locator','TEXT',1,None,0), ('status','TEXT',1,"'pending'",0),
+                     ('reason','TEXT',1,"''",0), ('size','INTEGER',0,None,0),
+                     ('sha256','TEXT',1,"''",0), ('document_id','INTEGER',0,None,0),
+                     ('attempts','INTEGER',1,'0',0),
+                     ('updated_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
+    'import_item_errors': (('id','INTEGER',0,None,1), ('item_id','INTEGER',1,None,0),
+                           ('attempt','INTEGER',1,None,0), ('reason','TEXT',1,None,0),
+                           ('message','TEXT',1,None,0),
+                           ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
 }
 
 SQLITE_UNIQUE_CONSTRAINTS = {
     'documents': {('sha256',)}, 'chunks': {('document_id','ordinal')},
     'ai_runs': set(), 'settings': set(), 'email_accounts': set(),
     'email_imports': set(), 'sources': set(),
+    'import_jobs': set(), 'import_items': {('job_id','ordinal')}, 'import_item_errors': set(),
 }
 
 SQLITE_FOREIGN_KEYS = {
@@ -238,6 +310,12 @@ SQLITE_FOREIGN_KEYS = {
         ('document_id','documents','id','NO ACTION','CASCADE'),
     },
     'sources': {('document_id','documents','id','NO ACTION','CASCADE')},
+    'import_jobs': set(),
+    'import_items': {
+        ('job_id','import_jobs','id','NO ACTION','CASCADE'),
+        ('document_id','documents','id','NO ACTION','SET NULL'),
+    },
+    'import_item_errors': {('item_id','import_items','id','NO ACTION','CASCADE')},
 }
 
 POSTGRES_LEGACY_COLUMNS = {
@@ -282,6 +360,31 @@ POSTGRES_LEGACY_COLUMNS = {
     ('sources','account_id','text','NO','NO',"''::text",None),
     ('sources','locator','text','NO','NO',"''::text",None),
     ('sources','recorded_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('import_jobs','id','bigint','NO','YES',None,'ALWAYS'),
+    ('import_jobs','kind','text','NO','NO',None,None),
+    ('import_jobs','root','text','NO','NO',"''::text",None),
+    ('import_jobs','category','text','NO','NO',"'Allgemein'::text",None),
+    ('import_jobs','status','text','NO','NO',None,None),
+    ('import_jobs','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('import_jobs','updated_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('import_items','id','bigint','NO','YES',None,'ALWAYS'),
+    ('import_items','job_id','bigint','NO','NO',None,None),
+    ('import_items','ordinal','integer','NO','NO',None,None),
+    ('import_items','path','text','NO','NO',None,None),
+    ('import_items','locator','text','NO','NO',None,None),
+    ('import_items','status','text','NO','NO',"'pending'::text",None),
+    ('import_items','reason','text','NO','NO',"''::text",None),
+    ('import_items','size','bigint','YES','NO',None,None),
+    ('import_items','sha256','text','NO','NO',"''::text",None),
+    ('import_items','document_id','bigint','YES','NO',None,None),
+    ('import_items','attempts','integer','NO','NO','0',None),
+    ('import_items','updated_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('import_item_errors','id','bigint','NO','YES',None,'ALWAYS'),
+    ('import_item_errors','item_id','bigint','NO','NO',None,None),
+    ('import_item_errors','attempt','integer','NO','NO',None,None),
+    ('import_item_errors','reason','text','NO','NO',None,None),
+    ('import_item_errors','message','text','NO','NO',None,None),
+    ('import_item_errors','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
 }
 
 POSTGRES_LEGACY_CONSTRAINTS = {
@@ -298,6 +401,13 @@ POSTGRES_LEGACY_CONSTRAINTS = {
     ('email_imports', 'f', ('document_id',), 'documents', ('id',), 'c'),
     ('sources', 'p', ('document_id',), None, (), ' '),
     ('sources', 'f', ('document_id',), 'documents', ('id',), 'c'),
+    ('import_jobs', 'p', ('id',), None, (), ' '),
+    ('import_items', 'p', ('id',), None, (), ' '),
+    ('import_items', 'u', ('job_id', 'ordinal'), None, (), ' '),
+    ('import_items', 'f', ('job_id',), 'import_jobs', ('id',), 'c'),
+    ('import_items', 'f', ('document_id',), 'documents', ('id',), 'n'),
+    ('import_item_errors', 'p', ('id',), None, (), ' '),
+    ('import_item_errors', 'f', ('item_id',), 'import_items', ('id',), 'c'),
 }
 
 
@@ -580,9 +690,8 @@ def _validate_postgres_schema(db, version, legacy=False):
 +        is_identity, column_default, identity_generation
 +        FROM information_schema.columns
 +        WHERE table_schema='wissensraum'
-+          AND table_name IN ('documents','chunks','ai_runs','settings',
-+                             'email_accounts','email_imports','sources')
-+        ORDER BY table_name, ordinal_position""".replace('\n+', '\n')).fetchall()
++          AND table_name IN (""".replace('\n+', '\n') + _APPLICATION_TABLE_LIST + """)
+        ORDER BY table_name, ordinal_position""").fetchall()
     actual_columns = {
         (_value(row, 'table_name'), _value(row, 'column_name', 1),
          _value(row, 'data_type', 2), _value(row, 'is_nullable', 3),
@@ -607,8 +716,7 @@ def _validate_postgres_schema(db, version, legacy=False):
         JOIN pg_catalog.pg_namespace ns ON ns.oid=rel.relnamespace
         LEFT JOIN pg_catalog.pg_class referenced ON referenced.oid=con.confrelid
         WHERE ns.nspname='wissensraum' AND con.contype IN ('p','u','f','c','x')
-          AND rel.relname IN ('documents','chunks','ai_runs','settings',
-                              'email_accounts','email_imports','sources')""").fetchall()
+          AND rel.relname IN (""" + _APPLICATION_TABLE_LIST + ')').fetchall()
     actual_constraints = {
         (_value(row, 'table_name'), _value(row, 'constraint_type', 1),
          tuple(_value(row, 'columns', 2) or ()), _value(row, 'referenced_table', 3),

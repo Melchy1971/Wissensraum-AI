@@ -41,7 +41,8 @@ def make_v1_sqlite(path):
     store = Store(path)
     store.add('Altbestand', 'Unveränderte Suche in Schema Version eins')
     with store.connect() as connection:
-        connection.execute('DROP TABLE sources')
+        for table in ('import_item_errors', 'import_items', 'import_jobs', 'sources'):
+            connection.execute(f'DROP TABLE {table}')
         connection.execute('DROP TABLE email_imports')
         connection.execute('DROP TABLE email_accounts')
         connection.execute('DROP TABLE settings')
@@ -444,13 +445,15 @@ class DiagnosticTests(unittest.TestCase):
     def test_legacy_sqlite_versions_warn_without_mutation_then_migrate(self):
         from core import Store
         from database import DatabaseSettings
-        for version in (1, 2, 3, 4):
+        for version in (1, 2, 3, 4, 5):
             with self.subTest(version=version), tempfile.TemporaryDirectory() as folder:
                 path = Path(folder) / 'wissen.db'
                 store = Store(path)
                 store.add('Altbestand', f'Migration Version {version}')
                 with store.connect() as connection:
-                    connection.execute('DROP TABLE sources')
+                    for table in ('import_item_errors', 'import_items', 'import_jobs'):
+                        connection.execute(f'DROP TABLE {table}')
+                    if version < 5: connection.execute('DROP TABLE sources')
                     if version < 4: connection.execute('DROP TABLE email_imports')
                     if version < 3: connection.execute('DROP TABLE email_accounts')
                     if version < 2: connection.execute('DROP TABLE settings')

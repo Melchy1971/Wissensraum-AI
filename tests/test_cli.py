@@ -233,6 +233,30 @@ class CliRestoreTests(unittest.TestCase):
             self.assertIn('[WARN] ai_provider', text)
             self.assertIn('[PASS] mail_accounts: Kein E-Mail-Konto eingerichtet.', text)
 
+    def test_import_folder_jobs_and_report_commands(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            source = base / 'quelle'
+            source.mkdir()
+            (source / 'a.txt').write_text('CLI Auftrag', encoding='utf-8')
+            (source / 'b.exe').write_bytes(b'MZ')
+            vault = Mock()
+            vault.get.return_value = None
+            database = base / 'wissen.db'
+            def run(*argv):
+                output = io.StringIO()
+                with patch.object(cli, 'BASE', base), patch.object(cli, 'SystemVault', return_value=vault), \
+                        redirect_stdout(output):
+                    self.assertEqual(cli.main(['--db', str(database), *argv]), 0)
+                return json.loads(output.getvalue())
+            summary = run('import-folder', str(source))
+            self.assertEqual((summary['imported'], summary['quarantined'], summary['status']), (1, 1, 'completed'))
+            self.assertEqual([job['job_id'] for job in run('jobs')], [summary['job_id']])
+            self.assertFalse(run('job-resume', str(summary['job_id']))['resumable'])
+            report = base / 'bericht.csv'
+            run('job-report', str(summary['job_id']), str(report))
+            self.assertIn('Dateityp nicht unterstützt', report.read_text(encoding='utf-8-sig'))
+
     def test_restore_rejects_configured_postgresql(self):
         with tempfile.TemporaryDirectory() as folder:
             base = Path(folder)

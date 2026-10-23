@@ -261,6 +261,61 @@ class InterfaceTests(unittest.TestCase):
         window.save_design_theme()
         self.assertEqual({canvas.cget('background') for canvas in window.settings_canvases},{'#121212'})
 
+    def wait_until_idle(self,window,timeout=30):
+        import time
+        deadline=time.monotonic()+timeout
+        window.update()
+        while window.busy and time.monotonic()<deadline:
+            window.update(); time.sleep(0.02)
+        window.update()
+        self.assertFalse(window.busy)
+
+    def test_folder_import_runs_as_cancellable_job_and_reports_result(self):
+        window=self.window
+        folder=self.base/'quelle'; (folder/'unter').mkdir(parents=True)
+        (folder/'a.txt').write_text('Auftrag eins',encoding='utf-8')
+        (folder/'unter'/'b.md').write_text('Auftrag zwei',encoding='utf-8')
+        (folder/'c.exe').write_bytes(b'MZ')
+        self.assertEqual(str(window.import_cancel_button.cget('state')),'disabled')
+        with patch('app.filedialog.askdirectory',return_value=str(folder)), \
+             patch('app.messagebox.showinfo') as info:
+            window.import_local_folder()
+            self.assertEqual(str(window.import_cancel_button.cget('state')),'normal')
+            self.wait_until_idle(window)
+        self.assertIn('2 importiert',info.call_args.args[1])
+        self.assertIn('1 in Quarantäne',window.import_message.get())
+        self.assertEqual(str(window.import_cancel_button.cget('state')),'disabled')
+        self.assertIsNone(window.import_cancel)
+        report=self.base/'bericht.csv'
+        with patch('app.filedialog.asksaveasfilename',return_value=str(report)):
+            window.save_import_report()
+            self.wait_until_idle(window)
+        self.assertIn('Dateityp nicht unterstützt',report.read_text(encoding='utf-8-sig'))
+        with patch('app.messagebox.showinfo') as info:
+            window.resume_import_job()
+        self.assertIn('keinen offenen Importauftrag',info.call_args.args[1])
+
+    def test_cancelled_import_job_can_be_resumed_from_the_interface(self):
+        window=self.window
+        folder=self.base/'quelle'; folder.mkdir()
+        for index in range(5):
+            (folder/f'{index}.txt').write_text(f'Datei {index}',encoding='utf-8')
+        real_run=window.import_jobs.run
+        def cancel_early(job_id,cancel=None,progress=None):
+            cancel.set()  # as if "Import abbrechen" was pressed before the first file
+            return real_run(job_id,cancel,progress)
+        with patch('app.filedialog.askdirectory',return_value=str(folder)), \
+             patch('app.messagebox.showinfo') as info, \
+             patch.object(window.import_jobs,'run',side_effect=cancel_early):
+            window.import_local_folder()
+            self.wait_until_idle(window)
+        self.assertIn('abgebrochen',info.call_args.args[1])
+        self.assertIn('Auftrag fortsetzen',info.call_args.args[1])
+        with patch('app.messagebox.showinfo') as info:
+            window.resume_import_job()
+            self.wait_until_idle(window)
+        self.assertIn('5 importiert',info.call_args.args[1])
+
     def test_damaged_logo_names_the_file_not_the_library(self):
         window=self.window
         window.design_settings.directory.mkdir(parents=True,exist_ok=True)

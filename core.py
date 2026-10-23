@@ -79,6 +79,20 @@ class Store:
             'document_id':('INTEGER',0,None,1), 'source_type':('TEXT',1,None,0),
             'account_id':('TEXT',1,"''",0), 'locator':('TEXT',1,"''",0),
             'recorded_at':('TEXT',1,'current_timestamp',0)},
+        'import_jobs': {
+            'id':('INTEGER',0,None,1), 'kind':('TEXT',1,None,0), 'root':('TEXT',1,"''",0),
+            'category':('TEXT',1,"'allgemein'",0), 'status':('TEXT',1,None,0),
+            'created_at':('TEXT',1,'current_timestamp',0), 'updated_at':('TEXT',1,'current_timestamp',0)},
+        'import_items': {
+            'id':('INTEGER',0,None,1), 'job_id':('INTEGER',1,None,0), 'ordinal':('INTEGER',1,None,0),
+            'path':('TEXT',1,None,0), 'locator':('TEXT',1,None,0), 'status':('TEXT',1,"'pending'",0),
+            'reason':('TEXT',1,"''",0), 'size':('INTEGER',0,None,0), 'sha256':('TEXT',1,"''",0),
+            'document_id':('INTEGER',0,None,0), 'attempts':('INTEGER',1,'0',0),
+            'updated_at':('TEXT',1,'current_timestamp',0)},
+        'import_item_errors': {
+            'id':('INTEGER',0,None,1), 'item_id':('INTEGER',1,None,0), 'attempt':('INTEGER',1,None,0),
+            'reason':('TEXT',1,None,0), 'message':('TEXT',1,None,0),
+            'created_at':('TEXT',1,'current_timestamp',0)},
     }
     schema_contract = {table:frozenset(columns) for table,columns in column_contract.items()}
     version_tables = {
@@ -87,19 +101,26 @@ class Store:
         3: frozenset({'documents','chunks','search_index','ai_runs','settings','email_accounts'}),
         4: frozenset({'documents','chunks','search_index','ai_runs','settings','email_accounts',
                       'email_imports'}),
+        5: frozenset({'documents','chunks','search_index','ai_runs','settings','email_accounts',
+                      'email_imports','sources'}),
         CURRENT_SCHEMA_VERSION: frozenset(schema_contract),
     }
     primary_keys = {
         'documents': ('id',), 'chunks': ('id',), 'ai_runs': ('id',),
         'settings': ('name',), 'email_accounts': ('id',),
         'email_imports': ('account_id','remote_id'), 'sources': ('document_id',),
+        'import_jobs': ('id',), 'import_items': ('id',), 'import_item_errors': ('id',),
     }
-    unique_keys = {'documents': {('sha256',)}, 'chunks': {('document_id','ordinal')}}
+    unique_keys = {'documents': {('sha256',)}, 'chunks': {('document_id','ordinal')},
+                   'import_items': {('job_id','ordinal')}}
     foreign_keys = {
         'chunks': {('document_id','documents','id','CASCADE')},
         'email_imports': {('account_id','email_accounts','id','CASCADE'),
                           ('document_id','documents','id','CASCADE')},
         'sources': {('document_id','documents','id','CASCADE')},
+        'import_items': {('job_id','import_jobs','id','CASCADE'),
+                         ('document_id','documents','id','SET NULL')},
+        'import_item_errors': {('item_id','import_items','id','CASCADE')},
     }
     sql_fragments = {
         ('view','chunks_search'): ('select c.id, d.title, d.category, c.content','join documents d'),
@@ -149,6 +170,8 @@ class Store:
                 if actual != expected:
                     raise ValueError('SQLite-Anwendungsschema ist unvollständig.')
             for table,expected in self.unique_keys.items():
+                if table not in present_tables:
+                    continue
                 actual=set()
                 for index in connection.execute(f'PRAGMA index_list("{table}")'):
                     if index[2]:
@@ -354,6 +377,25 @@ class PostgresStore:
             'document_id':('bigint','int8','NO',None,'NO'), 'source_type':('text','text','NO',None,'NO'),
             'account_id':('text','text','NO',"''",'NO'), 'locator':('text','text','NO',"''",'NO'),
             'recorded_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO')},
+        'import_jobs': {
+            'id':('bigint','int8','NO',None,'YES'), 'kind':('text','text','NO',None,'NO'),
+            'root':('text','text','NO',"''",'NO'), 'category':('text','text','NO',"'allgemein'",'NO'),
+            'status':('text','text','NO',None,'NO'),
+            'created_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO'),
+            'updated_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO')},
+        'import_items': {
+            'id':('bigint','int8','NO',None,'YES'), 'job_id':('bigint','int8','NO',None,'NO'),
+            'ordinal':('integer','int4','NO',None,'NO'), 'path':('text','text','NO',None,'NO'),
+            'locator':('text','text','NO',None,'NO'), 'status':('text','text','NO',"'pending'",'NO'),
+            'reason':('text','text','NO',"''",'NO'), 'size':('bigint','int8','YES',None,'NO'),
+            'sha256':('text','text','NO',"''",'NO'), 'document_id':('bigint','int8','YES',None,'NO'),
+            'attempts':('integer','int4','NO','0','NO'),
+            'updated_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO')},
+        'import_item_errors': {
+            'id':('bigint','int8','NO',None,'YES'), 'item_id':('bigint','int8','NO',None,'NO'),
+            'attempt':('integer','int4','NO',None,'NO'), 'reason':('text','text','NO',None,'NO'),
+            'message':('text','text','NO',None,'NO'),
+            'created_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO')},
     }
     schema_contract = {table:frozenset(columns) for table,columns in column_contract.items()}
     required_constraints = {
@@ -370,6 +412,13 @@ class PostgresStore:
         'email_imports_document_id_fkey': ('email_imports','f',('document_id',),'documents',('id',),'c'),
         'sources_pkey': ('sources','p',('document_id',),None,(),None),
         'sources_document_id_fkey': ('sources','f',('document_id',),'documents',('id',),'c'),
+        'import_jobs_pkey': ('import_jobs','p',('id',),None,(),None),
+        'import_items_pkey': ('import_items','p',('id',),None,(),None),
+        'import_items_job_id_ordinal_key': ('import_items','u',('job_id','ordinal'),None,(),None),
+        'import_items_job_id_fkey': ('import_items','f',('job_id',),'import_jobs',('id',),'c'),
+        'import_items_document_id_fkey': ('import_items','f',('document_id',),'documents',('id',),'n'),
+        'import_item_errors_pkey': ('import_item_errors','p',('id',),None,(),None),
+        'import_item_errors_item_id_fkey': ('import_item_errors','f',('item_id',),'import_items',('id',),'c'),
     }
     required_indexes = {
         'chunks_document_id_idx': ('chunks','(document_id)'),
@@ -609,38 +658,110 @@ class PostgresStore:
         raise ValueError('PostgreSQL-Sicherungen werden auf dem VPS mit pg_dump erstellt; die lokale SQLite-Sicherung ist hierfür nicht anwendbar.')
 
 
+MAX_DOCUMENT_BYTES = 20*1024*1024
+MAX_DOCUMENT_CHARACTERS = 2_000_000
+MAX_PDF_PAGES = 2000
+MAX_DOCX_ENTRIES = 10_000
+MAX_DOCX_UNCOMPRESSED_BYTES = 200*1024*1024
+MAX_DOCX_COMPRESSION_RATIO = 100
+# Content problems that re-trying cannot fix; import jobs quarantine these.
+QUARANTINE_REASONS = {
+    'unsupported': 'Dateityp nicht unterstützt',
+    'too_large': 'Datei oder Text zu groß',
+    'signature': 'Inhalt passt nicht zur Dateiendung',
+    'limits': 'Entpack- oder Seitengrenze überschritten',
+    'encrypted': 'Verschlüsselt',
+    'damaged': 'Beschädigt oder nicht lesbar',
+    'no_text': 'Kein lesbarer Text',
+    'unreadable': 'Ordner oder Datei nicht lesbar',
+}
+
+
+class ImportRejected(ValueError):
+    """A file whose content cannot be imported; `reason` is a QUARANTINE_REASONS key."""
+
+    def __init__(self, reason, message):
+        super().__init__(message)
+        self.reason = reason
+
+
+def _docx_within_limits(data):
+    import zipfile
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            entries = archive.infolist()
+    except zipfile.BadZipFile:
+        raise ImportRejected('damaged', 'DOCX-Datei ist beschädigt.') from None
+    uncompressed = sum(entry.file_size for entry in entries)
+    compressed = max(1, sum(entry.compress_size for entry in entries))
+    if (len(entries) > MAX_DOCX_ENTRIES or uncompressed > MAX_DOCX_UNCOMPRESSED_BYTES
+            or uncompressed / compressed > MAX_DOCX_COMPRESSION_RATIO):
+        raise ImportRejected('limits', 'DOCX-Datei überschreitet die Entpackgrenzen.')
+
+
 def import_document(path):
     path = Path(path)
-    if path.stat().st_size > 20*1024*1024:
-        raise ValueError('Datei überschreitet das Limit von 20 MB.')
-    data = path.read_bytes()
+    if path.stat().st_size > MAX_DOCUMENT_BYTES:
+        raise ImportRejected('too_large', 'Datei überschreitet das Limit von 20 MB.')
     suffix = path.suffix.lower()
+    if suffix not in SUPPORTED_DOCUMENT_SUFFIXES:
+        raise ImportRejected('unsupported', 'Unterstützt werden TXT, Markdown, PDF und DOCX.')
+    data = path.read_bytes()
     if suffix in ('.txt', '.md'):
-        try:
-            text = data.decode('utf-8-sig')
-        except UnicodeDecodeError:
-            text = data.decode('cp1252')
+        if data.startswith((b'\xff\xfe', b'\xfe\xff')):
+            text = data.decode('utf-16')
+        elif b'\x00' in data:
+            raise ImportRejected('signature', 'Textdatei enthält Binärdaten.')
+        else:
+            try:
+                text = data.decode('utf-8-sig')
+            except UnicodeDecodeError:
+                try:
+                    text = data.decode('cp1252')
+                except UnicodeDecodeError:
+                    raise ImportRejected('damaged', 'Textkodierung ist nicht lesbar.') from None
     elif suffix == '.pdf':
+        if b'%PDF-' not in data[:1024]:
+            raise ImportRejected('signature', 'Datei ist kein PDF.')
         from pypdf import PdfReader
-        reader = PdfReader(io.BytesIO(data))
-        if reader.is_encrypted:
-            raise ValueError('Verschlüsselte PDFs werden nicht unterstützt.')
-        text = '\n\n'.join(f'[Seite {i+1}]\n{p.extract_text() or ""}' for i,p in enumerate(reader.pages))
+        try:
+            reader = PdfReader(io.BytesIO(data))
+            if reader.is_encrypted:
+                raise ImportRejected('encrypted', 'Verschlüsselte PDFs werden nicht unterstützt.')
+            if len(reader.pages) > MAX_PDF_PAGES:
+                raise ImportRejected('limits', f'PDF hat mehr als {MAX_PDF_PAGES} Seiten.')
+            text = '\n\n'.join(f'[Seite {i+1}]\n{p.extract_text() or ""}' for i, p in enumerate(reader.pages))
+        except ImportRejected:
+            raise
+        except Exception:
+            raise ImportRejected('damaged', 'PDF ist beschädigt oder nicht lesbar.') from None
         if not re.sub(r'\[Seite \d+\]', '', text).strip():
-            raise ValueError('PDF enthält keinen lesbaren Text. OCR ist in Version 1 nicht enthalten.')
-    elif suffix == '.docx':
+            raise ImportRejected('no_text', 'PDF enthält keinen lesbaren Text. OCR ist in Version 1 nicht enthalten.')
+    else:  # .docx
+        if not data.startswith(b'PK\x03\x04'):
+            raise ImportRejected('signature', 'Datei ist kein DOCX-Dokument.')
+        _docx_within_limits(data)
         from docx import Document
-        doc = Document(io.BytesIO(data))
-        text = '\n'.join(p.text for p in doc.paragraphs)
-        for table in doc.tables:
-            text += '\n'+'\n'.join(' | '.join(c.text for c in r.cells) for r in table.rows)
-    else:
-        raise ValueError('Unterstützt werden TXT, Markdown, PDF und DOCX.')
+        try:
+            doc = Document(io.BytesIO(data))
+            text = '\n'.join(p.text for p in doc.paragraphs)
+            for table in doc.tables:
+                text += '\n'+'\n'.join(' | '.join(c.text for c in r.cells) for r in table.rows)
+        except Exception:
+            raise ImportRejected('damaged', 'DOCX-Datei ist beschädigt oder nicht lesbar.') from None
+    if not text.strip():
+        raise ImportRejected('no_text', 'Datei enthält keinen lesbaren Text.')
+    if len(text.strip()) > MAX_DOCUMENT_CHARACTERS:
+        raise ImportRejected('too_large', 'Maximal 2 Millionen Textzeichen pro Dokument.')
     return path.stem, text, path.name, data
 
 
-def discover_documents(folder):
-    """Find supported documents recursively without leaving the selected tree via links."""
+def discover_documents(folder, include_unsupported=False):
+    """Find supported documents recursively without leaving the selected tree via links.
+
+    With include_unsupported, regular files of other types are returned as documents too,
+    so that import jobs can quarantine them individually instead of only counting them.
+    """
     root = Path(folder)
     if not root.is_dir():
         raise ValueError('Der ausgewählte Ordner ist nicht verfügbar.')
@@ -660,7 +781,8 @@ def discover_documents(folder):
         directories[:] = kept_directories
         for name in sorted(filenames, key=str.casefold):
             path = current_path/name
-            if path.is_symlink() or not path.is_file() or path.suffix.lower() not in SUPPORTED_DOCUMENT_SUFFIXES:
+            if path.is_symlink() or not path.is_file() or (
+                    not include_unsupported and path.suffix.lower() not in SUPPORTED_DOCUMENT_SUFFIXES):
                 skipped += 1
                 continue
             documents.append((path, path.relative_to(root).as_posix()))

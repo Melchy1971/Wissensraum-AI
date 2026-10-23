@@ -10,6 +10,7 @@ from database import DatabaseSettings, resolve_sqlite_path
 from configuration_authority import ConfigurationAuthority, identity_for_profile
 from diagnostics import DiagnosticResult, format_diagnostics, health_overview, run_diagnostics
 from importer import MailAccounts
+from import_jobs import ImportJobs
 from configuration import (APPLY_ERROR, EXPORT_ERROR, ConfigurationTransfer,
                            ConfigurationTransferError, RECOVERY_ERROR,
                            pending_configuration_recovery,
@@ -48,6 +49,15 @@ def main(argv=None):
     imp = commands.add_parser('import')
     imp.add_argument('path',type=Path)
     imp.add_argument('--category',default='Allgemein')
+    folder_import = commands.add_parser('import-folder',help='Ordner inkl. Unterordner als Importauftrag einlesen')
+    folder_import.add_argument('folder',type=Path)
+    folder_import.add_argument('--category',default='Allgemein')
+    commands.add_parser('jobs',help='Letzte Importaufträge mit Zählern anzeigen')
+    job_resume = commands.add_parser('job-resume',help='Offenen oder abgebrochenen Importauftrag fortsetzen')
+    job_resume.add_argument('job_id',type=int)
+    job_report = commands.add_parser('job-report',help='Importbericht als CSV schreiben')
+    job_report.add_argument('job_id',type=int)
+    job_report.add_argument('target',type=Path)
     for name in ('search','ask'):
         sub = commands.add_parser(name)
         sub.add_argument('query')
@@ -146,6 +156,15 @@ def main(argv=None):
                 title,text,name,data = import_document(args.path)
                 doc_id,created = store.add(title,text,args.category,name,data)
                 result = {'id':doc_id,'created':created}
+            elif args.command == 'import-folder':
+                jobs = ImportJobs(store)
+                result = jobs.run(jobs.create_for_folder(args.folder,args.category))
+            elif args.command == 'jobs':
+                result = ImportJobs(store).jobs()
+            elif args.command == 'job-resume':
+                result = ImportJobs(store).run(args.job_id)
+            elif args.command == 'job-report':
+                result = {'bericht':str(ImportJobs(store).write_report(args.job_id,args.target))}
             elif args.command == 'status':
                 results = health_overview(store,Settings(store,BASE,vault),
                                           MailAccounts(store,vault,BASE),PROVIDERS)

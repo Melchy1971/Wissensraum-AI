@@ -59,6 +59,7 @@ class FakeResetConnection:
             self.schema=None
         if 'FROM information_schema.tables' in query:
             tables=['ai_runs','chunks','documents','email_accounts','email_imports',
+                    'import_item_errors','import_items','import_jobs',
                     'schema_migrations','settings','sources'] if self.schema == 'new' else []
             rows=[(name,) for name in tables] if self.tuple_rows else [{'table_name':name} for name in tables]
             return type('Result',(),{'fetchall':lambda _:rows})()
@@ -474,7 +475,8 @@ class DatabaseSettingsTests(unittest.TestCase):
         self.assertLess(next(i for i,q in enumerate(queries) if q.startswith('SET LOCAL lock_timeout')),
                         next(i for i,q in enumerate(queries) if 'pg_advisory_xact_lock' in q))
         self.assertEqual(result['tables'],['ai_runs','chunks','documents','email_accounts',
-                                           'email_imports','schema_migrations','settings','sources'])
+                                           'email_imports','import_item_errors','import_items',
+                                           'import_jobs','schema_migrations','settings','sources'])
         self.assertTrue(connection.closed)
 
     def test_failed_reset_rolls_back_and_preserves_previous_schema(self):

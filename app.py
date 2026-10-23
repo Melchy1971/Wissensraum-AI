@@ -11,7 +11,7 @@ try:
     from tkinter.scrolledtext import ScrolledText
 except (ImportError, OSError):
     tk=ttk=filedialog=messagebox=simpledialog=ScrolledText=None
-from core import discover_documents, import_documents
+from import_jobs import ImportJobs
 from settings import Settings, SystemVault, PROVIDERS
 from database import DatabaseSettings, resolve_sqlite_path
 from diagnostics import DiagnosticResult, format_diagnostics, health_overview, run_diagnostics
@@ -155,6 +155,9 @@ class App(tk.Tk if tk is not None else object):
         self.theme_mode = self.design_settings.theme()
         self.mail_accounts = MailAccounts(self.store, self.settings.vault, BASE)
         self.importer = Importer(self.store, self.mail_accounts)
+        self.import_jobs = ImportJobs(self.store)
+        self.import_cancel = None
+        self.import_progress = ''
         self.docs = {}
         self.style = ttk.Style(self)
         self.style.theme_use('clam')
@@ -427,12 +430,17 @@ class App(tk.Tk if tk is not None else object):
         threading.Thread(target=worker,daemon=True).start()
 
     def poll(self):
+        # Worker threads only set plain attributes; Tk widgets are updated here.
+        if self.import_progress and self.import_message.get()!=self.import_progress:
+            self.import_message.set(self.import_progress)
         try:
             done,result,error = self.queue.get_nowait()
             self.busy = False
             for button in self.buttons:
                 button.configure(state='normal')
             if error:
+                if self.import_cancel is not None:
+                    self.end_import_job()
                 self.status.set('Aktion fehlgeschlagen')
                 messagebox.showerror('Aktion fehlgeschlagen',error,parent=self)
             else:
@@ -446,31 +454,69 @@ class App(tk.Tk if tk is not None else object):
         paths = filedialog.askopenfilenames(filetypes=[('Dokumente','*.txt *.md *.pdf *.docx')])
         if not paths:
             return
-        documents=[(Path(path),Path(path).name) for path in paths]
-        self.work(lambda:import_documents(self.store,documents),self.finish_local_import)
+        self.run_import_job(lambda:self.import_jobs.create_for_files(paths))
 
-    def import_folder(self):
+    def import_local_folder(self):
         folder=filedialog.askdirectory(title='Ordner mit Dokumenten auswählen')
         if not folder:
             return
+        self.run_import_job(lambda:self.import_jobs.create_for_folder(folder))
+
+    def resume_import_job(self):
+        open_jobs=[job for job in self.import_jobs.jobs() if job['resumable']]
+        if not open_jobs:
+            messagebox.showinfo('Importauftrag','Es gibt keinen offenen Importauftrag.',parent=self)
+            return
+        job_id=open_jobs[0]['job_id']
+        self.run_import_job(lambda:job_id)
+
+    def run_import_job(self,create_job):
+        """Run an import job in the background; progress is mirrored by poll()."""
+        cancel=threading.Event()
+        self.import_cancel=cancel
+        self.import_cancel_button.configure(state='normal')
+        def progress(done,total,locator):
+            self.import_progress=f'Import läuft: {done} von {total} · {locator}'
         def run():
-            documents,skipped,scan_errors=discover_documents(folder)
-            return import_documents(self.store,documents,skipped,scan_errors)
-        self.work(run,self.finish_local_import)
+            return self.import_jobs.run(create_job(),cancel,progress)
+        self.work(run,self.finish_import_job)
+
+    def cancel_import_job(self):
+        if self.import_cancel is not None:
+            self.import_cancel.set()
+            self.import_progress='Import wird nach der aktuellen Datei angehalten …'
+
+    def end_import_job(self):
+        self.import_cancel=None
+        self.import_progress=''
+        self.import_cancel_button.configure(state='disabled')
 
     @staticmethod
-    def local_report_text(report):
-        return (f'{report["found"]} Dateien gefunden · {report["supported"]} unterstützt · '
-                f'{report["imported"]} importiert · {report["duplicates"]} bereits vorhanden · '
-                f'{report["skipped"]} übersprungen · {report["errors"]} Fehler')
+    def local_report_text(summary):
+        state={'completed':'abgeschlossen','cancelled':'abgebrochen'}.get(summary['status'],summary['status'])
+        text=(f'Auftrag {summary["job_id"]} {state}: {summary["total"]} Dateien · {summary["imported"]} importiert · '
+              f'{summary["duplicate"]} bereits vorhanden · {summary["quarantined"]} in Quarantäne · '
+              f'{summary["failed"]} fehlgeschlagen')
+        return text+(' · mit „Auftrag fortsetzen“ weiterführen' if summary['resumable'] else '')
 
-    def finish_local_import(self,report):
+    def finish_import_job(self,summary):
+        self.end_import_job()
         self.refresh()
-        summary=self.local_report_text(report)
-        self.import_message.set('Lokale Dokumente: '+summary)
-        details=report['details'][:20]
-        suffix='' if len(report['details']) <= 20 else f'\n… {len(report["details"])-20} weitere Fehler'
-        messagebox.showinfo('Importergebnis',summary+('\n\n'+'\n'.join(details)+suffix if details else ''),parent=self)
+        text=self.local_report_text(summary)
+        self.import_message.set('Lokale Dokumente: '+text)
+        messagebox.showinfo('Importergebnis',text+'\n\nDetails je Datei: „Bericht speichern“.',parent=self)
+
+    def save_import_report(self):
+        jobs=self.import_jobs.jobs(1)
+        if not jobs:
+            messagebox.showinfo('Importbericht','Es gibt noch keinen Importauftrag.',parent=self)
+            return
+        job_id=jobs[0]['job_id']
+        target=filedialog.asksaveasfilename(defaultextension='.csv',initialfile=f'importbericht-{job_id}.csv',
+                                            filetypes=[('CSV-Datei','*.csv')])
+        if target:
+            self.work(lambda:self.import_jobs.write_report(job_id,target),
+                      lambda path:self.import_message.set(f'Importbericht gespeichert: {path}'))
 
     def note(self):
         window = tk.Toplevel(self)
@@ -547,13 +593,21 @@ class App(tk.Tk if tk is not None else object):
         ttk.Label(frame,text='Importierte Inhalte werden als durchsuchbare Dokumente in der aktiven SQL-Datenbank gespeichert.',wraplength=900).pack(anchor='w',pady=(5,14))
         local=ttk.LabelFrame(frame,text='Lokale Dokumente',padding=14)
         local.pack(fill='x',pady=(0,10))
-        ttk.Label(local,text='TXT, Markdown, PDF mit Text und DOCX · maximal 20 MB je Datei').pack(side='left')
+        ttk.Label(local,text='TXT, Markdown, PDF mit Text und DOCX · maximal 20 MB je Datei · '
+                  'Importe laufen als Auftrag und lassen sich abbrechen und fortsetzen').pack(anchor='w')
         local_buttons=ttk.Frame(local)
-        local_buttons.pack(side='right')
+        local_buttons.pack(anchor='w',pady=(8,0))
         b=ttk.Button(local_buttons,text='Dokumente auswählen',command=self.import_files)
         b.pack(side='left',padx=(0,8)); self.buttons.append(b)
-        self.folder_import_button=ttk.Button(local_buttons,text='Ordner inkl. Unterordner',command=self.import_folder,style='Accent.TButton')
-        self.folder_import_button.pack(side='left'); self.buttons.append(self.folder_import_button)
+        self.folder_import_button=ttk.Button(local_buttons,text='Ordner inkl. Unterordner',command=self.import_local_folder,style='Accent.TButton')
+        self.folder_import_button.pack(side='left',padx=(0,8)); self.buttons.append(self.folder_import_button)
+        b=ttk.Button(local_buttons,text='Auftrag fortsetzen',command=self.resume_import_job)
+        b.pack(side='left',padx=(0,8)); self.buttons.append(b)
+        b=ttk.Button(local_buttons,text='Bericht speichern',command=self.save_import_report)
+        b.pack(side='left',padx=(0,8)); self.buttons.append(b)
+        # Not in self.buttons: it must stay usable while the import job runs.
+        self.import_cancel_button=ttk.Button(local_buttons,text='Import abbrechen',command=self.cancel_import_job,state='disabled')
+        self.import_cancel_button.pack(side='left')
         pst=ttk.LabelFrame(frame,text='Outlook-Archiv',padding=14)
         pst.pack(fill='x',pady=(0,10))
         ttk.Label(pst,text='PST-Datei lokal auslesen; Outlook-Installation ist nicht erforderlich.').pack(side='left')
