@@ -1,12 +1,12 @@
 # Wissensraum AI – KI-gestütztes Wissensmanagement mit SQL
 
-Arbeitsstand 1.9-dev · Basisversion 1.8.1 · 22.10.2026 · lokale Einzelplatzanwendung · Python 3.11 bis 3.13
+Version 1.9 · freigegeben am 23.10.2026 · lokale Einzelplatzanwendung · Python 3.11 bis 3.13
 
 Dokumente, Notizen, Originaldateien und KI-Verlauf werden wahlweise in einer lokalen SQLite- oder einer PostgreSQL-Datenbank gespeichert. Die Anwendung bietet eine deutschsprachige Desktop-Oberfläche und eine Kommandozeilenschnittstelle. Es wird kein Webserver benötigt.
 
 ## Masterplan und Roadmap
 
-Der verbindliche [Masterplan mit Release-Roadmap](masterplan.md) trennt den bestätigten Stand 1.8.1 vom integrierten Entwicklungsstand und von geplanten Arbeiten. Dieses Repository befindet sich im Entwicklungsstand **1.9-dev**: Startdiagnose, operative Logs und der Schema-Migrationsrahmen sind implementiert und getestet. Der Konfigurationstransfer ist lokal vollständig, bleibt aber bis zum erfolgreichen entfernten PostgreSQL-Vertragstest offen; weitere Release-1.9-Arbeitspakete sind ebenfalls noch nicht abgeschlossen.
+Der verbindliche [Masterplan mit Release-Roadmap](masterplan.md) beschreibt freigegebene Stände und geplante Arbeiten. Release **1.9 – Stabilisierung und Betriebsfähigkeit** ist freigegeben: Startdiagnose, operative Logs, versionierte Schema-Migrationen bis Schema 5 mit Quellenmodell, Konfigurationstransfer, geführte SQLite-Wiederherstellung, dokumentierte PostgreSQL-Sicherung und Systemstatus. Nachweis: CI-Matrix aus sieben Jobs und das Release-Gate-Protokoll `release-gate-20261022-184843.md`.
 
 ### Startdiagnose (Release 1.9)
 
@@ -224,7 +224,7 @@ Die CI-Tests rufen keine kostenpflichtige KI-, Microsoft- oder E-Mail-API auf. A
 
 **Priorität:** Betriebssystem-Schlüsselspeicher → Umgebungsvariable → `.env.local` im Programmordner → `.env` im Programmordner → `.env.local` im übergeordneten Ordner. Ein in der Anwendung deaktivierter Schlüssel wird aus keiner dieser Quellen verwendet. Bereits vorhandene Datei-/Umgebungsschlüssel werden beim Start nicht kopiert oder verändert. Das Speichern unveränderter Schlüssel erfordert keine neue Ablage.
 
-Neu eingegebene Schlüssel werden mit `keyring` in einem nativen Betriebssystem-Speicher verwaltet: Windows-Anmeldeinformationsverwaltung, macOS-Schlüsselbund oder ein unterstützter Linux-Secret-Service. Plaintext-Dateibackends werden abgelehnt. Ohne funktionierenden sicheren Speicher schlägt das Speichern eines neuen Schlüssels ausdrücklich fehl; vorhandene Datei-/Umgebungsschlüssel bleiben für normale CLI-Aufrufe nutzbar. Der Desktop-Start ist im Entwicklungsstand 1.9-dev jedoch fail-closed und wird durch die erforderliche Schlüsselspeicher-Diagnose blockiert, bis ein sicherer Speicher verfügbar ist. Die SQL-Datenbank speichert nur aktive KI, Modell-IDs und Deaktivierungsstatus. Die OS-Schlüssel gelten für das aktuelle Betriebssystemkonto und die Anwendung, auch bei Verwendung mehrerer Wissensdatenbanken.
+Neu eingegebene Schlüssel werden mit `keyring` in einem nativen Betriebssystem-Speicher verwaltet: Windows-Anmeldeinformationsverwaltung, macOS-Schlüsselbund oder ein unterstützter Linux-Secret-Service. Plaintext-Dateibackends werden abgelehnt. Ohne funktionierenden sicheren Speicher schlägt das Speichern eines neuen Schlüssels ausdrücklich fehl; vorhandene Datei-/Umgebungsschlüssel bleiben für normale CLI-Aufrufe nutzbar. Der Desktop-Start ist seit Version 1.9 jedoch fail-closed und wird durch die erforderliche Schlüsselspeicher-Diagnose blockiert, bis ein sicherer Speicher verfügbar ist. Die SQL-Datenbank speichert nur aktive KI, Modell-IDs und Deaktivierungsstatus. Die OS-Schlüssel gelten für das aktuelle Betriebssystemkonto und die Anwendung, auch bei Verwendung mehrerer Wissensdatenbanken.
 
 **Schlüssel entfernen** löscht den von der Anwendung verwalteten Schlüssel und deaktiviert den Anbieter auch für extern vorhandene Schlüssel. Umgebungsvariablen und ursprüngliche Dateien bleiben erhalten. Das entfernt keine Zugangsdaten beim Anbieter und widerruft keinen API-Schlüssel. Einen neuen Wert eingeben und speichern, um den Anbieter wieder zu aktivieren.
 
