@@ -225,16 +225,41 @@ class InterfaceTests(unittest.TestCase):
         self.assertLessEqual({'Sicherung wiederherstellen','Systemstatus prüfen'},
                              set(texts(window.database_settings_frame)))
 
-    def test_database_settings_fit_at_default_window_size(self):
+    def test_settings_pages_scroll_to_their_last_widget_at_minimum_size(self):
         window=self.window
-        window.geometry('1180x780')
+        width,height=window.minsize()
+        window.geometry(f'{width}x{height}')
         window.open_settings()
-        window.settings_sections.select(window.database_settings_frame)
         window.database_message.set('Kennwort: Betriebssystem-Schlüsselspeicher')
-        window.update()
-        frame=window.database_settings_frame
-        bottom=max(child.winfo_y()+child.winfo_height() for child in frame.winfo_children())
-        self.assertLessEqual(bottom,frame.winfo_height())
+        for name in ('ai','database','mail','design','configuration'):
+            content=getattr(window,f'{name}_settings_frame')
+            canvas=content.master
+            with self.subTest(page=name):
+                window.select_settings_page(content)
+                canvas.yview_moveto(0)
+                window.update()
+                if name=='database':
+                    self.assertLess(canvas.yview()[1],1.0)  # content taller than the page
+                canvas.yview_moveto(1.0)
+                window.update()
+                bottom=max(child.winfo_y()+child.winfo_height() for child in content.winfo_children())
+                self.assertLessEqual(bottom-canvas.canvasy(0),canvas.winfo_height()+1)
+                self.assertEqual(canvas.cget('background'),window.palette['background'])
+                canvas.xview_moveto(0)
+                window.update()
+                right=canvas.winfo_rootx()+canvas.winfo_width()
+                def widgets(widget):
+                    for child in widget.winfo_children():
+                        yield child
+                        yield from widgets(child)
+                self.assertEqual(content.winfo_width(),canvas.winfo_width())
+                for widget in widgets(content):
+                    if widget.winfo_class() in ('TLabel','TButton') and widget.winfo_ismapped():
+                        self.assertLessEqual(widget.winfo_rootx()+widget.winfo_reqwidth(),right+1,
+                                             widget.cget('text'))
+        window.design_theme.set('dark')
+        window.save_design_theme()
+        self.assertEqual({canvas.cget('background') for canvas in window.settings_canvases},{'#121212'})
 
     def test_damaged_logo_names_the_file_not_the_library(self):
         window=self.window

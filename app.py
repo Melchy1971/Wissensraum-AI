@@ -263,6 +263,8 @@ class App(tk.Tk if tk is not None else object):
         self.theme_mode=theme
         self.palette=palette
         self.configure(bg=palette['background'])
+        for canvas in getattr(self,'settings_canvases',()):
+            canvas.configure(bg=palette['background'])
         style=self.style
         style.configure('.',font=('Segoe UI',11),background=palette['background'],foreground=palette['text'])
         style.configure('TFrame',background=palette['background'])
@@ -699,32 +701,108 @@ class App(tk.Tk if tk is not None else object):
 
     def open_mail_settings(self):
         self.tabs.select(self.settings_tab)
-        self.settings_sections.select(self.mail_settings_frame)
+        self.select_settings_page(self.mail_settings_frame)
         self.refresh_mail_accounts()
 
     def open_database_settings(self):
         self.tabs.select(self.settings_tab)
-        self.settings_sections.select(self.database_settings_frame)
+        self.select_settings_page(self.database_settings_frame)
         self.load_database_settings()
 
     def open_design_settings(self):
         self.tabs.select(self.settings_tab)
-        self.settings_sections.select(self.design_settings_frame)
+        self.select_settings_page(self.design_settings_frame)
         self.refresh_design_settings()
+
+    def add_scrollable_settings_page(self,title):
+        """Add a settings tab whose content scrolls vertically; returns the content frame."""
+        page=ttk.Frame(self.settings_sections)
+        canvas=tk.Canvas(page,highlightthickness=0,borderwidth=0,bg=self.palette['background'])
+        scrollbar=ttk.Scrollbar(page,orient='vertical',command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side='right',fill='y')
+        canvas.pack(side='left',fill='both',expand=True)
+        content=ttk.Frame(canvas,padding=12)
+        item=canvas.create_window((0,0),window=content,anchor='nw')
+        content.bind('<Configure>',lambda _:canvas.configure(scrollregion=canvas.bbox('all')))
+        wrap_limits={}
+        def descendants(widget):
+            for child in widget.winfo_children():
+                yield child
+                yield from descendants(child)
+        def button_row(frame):
+            children=frame.winfo_children()
+            return (frame.winfo_class()=='TFrame' and len(children)>1
+                    and all(child.winfo_class()=='TButton' for child in children)
+                    and all(child.winfo_manager()=='grid' or (child.winfo_manager()=='pack'
+                            and child.pack_info().get('side')=='left') for child in children))
+        def flow(frame,available):
+            # Lay out a row of left-aligned buttons in as many lines as the width needs.
+            buttons=frame.winfo_children()
+            for button in buttons:
+                if button.winfo_manager()=='pack': button.pack_forget()
+            row=column=used=0
+            for button in buttons:
+                needed=button.winfo_reqwidth()+8
+                if column and used+needed>available:
+                    row,column,used=row+1,0,0
+                button.grid(row=row,column=column,sticky='w',padx=(0,8),pady=(6 if row else 0,0))
+                column,used=column+1,used+needed
+        def fit(_event=None):
+            # Content is exactly as wide as the visible page: text wraps (never wider than
+            # its designed limit) and button rows break into further lines when needed.
+            content.update_idletasks()
+            width=canvas.winfo_width()
+            if width<=1: return
+            canvas.itemconfigure(item,width=width)
+            content.update_idletasks()
+            for widget in descendants(content):
+                if not widget.winfo_ismapped(): continue
+                available=max(200,width-(widget.winfo_rootx()-content.winfo_rootx())-24)
+                if widget.winfo_class()=='TLabel':
+                    limit=wrap_limits.setdefault(widget,int(str(widget.cget('wraplength') or 0)))
+                    widget.configure(wraplength=min(limit,available) if limit else available)
+                elif button_row(widget):
+                    flow(widget,available)
+        canvas.bind('<Configure>',lambda _:self.refit_settings_page())
+        self.settings_fitters[str(page)]=fit
+        def wheel(event):
+            if event.num==4 or event.delta>0: canvas.yview_scroll(-3,'units')
+            elif event.num==5 or event.delta<0: canvas.yview_scroll(3,'units')
+        # Bind the wheel only while the pointer is over this page, so other tabs keep theirs.
+        page.bind('<Enter>',lambda _:[self.bind_all(name,wheel) for name in ('<MouseWheel>','<Button-4>','<Button-5>')])
+        page.bind('<Leave>',lambda _:[self.unbind_all(name) for name in ('<MouseWheel>','<Button-4>','<Button-5>')])
+        self.settings_sections.add(page,text=title)
+        self.settings_canvases.append(canvas)
+        return content
+
+    def refit_settings_page(self):
+        """Coalesce resize and tab events into one refit of the visible settings page."""
+        if self.settings_refit_pending: return
+        self.settings_refit_pending=True
+        def run():
+            self.settings_refit_pending=False
+            self.settings_fitters.get(self.settings_sections.select(),lambda:None)()
+        self.after_idle(run)
+
+    def select_settings_page(self,content):
+        self.settings_sections.select(content.master.master)
 
     def build_settings(self):
         self.settings_sections=ttk.Notebook(self.settings_tab)
         self.settings_sections.pack(fill='both',expand=True)
-        self.ai_settings_frame=ttk.Frame(self.settings_sections,padding=12)
-        self.database_settings_frame=ttk.Frame(self.settings_sections,padding=12)
-        self.mail_settings_frame=ttk.Frame(self.settings_sections,padding=12)
-        self.design_settings_frame=ttk.Frame(self.settings_sections,padding=12)
-        self.configuration_settings_frame=ttk.Frame(self.settings_sections,padding=12)
-        self.settings_sections.add(self.ai_settings_frame,text='KI-Anbieter')
-        self.settings_sections.add(self.database_settings_frame,text='Datenbank')
-        self.settings_sections.add(self.mail_settings_frame,text='E-Mail-Konten')
-        self.settings_sections.add(self.design_settings_frame,text='Design')
-        self.settings_sections.add(self.configuration_settings_frame,text='Konfiguration')
+        self.settings_canvases=[]
+        self.settings_fitters={}
+        self.settings_refit_pending=False
+        self.settings_sections.bind('<<NotebookTabChanged>>',lambda _:self.refit_settings_page())
+        # A canvas does not always receive <Configure> for the last step of a window resize,
+        # so the toplevel's own resize also refits the visible settings page.
+        self.bind('<Configure>',lambda event:self.refit_settings_page() if event.widget is self else None,add='+')
+        self.ai_settings_frame=self.add_scrollable_settings_page('KI-Anbieter')
+        self.database_settings_frame=self.add_scrollable_settings_page('Datenbank')
+        self.mail_settings_frame=self.add_scrollable_settings_page('E-Mail-Konten')
+        self.design_settings_frame=self.add_scrollable_settings_page('Design')
+        self.configuration_settings_frame=self.add_scrollable_settings_page('Konfiguration')
         frame=self.ai_settings_frame
         ttk.Label(frame,text='KI-Anbieter & API-Schlüssel',font=('Segoe UI',18,'bold')).pack(anchor='w')
         self.active_notice=tk.StringVar()
@@ -770,7 +848,6 @@ class App(tk.Tk if tk is not None else object):
         self.settings_help=ttk.Label(frame,text='Modell-IDs sind bearbeitbar; Modellzugriff hängt vom Anbieter ab. Verbindungstests können API-Kosten verursachen. '
                   'Schlüssel werden nicht in der Wissensdatenbank gespeichert. Entfernen deaktiviert auch vorhandene Datei-/Umgebungsschlüssel für diese Anwendung.')
         self.settings_help.pack(anchor='w',fill='x',pady=(5,0))
-        frame.bind('<Configure>',self.resize_settings_text,add='+')
         self.refresh_settings()
         self.build_database_settings()
         self.build_mail_settings()
@@ -1115,13 +1192,6 @@ class App(tk.Tk if tk is not None else object):
                 self.mail_accounts.delete(account_id); self.refresh_mail_accounts(); self.mail_message.set('E-Mail-Konto entfernt.')
             except Exception as e:
                 messagebox.showerror('E-Mail-Konto',str(e),parent=self)
-
-    def resize_settings_text(self,event):
-        """Keep explanatory text readable without wasting vertical space."""
-        width=max(420,event.width-20)
-        self.settings_status.configure(wraplength=width)
-        self.settings_help.configure(wraplength=width)
-        self.key_hint.configure(wraplength=max(360,width-195))
 
     def selected_provider(self):
         selected=self.provider_tree.selection()
