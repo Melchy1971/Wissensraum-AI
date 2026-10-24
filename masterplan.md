@@ -43,7 +43,7 @@
 | Tests Windows, Python 3.11, 3.12 und 3.13 | 353 Tests, je 337 bestanden, 16 übersprungen (3 POSIX-Logging-Fälle, 10 PostgreSQL, 3 `start.sh`-Tests ohne `sh` im Suchpfad). 3.12 und 3.13: 0 Fehler. 3.11 auf dem Entwicklungsrechner: in jedem Lauf ein bis fünf Fehler beim Löschen des Temp-Ordners nach bestandenem Test (WinError 145), jedes Mal in anderen, überwiegend bereits vorhandenen Tests; der CI-Job Windows/3.11 war in allen geprüften Läufen grün. Vermutlich lokales Zusammenspiel mit dem Virenscanner. | 🟡 lokal, nicht release-blockierend (CI Windows/3.11 grün) |
 | CI-Matrix | Lauf [39918310287](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39918310287) auf `4b37177` (23.10.2026): alle sieben Jobs grün, Windows/Linux × Python 3.11/3.12/3.13 und `postgres` (PostgreSQL 18 einschließlich `pg_dump`/`pg_restore`-Rundlauf). Davor grün: `39914353899` auf `ea7d929`. Läufe bis `585ae5a` rot im Vorschauschritt. | ✅ für `4b37177` |
 
-**Nächster kleinster Schritt:** Abnahme Release 2.0 durch den Product Owner; Entscheidung, ob der Soll-Umfang in 2.0 nachgezogen oder verschoben wird. 6.3 abgenommen 23.10.2026 (CI [39976859099](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39976859099)). 6.2 abgenommen 23.10.2026 (CI [39932577799](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39932577799)). 6.1 abgenommen 23.10.2026 (CI [39925457254](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39925457254)). Offen außerhalb der Gates: P0 „Veröffentlichtes Datenbankkennwort ändern“ auf dem VPS.
+**Nächster kleinster Schritt:** Abnahme Release 2.0 mit eigenen Daten wiederholen und die drei Fehlermeldungen vom 24.10.2026 klären; Soll-Umfang ist verschoben. 6.3 abgenommen 23.10.2026 (CI [39976859099](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39976859099)). 6.2 abgenommen 23.10.2026 (CI [39932577799](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39932577799)). 6.1 abgenommen 23.10.2026 (CI [39925457254](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39925457254)). Offen außerhalb der Gates: P0 „Veröffentlichtes Datenbankkennwort ändern“ auf dem VPS.
 
 ## Aktualisierung 22.10.2026 – Release 1.9 nach Hermes-Merge
 
@@ -476,7 +476,7 @@ PostgreSQL-Destruktivtests dürfen ausschließlich gegen eine Wegwerfdatenbank m
 
 **Gate:** Ein referenzierter Import-Testbestand und ein wiederholbarer Abbruch-/Fortsetzungstest sind vollständig grün.
 
-**Stand 24.10.2026:** Muss-Umfang vollständig umgesetzt, Abnahmekriterien und Gate automatisiert erfüllt (Teilschritte 6.1 bis 6.4, jeweils CI grün). Soll-Umfang nicht umgesetzt: weitere Formate (HTML, RTF, XLSX, PPTX, EML), regelbasierte Kategorien und Tags, zeitgesteuerte Postfachsynchronisation. Offen: Abnahme durch den Product Owner mit eigenen Daten und Entscheidung über den Soll-Umfang.
+**Stand 24.10.2026:** Muss-Umfang vollständig umgesetzt, Abnahmekriterien und Gate automatisiert erfüllt (Teilschritte 6.1 bis 6.4, jeweils CI grün). Soll-Umfang nicht umgesetzt: weitere Formate (HTML, RTF, XLSX, PPTX, EML), regelbasierte Kategorien und Tags, zeitgesteuerte Postfachsynchronisation. **Entscheidung Product Owner 24.10.2026:** Der Soll-Umfang wird aus Release 2.0 herausgenommen und später einzeln eingeplant. Offen: Abnahme durch den Product Owner mit eigenen Daten. Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33: OCR in `.venv` verfügbar (Tesseract 5.5, deu+eng), Datenbank auf Schema 8 migriert; drei Hintergrundvorgänge mit `ValueError` abgebrochen, ein vierter vor Programmende nicht abgeschlossen; aktive SQLite-Datenbank ohne Dokumente und ohne Importauftrag. Die Abnahme ist damit nicht belegt.
 
 **Zuschnitt (D-010, Entscheidung Product Owner 23.10.2026):** Release 2.0 wird in vier Teilschritten mit jeweils eigenem Gate umgesetzt. Ein Teilschritt beginnt erst, wenn der vorherige grün ist.
 
@@ -595,7 +595,7 @@ Erforderlicher Mindestumfang:
 
 | Priorität | Arbeitspaket | Nutzen | Abhängigkeit |
 |---|---|---|---|
-| P0 | Veröffentlichtes Datenbankkennwort ändern | Schließt unmittelbares Zugangsrisiko | VPS-Zugriff |
+| P0 | Veröffentlichtes Datenbankkennwort ändern | Schließt unmittelbares Zugangsrisiko | VPS-Zugriff; **Entscheidung Product Owner 24.10.2026:** Änderung erst mit dem Live-Release, bis dahin bleibt das vorhandene Kennwort in Gebrauch. Risiko bis dahin: Wer das veröffentlichte Kennwort kennt, kann sich an der VPS-Datenbank anmelden, soweit Netz und `pg_hba.conf` es zulassen. Muss Teil der Live-Release-Checkliste sein. |
 | ✅ P0 | Vier nachgewiesene Migrations-Testfehler korrigieren (`55bc4ca`) | Stellt ein belastbares Phase-4-Gate her | Hermes-Commit `717db895` |
 | ✅ P0 | Alle fünf CI-Jobs wieder auf Grün bringen (Lauf `39410112241`) | Verhindert Freigabe eines nicht abgenommenen Datenbankumbaus | Korrigierte Migrationstests |
 | ✅ P0 | Linux-Identitätsbindung korrigieren und CI-Matrix für den Head grün nachweisen | Stellt grünes Gate wieder her | Push |
