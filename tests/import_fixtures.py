@@ -127,3 +127,69 @@ def build_reference_corpus(folder) -> dict:
         put(f'bomben/bombe-{index:03}.docx', bomb, 'quarantined', 'limits')
     assert len(expected) == 1000
     return expected
+
+
+# --- OCR fixtures (Phase 6.4) ------------------------------------------------------------
+OCR_FONT_CANDIDATES = (
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+    '/usr/share/fonts/dejavu/DejaVuSans.ttf',
+    r'C:\Windows\Fonts\arial.ttf',
+    '/Library/Fonts/Arial.ttf',
+)
+OCR_GERMAN = ('Die Prüfung der Lieferung ergab größere Mängel am Gehäuse.',
+              'Übergabe am Freitag, Rückfragen bitte an Frau Weiß im Büro.',
+              'Die Rechnung über 1.250,00 Euro ist bis zum 15. November fällig.')
+OCR_ENGLISH = ('The quarterly report shows steady growth in all regions.',
+               'Please confirm the delivery date and the invoice number by Monday.',
+               'Meeting notes: budget approved, next review in December.')
+
+
+def ocr_font():
+    from pathlib import Path
+    return next((path for path in OCR_FONT_CANDIDATES if Path(path).is_file()), None)
+
+
+def text_page(lines, size=42):
+    """A white A4 page at 300 dpi with the given lines in a real font (about 10 pt)."""
+    from PIL import Image, ImageDraw, ImageFont
+    font = ImageFont.truetype(ocr_font(), size)
+    page = Image.new('L', (2480, 3508), 255)
+    draw = ImageDraw.Draw(page)
+    for index, line in enumerate(lines):
+        draw.text((180, 220 + index * 110), line, font=font, fill=0)
+    return page
+
+
+def image_bytes(image, fmt, **options):
+    import io
+    output = io.BytesIO()
+    image.save(output, format=fmt, dpi=(300, 300), **options)
+    return output.getvalue()
+
+
+def scanned_pdf(pages):
+    """A PDF that contains only page images, like a scanner produces: no text layer."""
+    import io
+    output = io.BytesIO()
+    pages = [page.convert('RGB') for page in pages]
+    pages[0].save(output, format='PDF', resolution=300, save_all=True, append_images=pages[1:])
+    return output.getvalue()
+
+
+def blank_png(width=200, height=120):
+    """A valid, readable image without any text."""
+    from PIL import Image
+    return image_bytes(Image.new('L', (width, height), 255), 'PNG')
+
+
+def character_error_rate(expected, actual):
+    """Levenshtein distance over whitespace-normalized text, divided by the expected length."""
+    expected = ' '.join(expected.split())
+    actual = ' '.join(actual.split())
+    previous = list(range(len(actual) + 1))
+    for i, left in enumerate(expected, start=1):
+        current = [i]
+        for j, right in enumerate(actual, start=1):
+            current.append(min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (left != right)))
+        previous = current
+    return previous[-1] / max(1, len(expected))

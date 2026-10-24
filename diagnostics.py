@@ -222,10 +222,27 @@ def check_mail_accounts(mail_accounts):
                             'Alle E-Mail-Konten haben gespeicherte Zugangsdaten.', details)
 
 
+def check_ocr(loader=None):
+    """Optional text recognition: not installed is a valid setup (PASS); a broken install warns."""
+    try:
+        if loader is None:
+            import ocr
+            loader = ocr.status
+        state = loader()
+    except Exception:
+        return DiagnosticResult('ocr', 'WARN', 'OCR-Status konnte nicht ermittelt werden.', {})
+    details = {'version': state.get('version') or '-', 'sprachen': '+'.join(state.get('languages') or []) or '-'}
+    if state.get('available') and state.get('reason') == 'ok':
+        return DiagnosticResult('ocr', 'PASS', state['message'], details)
+    if state.get('available') or state.get('reason') in ('program', 'languages'):
+        return DiagnosticResult('ocr', 'WARN', state['message'], details)
+    return DiagnosticResult('ocr', 'PASS', 'OCR nicht eingerichtet (optional). ' + state['message'], details)
+
+
 def health_overview(store, settings, mail_accounts, providers):
     """Read local state only; never contacts AI providers or mail servers."""
     return (check_store_health(store), check_ai_provider(settings, providers),
-            check_mail_accounts(mail_accounts))
+            check_mail_accounts(mail_accounts), check_ocr())
 
 
 def format_diagnostics(results):

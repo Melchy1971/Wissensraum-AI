@@ -157,7 +157,7 @@ class ImportVersionTests(unittest.TestCase):
         self.run_folder()
         self.write('a.txt', b'Plan Fassung zwei')
         self.write('d.txt', b'Plan Fassung eins')
-        self.write('e.png', b'\x89PNG')
+        self.write('e.png', fx.blank_png())
         self.write('f.pdf', fx.blank_pdf())
         before = table_counts(self.store.path)
         rows = {row['locator']: row for row in self.jobs.preview_folder(self.folder)}

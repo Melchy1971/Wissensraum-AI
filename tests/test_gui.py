@@ -515,6 +515,27 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn('Sicherung:',info.call_args.args[1])
         self.assertIn(b'X-Wissensraum-Anhaenge-nicht-gespeichert: 1',window.store.get(document_id)['original'])
 
+    def test_retry_of_quarantined_scans_waits_for_ocr_and_runs_once_available(self):
+        import os
+        import import_fixtures as fx
+        window=self.window
+        folder=self.base/'scans'; folder.mkdir()
+        (folder/'leer.png').write_bytes(fx.blank_png())
+        with patch('app.messagebox.showinfo') as info:
+            window.retry_no_text()
+        self.assertIn('Kein Eintrag wartet',info.call_args.args[1])
+        with patch.dict(os.environ,{'WISSENSRAUM_OCR':'0'}):
+            window.import_jobs.run(window.import_jobs.create_for_folder(folder))
+            with patch('app.messagebox.showinfo') as info:
+                window.retry_no_text()
+            self.assertIn('1 Einträge warten auf Texterkennung',info.call_args.args[1])
+            self.assertIn('Bilder und Scans ohne Text landen in Quarantäne',window.ocr_notice.get())
+        self.assertEqual(len(window.import_jobs.jobs()),1)  # no retry job without OCR
+        with patch('ocr.available',return_value=True), patch('app.messagebox.showinfo') as info:
+            window.retry_no_text(); self.wait_until_idle(window)
+        self.assertEqual(len(window.import_jobs.jobs()),2)
+        self.assertIn('1 Dateien',info.call_args.args[1])
+
     def test_pst_import_runs_as_job_with_released_attachment_only(self):
         import import_fixtures as fx
         from mail_fakes import FakePstArchive, mail

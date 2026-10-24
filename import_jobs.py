@@ -72,6 +72,36 @@ class ImportJobs:
                            (item_id, 1, 'unreadable', message))
         return job_id
 
+    def retry_candidates(self, reason='no_text'):
+        """Items whose latest outcome is quarantine for ``reason``, grouped by source; oldest first.
+
+        An item counts once per place (job kind, source and locator); a later successful or
+        duplicate outcome for the same place removes it, so repeating a retry creates nothing twice.
+        """
+        with self.store.connect() as db:
+            rows = db.execute('SELECT j.kind,j.root,j.category,i.path,i.locator,i.status,i.reason '
+                              'FROM import_items i JOIN import_jobs j ON j.id=i.job_id '
+                              "WHERE j.kind <> 'folder' OR i.reason <> 'unreadable' "
+                              'ORDER BY j.id,i.ordinal').fetchall()
+        latest = {}
+        for row in rows:
+            mail = row['kind'] in MAIL_KINDS
+            # One place per file path (folder and file jobs alike) or per mailbox item.
+            key = (row['kind'] if mail else 'files', row['root'] if mail else '', row['locator'] if mail else row['path'])
+            latest[key] = row
+        groups = {}
+        for row in latest.values():
+            if row['status'] == 'quarantined' and row['reason'] == reason:
+                kind = 'files' if row['kind'] in ('files', 'folder') else row['kind']
+                group = (kind, row['root'] if kind in MAIL_KINDS else '', row['category'])
+                groups.setdefault(group, []).append((row['path'], row['locator']))
+        return groups
+
+    def retry_quarantined(self, reason='no_text'):
+        """Create one job per source for quarantined items, e.g. after OCR was installed."""
+        return [self._create(kind, root, category, entries, ())
+                for (kind, root, category), entries in self.retry_candidates(reason).items()]
+
     def run(self, job_id, cancel=None, progress=None):
         """Process all open items in order; stop between items when ``cancel`` is set."""
         job = self.job(job_id)

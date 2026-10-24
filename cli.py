@@ -9,7 +9,7 @@ from settings import SystemVault
 from database import DatabaseSettings, resolve_sqlite_path
 from configuration_authority import ConfigurationAuthority, identity_for_profile
 from diagnostics import DiagnosticResult, format_diagnostics, health_overview, run_diagnostics
-from importer import MailAccounts
+from importer import Importer, MailAccounts
 from import_jobs import ImportJobs
 import mail_cleanup
 from configuration import (APPLY_ERROR, EXPORT_ERROR, ConfigurationTransfer,
@@ -55,6 +55,8 @@ def main(argv=None):
     strip.add_argument('--dry-run',action='store_true',help='nur zählen, nichts ändern')
     strip.add_argument('--backup-confirmed',action='store_true',
                        help='PostgreSQL: eine aktuelle pg_dump-Sicherung liegt vor')
+    commands.add_parser('ocr-status',help='Optionale Texterkennung: Tesseract-Version und Sprachen')
+    commands.add_parser('retry-no-text',help='Quarantäne „kein lesbarer Text“ erneut verarbeiten (z. B. nach OCR-Installation)')
     preview = commands.add_parser('preview',help='Datei oder Ordner prüfen, ohne etwas zu speichern')
     preview.add_argument('path',type=Path)
     imp = commands.add_parser('import')
@@ -160,6 +162,12 @@ def main(argv=None):
         try:
             if args.command == 'list':
                 result = store.list(all_versions=args.all_versions)
+            elif args.command == 'ocr-status':
+                import ocr
+                result = ocr.status()
+            elif args.command == 'retry-no-text':
+                jobs = ImportJobs(store,Importer(store,MailAccounts(store,vault,BASE)))
+                result = [jobs.run(job_id) for job_id in jobs.retry_quarantined('no_text')]
             elif args.command == 'strip-mail-attachments':
                 result = mail_cleanup.strip_stored_attachments(store,dry_run=args.dry_run,
                                                                backup_confirmed=args.backup_confirmed)

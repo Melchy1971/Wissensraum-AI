@@ -23,7 +23,7 @@ from test_settings import FakeVault
 
 PDF = fx.pdf_with_text('Rechnung Anhangstext')
 DOCX = fx.docx_with_text('Bericht aus dem Archiv')
-PNG = b'\x89PNG\r\n\x1a\nBILD'
+PNG = fx.blank_png()
 
 
 class MailJobTests(unittest.TestCase):

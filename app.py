@@ -485,7 +485,9 @@ class App(tk.Tk if tk is not None else object):
         self.after(100,self.poll)
 
     def import_files(self):
-        paths = filedialog.askopenfilenames(filetypes=[('Dokumente','*.txt *.md *.pdf *.docx')])
+        paths = filedialog.askopenfilenames(filetypes=[('Dokumente','*.txt *.md *.pdf *.docx'),
+                                                       ('Bilder (mit OCR)','*.png *.jpg *.jpeg *.tif *.tiff'),
+                                                       ('Alle Dateien','*.*')])
         if not paths:
             return
         self.preview_import(lambda cancel,progress:self.import_jobs.preview_files(paths,cancel,progress),
@@ -582,6 +584,54 @@ class App(tk.Tk if tk is not None else object):
             return
         job_id=open_jobs[0]['job_id']
         self.run_import_job(lambda:job_id)
+
+    @staticmethod
+    def ocr_status_text():
+        import ocr
+        state=ocr.status()
+        if state['available']:
+            return 'Bilder und Scans werden mit OCR gelesen: '+state['message']
+        return ('Bilder und Scans ohne Text landen in Quarantäne. '+state['message'])
+
+    def retry_no_text(self):
+        """Process items quarantined as "kein lesbarer Text" again, e.g. after OCR was installed."""
+        import ocr
+        self.ocr_notice.set(self.ocr_status_text())
+        groups=self.import_jobs.retry_candidates('no_text')
+        count=sum(len(entries) for entries in groups.values())
+        if not count:
+            messagebox.showinfo('Quarantäne','Kein Eintrag wartet auf Texterkennung.',parent=self)
+            return
+        if not ocr.available():
+            messagebox.showinfo('Quarantäne',f'{count} Einträge warten auf Texterkennung. '
+                                'Zuerst die optionale OCR einrichten (install-ocr-support.bat).',parent=self)
+            return
+        job_ids=self.import_jobs.retry_quarantined('no_text')
+        cancel=threading.Event()
+        self.import_cancel=cancel
+        self.import_cancel_button.configure(state='normal')
+        def progress(done,total,locator):
+            self.import_progress=f'Texterkennung: {done} von {total} · {locator}'
+        def run():
+            summaries=[]
+            for job_id in job_ids:  # one job per source; each stays resumable on its own
+                summaries.append(self.import_jobs.run(job_id,cancel,progress))
+                if cancel.is_set():
+                    break
+            return self.combined_summary(summaries)
+        self.work(run,self.finish_import_job)
+
+    @staticmethod
+    def combined_summary(summaries):
+        if len(summaries)==1:
+            return summaries[0]
+        total={key:sum(summary[key] for summary in summaries) for key in
+               ('total','pending','running','imported','versioned','duplicate','quarantined','failed')}
+        kinds={summary['kind'] for summary in summaries}
+        return {**total,'job_id':', '.join(str(summary['job_id']) for summary in summaries),
+                'kind':kinds.pop() if len(kinds)==1 else 'files',
+                'status':'cancelled' if any(summary['status']=='cancelled' for summary in summaries) else 'completed',
+                'resumable':any(summary['resumable'] for summary in summaries)}
 
     def run_import_job(self,create_job):
         """Run an import job in the background; progress is mirrored by poll()."""
@@ -727,6 +777,12 @@ class App(tk.Tk if tk is not None else object):
         # Not in self.buttons: it must stay usable while the import job runs.
         self.import_cancel_button=ttk.Button(local_buttons,text='Import abbrechen',command=self.cancel_import_job,state='disabled')
         self.import_cancel_button.pack(side='left')
+        ocr_row=ttk.Frame(local)
+        ocr_row.pack(anchor='w',fill='x',pady=(8,0))
+        b=ttk.Button(ocr_row,text='Quarantäne erneut verarbeiten',command=self.retry_no_text)
+        b.pack(side='left',padx=(0,8)); self.buttons.append(b)
+        self.ocr_notice=tk.StringVar(value=self.ocr_status_text())
+        ttk.Label(ocr_row,textvariable=self.ocr_notice,wraplength=760).pack(side='left',fill='x',expand=True)
         pst=ttk.LabelFrame(frame,text='Outlook-Archiv',padding=14)
         pst.pack(fill='x',pady=(0,10))
         ttk.Label(pst,text='PST-Datei lokal auslesen; Outlook-Installation ist nicht erforderlich.').pack(side='left')

@@ -817,7 +817,7 @@ def import_document(path):
     path = Path(path)
     if path.stat().st_size > MAX_DOCUMENT_BYTES:
         raise ImportRejected('too_large', 'Datei überschreitet das Limit von 20 MB.')
-    if path.suffix.lower() not in SUPPORTED_DOCUMENT_SUFFIXES:
+    if path.suffix.lower() not in SUPPORTED_DOCUMENT_SUFFIXES | IMAGE_SUFFIXES:
         extract_document(path.name, b'')  # raises the matching quarantine reason
     return extract_document(path.name, path.read_bytes())
 
@@ -826,8 +826,17 @@ def extract_document(name, data):
     """Extract text from file bytes; return (title, text, name, data) or raise ImportRejected."""
     name = Path(str(name)).name or 'Dokument'
     suffix = Path(name).suffix.lower()
+    import ocr
     if suffix in IMAGE_SUFFIXES:
-        raise ImportRejected('no_text', 'Bild enthält keinen lesbaren Text. OCR folgt mit Schritt 6.4.')
+        if suffix not in ocr.OCR_SUFFIXES or not ocr.available():
+            raise ImportRejected('no_text', 'Bild enthält keinen lesbaren Text; dafür ist die optionale '
+                                            'Texterkennung (OCR) nötig.')
+        if len(data) > MAX_DOCUMENT_BYTES:
+            raise ImportRejected('too_large', 'Datei überschreitet das Limit von 20 MB.')
+        text = ocr.image_text(data)
+        if len(text.strip()) > MAX_DOCUMENT_CHARACTERS:
+            raise ImportRejected('too_large', 'Maximal 2 Millionen Textzeichen pro Dokument.')
+        return Path(name).stem or name, text, name, data
     if suffix not in SUPPORTED_DOCUMENT_SUFFIXES:
         raise ImportRejected('unsupported', 'Unterstützt werden TXT, Markdown, PDF und DOCX.')
     if len(data) > MAX_DOCUMENT_BYTES:
@@ -861,7 +870,10 @@ def extract_document(name, data):
         except Exception:
             raise ImportRejected('damaged', 'PDF ist beschädigt oder nicht lesbar.') from None
         if not re.sub(r'\[Seite \d+\]', '', text).strip():
-            raise ImportRejected('no_text', 'PDF enthält keinen lesbaren Text. OCR ist in Version 1 nicht enthalten.')
+            if not ocr.available():
+                raise ImportRejected('no_text', 'PDF enthält keinen lesbaren Text; dafür ist die optionale '
+                                                'Texterkennung (OCR) nötig.')
+            text = ocr.pdf_text(data)  # scanned PDF: recognize the rendered pages
     else:  # .docx
         if not data.startswith(b'PK\x03\x04'):
             raise ImportRejected('signature', 'Datei ist kein DOCX-Dokument.')

@@ -835,8 +835,9 @@ class HealthOverviewTests(unittest.TestCase):
         with patch('urllib.request.urlopen', side_effect=AssertionError('network')), \
                 patch('imaplib.IMAP4_SSL', side_effect=AssertionError('network')):
             results = health_overview(store, settings, accounts, PROVIDERS)
-        self.assertEqual([(r.check_id, r.status) for r in results],
+        self.assertEqual([(r.check_id, r.status) for r in results[:3]],
                          [('database', 'PASS'), ('ai_provider', 'WARN'), ('mail_accounts', 'WARN')])
+        self.assertEqual(results[3].check_id, 'ocr')  # optional; PASS or WARN depending on this computer
         self.assertEqual(results[0].details['documents'], 1)
         self.assertIn('Arbeit', results[2].message)
 

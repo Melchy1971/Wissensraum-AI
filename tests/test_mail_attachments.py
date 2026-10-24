@@ -22,7 +22,7 @@ from test_settings import FakeVault
 SECRET = b'GEHEIMER-ANHANGSINHALT-'  # marker that must never reach the database unreleased
 PDF = fx.pdf_with_text('Vertrag Anhangstext Lieferung')
 DOCX = fx.docx_with_text('Protokoll aus dem Anhang')
-PNG = b'\x89PNG\r\n\x1a\n' + SECRET + b'bild'
+PNG = fx.blank_png() + SECRET  # a readable image without text; the marker trails the PNG data
 
 
 def stored_bytes(store):

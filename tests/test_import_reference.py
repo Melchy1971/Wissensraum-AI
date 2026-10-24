@@ -1,4 +1,5 @@
 """Gate 6.1: reference corpus of 1,000 mixed files and a repeatable cancel/resume test."""
+import os
 import sys
 import tempfile
 import threading
@@ -17,6 +18,10 @@ from import_jobs import ImportJobs
 class ReferenceCorpusTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # The 6.1 gate measures classification without OCR (scans and images stay in quarantine);
+        # OCR has its own gate and tests in test_ocr.py.
+        cls.no_ocr = patch.dict(os.environ, {'WISSENSRAUM_OCR': '0'})
+        cls.no_ocr.start()
         cls.temp = tempfile.TemporaryDirectory()
         cls.corpus = Path(cls.temp.name) / 'korpus'
         cls.expected = fx.build_reference_corpus(cls.corpus)
@@ -24,6 +29,7 @@ class ReferenceCorpusTests(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.temp.cleanup()
+        cls.no_ocr.stop()
 
     def results(self, jobs, job_id):
         return {item['locator']: (item['status'], item['reason']) for item in jobs.items(job_id)}
