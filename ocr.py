@@ -47,7 +47,7 @@ def _status(switch, program_hint):
                 'message': 'OCR-Erweiterung nicht installiert; install-ocr-support.bat ausführen (optional).'}
     program = _program()
     if not program:
-        return {'available': False, 'reason': 'program', 'version': '', 'languages': [],
+        return {'available': False, 'reason': 'program_missing', 'version': '', 'languages': [],
                 'message': 'Tesseract-Programm nicht gefunden; Tesseract installieren (optional).'}
     pytesseract.pytesseract.tesseract_cmd = program
     try:

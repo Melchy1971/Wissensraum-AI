@@ -223,7 +223,8 @@ def check_mail_accounts(mail_accounts):
 
 
 def check_ocr(loader=None):
-    """Optional text recognition: not installed is a valid setup (PASS); a broken install warns."""
+    """Optional text recognition: not installed (packages or program missing) is a valid setup (PASS);
+    an installed but failing program or missing language data warns."""
     try:
         if loader is None:
             import ocr

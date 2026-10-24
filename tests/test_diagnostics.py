@@ -808,6 +808,13 @@ class DiagnosticTests(unittest.TestCase):
 
 
 class HealthOverviewTests(unittest.TestCase):
+    def setUp(self):
+        # The overview includes the optional OCR; its state is fixed here so that these tests do
+        # not depend on whether and how Tesseract is installed on the test computer.
+        not_installed = {'available': False, 'reason': 'packages', 'version': '', 'languages': [],
+                         'message': 'OCR-Erweiterung nicht installiert.'}
+        self.enterContext(patch('ocr.status', return_value=not_installed))
+
     class Vault:
         def __init__(self, secrets=None):
             self.secrets = dict(secrets or {})
@@ -837,7 +844,7 @@ class HealthOverviewTests(unittest.TestCase):
             results = health_overview(store, settings, accounts, PROVIDERS)
         self.assertEqual([(r.check_id, r.status) for r in results[:3]],
                          [('database', 'PASS'), ('ai_provider', 'WARN'), ('mail_accounts', 'WARN')])
-        self.assertEqual(results[3].check_id, 'ocr')  # optional; PASS or WARN depending on this computer
+        self.assertEqual((results[3].check_id, results[3].status), ('ocr', 'PASS'))  # not installed is valid
         self.assertEqual(results[0].details['documents'], 1)
         self.assertIn('Arbeit', results[2].message)
 

@@ -48,10 +48,12 @@ class OcrWithoutTesseractTests(unittest.TestCase):
         missing = {'available': False, 'reason': 'packages', 'version': '', 'languages': [],
                    'message': 'OCR-Erweiterung nicht installiert.'}
         broken = dict(missing, reason='program', message='Tesseract konnte nicht gestartet werden.')
+        no_program = dict(missing, reason='program_missing', message='Tesseract-Programm nicht gefunden.')
         partial = {'available': True, 'reason': 'languages', 'version': '5.3.0', 'languages': ['eng'],
                    'message': 'OCR verfügbar. Fehlende Sprache: deu.'}
         full = dict(partial, reason='ok', languages=['deu', 'eng'], message='OCR verfügbar.')
         self.assertEqual(check_ocr(lambda: missing).status, 'PASS')
+        self.assertEqual(check_ocr(lambda: no_program).status, 'PASS')  # packages only: still a valid setup
         self.assertEqual(check_ocr(lambda: broken).status, 'WARN')
         self.assertEqual(check_ocr(lambda: partial).status, 'WARN')
         result = check_ocr(lambda: full)
@@ -61,7 +63,7 @@ class OcrWithoutTesseractTests(unittest.TestCase):
         with patch.dict(os.environ, {'WISSENSRAUM_OCR': 'auto', 'WISSENSRAUM_TESSERACT': '/nicht/vorhanden/tesseract'}):
             state = ocr.status()
         self.assertFalse(state['available'])
-        self.assertIn(state['reason'], ('program', 'packages'))
+        self.assertIn(state['reason'], ('program_missing', 'packages'))
 
 
 @unittest.skipUnless(ready() or REQUIRED, 'Tesseract mit Deutsch und Englisch nicht installiert')
