@@ -13,7 +13,7 @@ import hashlib
 from contextlib import contextmanager
 from pathlib import Path
 
-from core import QUARANTINE_REASONS, ImportRejected, discover_documents, import_document
+from core import QUARANTINE_REASONS, ImportRejected, OcrDeferred, discover_documents, import_document
 
 FINAL_STATUSES = ('imported', 'versioned', 'duplicate', 'quarantined')
 OPEN_STATUSES = ('pending', 'running', 'failed')
@@ -23,7 +23,7 @@ STATUS_LABELS = {'pending': 'offen', 'running': 'in Bearbeitung', 'imported': 'i
 REASON_LABELS = {**QUARANTINE_REASONS, 'error': 'Unerwarteter Fehler'}
 MAIL_KINDS = ('imap', 'graph', 'pst')
 OUTCOME_LABELS = {'new': 'neu', 'version': 'neue Version', 'duplicate': 'bereits vorhanden',
-                  'quarantined': 'Quarantäne'}
+                  'ocr': 'Texterkennung beim Import', 'quarantined': 'Quarantäne'}
 PREVIEW_EXCERPT = 400
 
 
@@ -191,6 +191,9 @@ class ImportJobs:
     def preview(self, entries, cancel=None, progress=None):
         """Read files and report what an import would do; never writes to the database.
 
+        OCR is not run here: scans and images report outcome ``ocr`` with their page count, and the
+        import recognizes them once. Whether such a file is a duplicate is known only after OCR.
+
         ``entries`` are (path, locator) pairs as returned by ``discover_documents``.
         Returns None when cancelled.
         """
@@ -202,14 +205,16 @@ class ImportJobs:
             path = Path(path)
             row = {'path': str(path), 'locator': locator, 'type': path.suffix.lower().lstrip('.') or '?',
                    'size': None, 'title': '', 'excerpt': '', 'outcome': 'quarantined', 'reason': '',
-                   'document_id': None, 'existing_title': '', 'version': None}
+                   'document_id': None, 'existing_title': '', 'version': None, 'pages': None}
             try:
                 row['size'] = path.stat().st_size
-                title, text, _, _ = import_document(path)
+                title, text, _, _ = import_document(path, allow_ocr=False)
                 row.update(title=title, excerpt=text.strip()[:PREVIEW_EXCERPT])
                 match = self.store.match(text, file_source(path), versioned=True)
                 row.update(outcome=match['outcome'], document_id=match.get('document_id'),
                            existing_title=match.get('title', ''), version=match.get('version'))
+            except OcrDeferred as deferred:
+                row.update(outcome='ocr', title=path.stem, pages=deferred.pages)
             except ImportRejected as rejected:
                 row['reason'] = rejected.reason
             except OSError:

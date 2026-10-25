@@ -813,16 +813,24 @@ def _docx_within_limits(data):
         raise ImportRejected('limits', 'DOCX-Datei überschreitet die Entpackgrenzen.')
 
 
-def import_document(path):
+class OcrDeferred(Exception):
+    """Raised instead of running OCR when the caller (the preview) only wants to know that OCR is needed."""
+
+    def __init__(self, pages):
+        super().__init__('Text wird beim Import per OCR erkannt.')
+        self.pages = pages
+
+
+def import_document(path, allow_ocr=True):
     path = Path(path)
     if path.stat().st_size > MAX_DOCUMENT_BYTES:
         raise ImportRejected('too_large', 'Datei überschreitet das Limit von 20 MB.')
     if path.suffix.lower() not in SUPPORTED_DOCUMENT_SUFFIXES | IMAGE_SUFFIXES:
         extract_document(path.name, b'')  # raises the matching quarantine reason
-    return extract_document(path.name, path.read_bytes())
+    return extract_document(path.name, path.read_bytes(), allow_ocr)
 
 
-def extract_document(name, data):
+def extract_document(name, data, allow_ocr=True):
     """Extract text from file bytes; return (title, text, name, data) or raise ImportRejected."""
     name = Path(str(name)).name or 'Dokument'
     suffix = Path(name).suffix.lower()
@@ -833,6 +841,8 @@ def extract_document(name, data):
                                             'Texterkennung (OCR) nötig.')
         if len(data) > MAX_DOCUMENT_BYTES:
             raise ImportRejected('too_large', 'Datei überschreitet das Limit von 20 MB.')
+        if not allow_ocr:
+            raise OcrDeferred(ocr.image_pages(data))
         text = ocr.image_text(data)
         if len(text.strip()) > MAX_DOCUMENT_CHARACTERS:
             raise ImportRejected('too_large', 'Maximal 2 Millionen Textzeichen pro Dokument.')
@@ -873,6 +883,8 @@ def extract_document(name, data):
             if not ocr.available():
                 raise ImportRejected('no_text', 'PDF enthält keinen lesbaren Text; dafür ist die optionale '
                                                 'Texterkennung (OCR) nötig.')
+            if not allow_ocr:
+                raise OcrDeferred(len(reader.pages))
             text = ocr.pdf_text(data)  # scanned PDF: recognize the rendered pages
     else:  # .docx
         if not data.startswith(b'PK\x03\x04'):

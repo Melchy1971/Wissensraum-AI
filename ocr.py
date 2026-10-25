@@ -127,6 +127,16 @@ def image_text(data):
     return _labelled(pages)
 
 
+def image_pages(data):
+    """Number of pages (frames) without decoding pixels; damaged images raise like image_text."""
+    from PIL import Image, UnidentifiedImageError
+    try:
+        image = Image.open(io.BytesIO(data))
+        return max(1, int(getattr(image, 'n_frames', 1)))
+    except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError):
+        raise _rejected('damaged', 'Bild ist beschädigt oder nicht lesbar.') from None
+
+
 def pdf_text(data):
     """Render each page of a PDF without text layer and recognize it."""
     import pypdfium2

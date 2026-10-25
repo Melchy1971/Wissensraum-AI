@@ -523,6 +523,9 @@ class App(tk.Tk if tk is not None else object):
             return f'neue Version {row["version"]} von „{row["existing_title"]}“'
         if row['outcome']=='quarantined':
             return 'Quarantäne: '+REASON_LABELS.get(row['reason'],row['reason'])
+        if row['outcome']=='ocr':
+            pages=row.get('pages') or 1
+            return f'wird beim Import per OCR gelesen ({pages} {"Seite" if pages==1 else "Seiten"})'
         return OUTCOME_LABELS[row['outcome']]
 
     @staticmethod
@@ -540,8 +543,8 @@ class App(tk.Tk if tk is not None else object):
         ttk.Label(window,text='Importvorschau',font=('Segoe UI',18,'bold'),padding=(18,16,18,0)).pack(anchor='w')
         counts={key:sum(row['outcome']==key for row in rows) for key in OUTCOME_LABELS}
         window.preview_summary=(f'{len(rows)} Dateien · {counts["new"]} neu · {counts["version"]} neue Version · '
-                                f'{counts["duplicate"]} bereits vorhanden · {counts["quarantined"]} Quarantäne · '
-                                'Noch ist nichts gespeichert.')
+                                f'{counts["duplicate"]} bereits vorhanden · {counts["ocr"]} per OCR beim Import · '
+                                f'{counts["quarantined"]} Quarantäne · Noch ist nichts gespeichert.')
         ttk.Label(window,text=window.preview_summary,padding=(18,5,18,10),wraplength=1000).pack(anchor='w')
         # Buttons first and at the bottom: they stay visible however small the window or large the font.
         actions=ttk.Frame(window,padding=(18,8,18,16)); actions.pack(side='bottom',fill='x')
@@ -584,7 +587,8 @@ class App(tk.Tk if tk is not None else object):
         def show(_=None):
             if tree.selection():
                 row=rows[int(tree.selection()[0])]
-                self.write(excerpt,row['excerpt'] or 'Kein lesbarer Text.')
+                self.write(excerpt,row['excerpt'] or ('Scan oder Bild: Der Text wird beim Import per OCR erkannt.'
+                                                      if row['outcome']=='ocr' else 'Kein lesbarer Text.'))
         tree.bind('<<TreeviewSelect>>',show)
         window.preview_tree=tree; window.preview_excerpt=excerpt
         def start():

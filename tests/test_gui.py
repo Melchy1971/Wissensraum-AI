@@ -323,6 +323,8 @@ class InterfaceTests(unittest.TestCase):
         self.assertEqual(rows['c.exe'][5],'Quarantäne: Dateityp nicht unterstützt')
         self.assertIn('Zweite Fassung',preview.preview_excerpt.get('1.0','end'))
         self.assertIn('Noch ist nichts gespeichert',preview.preview_summary)
+        self.assertEqual(window.preview_outcome({'outcome':'ocr','pages':3}),'wird beim Import per OCR gelesen (3 Seiten)')
+        self.assertEqual(window.preview_outcome({'outcome':'ocr','pages':1}),'wird beim Import per OCR gelesen (1 Seite)')
         self.assertEqual(len(window.store.list(all_versions=True)),1)
         with patch('app.messagebox.showinfo') as info:
             preview.start_import(); self.wait_until_idle(window)

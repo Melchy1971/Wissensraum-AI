@@ -154,6 +154,26 @@ class OcrRecognitionTests(unittest.TestCase):
         self.assertEqual(attempts, [])
         self.assertRecognized(text, fx.OCR_GERMAN)
 
+    def test_preview_defers_ocr_to_the_import(self):
+        from unittest.mock import patch as patch_
+        folder = self.base / 'quelle'
+        folder.mkdir()
+        page = fx.text_page(fx.OCR_GERMAN)
+        (folder / 'brief.png').write_bytes(fx.image_bytes(page, 'PNG'))
+        (folder / 'scan.pdf').write_bytes(fx.scanned_pdf([page, page, page]))
+        (folder / 'akte.tif').write_bytes(fx.image_bytes(page, 'TIFF', save_all=True, append_images=[page],
+                                                         compression='tiff_lzw'))
+        (folder / 'notiz.txt').write_text('Lesbar', encoding='utf-8')
+        with patch_('pytesseract.image_to_string', side_effect=AssertionError('OCR in der Vorschau')):
+            rows = {row['locator']: row for row in self.jobs.preview_folder(folder)}
+        self.assertEqual({name: (row['outcome'], row['pages']) for name, row in rows.items()},
+                         {'brief.png': ('ocr', 1), 'scan.pdf': ('ocr', 3), 'akte.tif': ('ocr', 2),
+                          'notiz.txt': ('new', None)})
+        self.assertEqual(rows['scan.pdf']['excerpt'], '')
+        summary = self.jobs.run(self.jobs.create_for_folder(folder))  # the import recognizes once
+        self.assertEqual(summary['imported'], 4)
+        self.assertEqual(sum(self.store.get(row['id'])['content'].startswith(ocr.MARKER) for row in self.store.list()), 3)
+
     def test_quarantined_scans_are_retried_once_after_ocr_without_duplicates(self):
         folder = self.base / 'quelle'
         folder.mkdir()
