@@ -111,7 +111,51 @@ class ImportTests(unittest.TestCase):
 
     def add_gmail(self):
         return self.accounts.save({'label':'Privat','provider':'gmail','email':'owner@gmail.com',
-            'username':'owner@gmail.com','host':'imap.gmail.com','port':'993','client_id':'','tenant':'common'},'app-password')
+            'username':'owner@gmail.com','host':'imap.gmail.com','port':'993','client_id':'','tenant':'common'},'abcdefghijklmnop')
+
+    def test_gmail_requires_app_password_form_and_uses_the_address_as_user_name(self):
+        values={'label':'Privat','provider':'gmail','email':'Owner@Gmail.com','username':'owner',
+                'host':'imap.gmail.com','port':'993','client_id':'','tenant':'common'}
+        for wrong in ('Normales-Passwort1','abcdefghijklmno','abcdefghijklmnopq','ABCDEFGHIJKLMNOP'):
+            with self.assertRaisesRegex(ValueError,'App-Passwort aus 16 Kleinbuchstaben'):
+                self.accounts.save(values,wrong)
+        self.assertEqual(self.accounts.list(),[])
+        self.assertEqual(self.vault.values,{})  # nothing stored on rejection
+        account_id=self.accounts.save(values,'abcd efgh ijkl mnop')  # as Google shows it
+        self.assertEqual(self.vault.get(self.accounts.secret_name(account_id)),'abcdefghijklmnop')
+        self.assertEqual(self.accounts.get(account_id)['username'],'Owner@Gmail.com')
+        self.accounts.save(dict(values,id=account_id,label='Neu'))  # keeps the stored app password
+        self.assertEqual(self.accounts.get(account_id)['label'],'Neu')
+
+    def test_refused_login_names_the_reason_without_repeating_server_text(self):
+        import imaplib
+        account_id=self.add_gmail()
+        with self.store.connect() as db:  # an account saved before the fix with a wrong user name
+            db.execute("UPDATE email_accounts SET username='owner' WHERE id=?",(account_id,))
+        cases=[(b'[AUTHENTICATIONFAILED] Invalid credentials (Failure) owner@gmail.com','abgelehnt'),
+               (b'[ALERT] Application-specific password required: https://support.google.com/x','App-Passwort'),
+               (b'[UNAVAILABLE] Temporary System Problem. Try again later','vorübergehend'),
+               (b'[WEIRD] something owner@gmail.com','Serverantwort WEIRD'),
+               (b'nothing useful','keinen Grund')]
+        for response,expected in cases:
+            logins=[]
+            class Refusing(FakeImap):
+                def login(self,user,password):
+                    logins.append(user); raise imaplib.IMAP4.error(response)
+            with self.subTest(response=response):
+                with self.assertRaises(ValueError) as raised:
+                    self.importer.preview_imap(account_id,'INBOX',10,Refusing)
+                message=str(raised.exception)
+                self.assertIn(expected,message)
+                self.assertIn('App-Passwort aus 16 Buchstaben',message)
+                self.assertNotIn('owner@gmail.com',message)
+                self.assertNotIn('support.google',message)
+                self.assertEqual(logins,['owner@gmail.com'])  # Gmail always logs in with the address
+        class NoFolder(FakeImap):
+            def select(self,folder,readonly=False):
+                raise imaplib.IMAP4.error(b'[NONEXISTENT] Unknown Mailbox')
+        with self.assertRaisesRegex(ValueError,'nicht schreibgeschützt geöffnet'):
+            self.importer.preview_imap(account_id,'Archiv',10,NoFolder)
 
     def test_account_metadata_and_secret_are_separated(self):
         account_id=self.add_gmail()
@@ -120,8 +164,8 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(row['host'],'imap.gmail.com')
         with self.store.connect() as db:
             dump=str([tuple(r) for r in db.execute('SELECT * FROM email_accounts')])
-            self.assertNotIn('app-password',dump)
-        self.assertEqual(self.vault.get('mail:'+account_id),'app-password')
+            self.assertNotIn('abcdefghijklmnop',dump)
+        self.assertEqual(self.vault.get('mail:'+account_id),'abcdefghijklmnop')
         self.accounts.save({**row,'label':'Privat neu'},secret='')
         self.assertEqual(self.accounts.get(account_id)['label'],'Privat neu')
         self.accounts.delete(account_id)

@@ -487,7 +487,7 @@ class PostgresStoreTests(unittest.TestCase):
         accounts=MailAccounts(store,vault,Path(authority_temp.name))
         account_id=accounts.save({'label':'Testkonto','provider':'gmail','email':'test@example.com',
             'username':'test@example.com','host':'imap.gmail.com','port':'993','client_id':'','tenant':'common'},
-            'synthetic-app-password')
+            'abcdefghijklmnop')
         with store.connect() as db:
             db.execute('INSERT INTO email_imports(account_id,remote_id,document_id) VALUES(?,?,?)',
                        (account_id, 'imap:INBOX:1', document_id))

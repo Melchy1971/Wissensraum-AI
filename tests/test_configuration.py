@@ -825,7 +825,7 @@ finally:
         from importer import MailAccounts
         accounts = MailAccounts(self.store, self.vault, self.base)
         account_id = accounts.save({
-            'label':'Current','provider':'gmail','email':'current@example.test',
+            'label':'Current','provider':'imap','email':'current@example.test',
             'username':'current','host':'imap.example.test','port':993,
             'client_id':'','tenant':'common'}, 'synthetic-password')
         authority = ConfigurationAuthority(self.base).load()

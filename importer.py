@@ -27,6 +27,23 @@ MAIL_PROVIDERS = {
     'imap': {'name':'Sonstiges IMAP-Konto', 'host':'', 'port':993, 'auth':'password'},
 }
 MS_SCOPES = ['Mail.Read']
+GMAIL_APP_PASSWORD = re.compile(r'[a-z]{16}')
+
+
+def imap_refusal(error):
+    """Readable reason for a refused IMAP login; never repeats the server text itself."""
+    text = error.args[0] if getattr(error, 'args', None) else error
+    text = (text.decode('utf-8', 'replace') if isinstance(text, bytes) else str(text)).lower()
+    if 'application-specific password' in text or 'app password' in text:
+        return 'Der Anbieter verlangt ein App-Passwort.'
+    if 'authenticationfailed' in text or 'invalid credentials' in text or 'authentication failed' in text:
+        return 'Benutzername oder Passwort wurden abgelehnt.'
+    if 'webalert' in text or 'web login required' in text:
+        return 'Der Anbieter verlangt zuerst eine Anmeldung im Browser.'
+    if 'unavailable' in text or 'try again' in text:
+        return 'Der Server ist vorübergehend nicht verfügbar.'
+    code = re.search(r'\[([a-z-]+)\]', text)
+    return f'Serverantwort {code.group(1).upper()}.' if code else 'Der Server nennt keinen Grund.'
 MAX_MESSAGE_TEXT_BYTES = 25*1024*1024
 # Transfer encoding (base64) makes a part about a third larger than the decoded file.
 MAX_ATTACHMENT_ENCODED_BYTES = MAX_DOCUMENT_BYTES*4//3+4096
@@ -177,7 +194,11 @@ class MailAccounts:
             raise ValueError('Dieses E-Mail-Konto ist bereits angelegt.')
         secret=(secret or '').strip()
         if provider=='gmail':
+            username=address  # Gmail accepts only the full address as IMAP user name
             secret=secret.replace(' ','')
+            if secret and not GMAIL_APP_PASSWORD.fullmatch(secret):
+                raise ValueError('Gmail verlangt ein App-Passwort aus 16 Kleinbuchstaben (Google-Konto → '
+                                 'Sicherheit → App-Passwörter). Das normale Google-Passwort funktioniert für IMAP nicht.')
         same_provider=existing and existing['provider']==provider
         if provider!='microsoft' and not secret and not (same_provider and self.vault.get(self.secret_name(account_id))):
             raise ValueError('Kennwort oder App-Passwort eingeben.')
@@ -352,16 +373,23 @@ class Importer:
             raise ValueError('Für dieses Konto fehlt das Kennwort oder App-Passwort.')
         factory=client_factory or imaplib.IMAP4_SSL
         client=factory(account['host'],account['port'])
+        username=account['email'] if account['provider']=='gmail' else account['username']
+        stage='login'
         try:
-            client.login(account['username'],secret)
+            client.login(username,secret)
+            stage='select'
             status,_=client.select(folder or 'INBOX',readonly=True)
             if status!='OK':
                 raise ValueError('E-Mail-Ordner wurde nicht gefunden.')
             return client,account
-        except imaplib.IMAP4.error:
+        except imaplib.IMAP4.error as error:
             try: client.logout()
             except Exception: pass
-            raise ValueError('IMAP-Anmeldung fehlgeschlagen. Zugangsdaten und IMAP-Freigabe prüfen.') from None
+            if stage=='select':
+                raise ValueError('E-Mail-Ordner konnte nicht schreibgeschützt geöffnet werden.') from None
+            hint=(' Bei Gmail: Bestätigung in zwei Schritten aktivieren und ein App-Passwort aus 16 Buchstaben eintragen.'
+                  if account['provider']=='gmail' else ' Zugangsdaten und IMAP-Freigabe prüfen.')
+            raise ValueError('IMAP-Anmeldung fehlgeschlagen: '+imap_refusal(error)+hint) from None
         except (OSError,TimeoutError):
             try: client.logout()
             except Exception: pass

@@ -411,14 +411,21 @@ class InterfaceTests(unittest.TestCase):
         window.open_mail_settings()
         window.mail_vars['label'].set('Privat')
         window.mail_vars['email'].set('owner@gmail.com')
-        window.mail_vars['username'].set('owner@gmail.com')
-        window.mail_vars['secret'].set('synthetic-app-password')
+        window.mail_vars['username'].set('owner')  # ignored for Gmail: the address is the user name
+        window.mail_vars['secret'].set('Normales-Passwort1')
+        with patch('app.messagebox.showerror') as error:
+            window.save_mail_account()
+        self.assertIn('App-Passwort aus 16 Kleinbuchstaben',str(error.call_args))
+        self.assertFalse(window.mail_vars['id'].get())
+        window.mail_vars['secret'].set('abcd efgh ijkl mnop')
         window.save_mail_account()
         account_id=window.mail_vars['id'].get()
         self.assertTrue(account_id)
         self.assertEqual(window.mail_tree.item(account_id,'values')[0],'Privat')
         self.assertIn('Privat',window.import_account_value.get())
-        self.assertEqual(self.vault.get('mail:'+account_id),'synthetic-app-password')
+        self.assertEqual(self.vault.get('mail:'+account_id),'abcdefghijklmnop')
+        self.assertEqual(window.mail_accounts.get(account_id)['username'],'owner@gmail.com')
+        self.assertEqual(str(window.mail_fields['username'].cget('state')),'disabled')
 
     def test_database_profile_is_stored_without_password(self):
         window=self.window

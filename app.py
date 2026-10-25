@@ -1434,6 +1434,9 @@ class App(tk.Tk if tk is not None else object):
             self.mail_vars['host'].set(''); self.mail_vars['port'].set('0'); self.mail_vars['tenant'].set(self.mail_vars['tenant'].get() or 'common')
         for name in ('host','port','username','secret'):
             self.mail_fields.get(name,self.mail_secret).configure(state='disabled' if provider=='microsoft' else 'normal')
+        if provider=='gmail':  # Gmail uses the address as user name; the field only shows it
+            self.mail_vars['username'].set(self.mail_vars['email'].get())
+            self.mail_fields['username'].configure(state='disabled')
         for name in ('client_id','tenant'):
             self.mail_fields[name].configure(state='normal' if provider=='microsoft' else 'disabled')
         self.microsoft_connect_button.configure(state='normal' if provider=='microsoft' else 'disabled')
