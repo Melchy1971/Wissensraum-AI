@@ -39,6 +39,10 @@ class ImportJobs:
         self.store = store
         self.importer = importer  # needed for e-mail and PST jobs (step 6.3b)
 
+    def create_selection(self, kind, root, entries, category='Allgemein'):
+        """Job for a subset of a preview: (path, locator) pairs as returned by the preview."""
+        return self._create(kind, str(Path(root).resolve()) if root else '', category, entries, ())
+
     def create_entries(self, kind, root, category, entries):
         """Create a job from (label, locator) pairs; used for e-mail and PST jobs."""
         return self._create(kind, root, category, entries, ())

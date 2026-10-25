@@ -314,12 +314,13 @@ class InterfaceTests(unittest.TestCase):
         with patch('app.filedialog.askdirectory',return_value=str(folder)):
             window.import_local_folder(); self.wait_until_idle(window)
         preview=window.import_preview_window
-        rows={preview.preview_tree.item(iid,'values')[0]:preview.preview_tree.item(iid,'values')
+        rows={preview.preview_tree.item(iid,'values')[1]:preview.preview_tree.item(iid,'values')
               for iid in preview.preview_tree.get_children()}
-        self.assertEqual(rows['a.txt'][1:4],('txt','24 B','a'))
-        self.assertEqual(rows['a.txt'][4],'neue Version 2 von „a“')
-        self.assertEqual(rows['b.txt'][4],'bereits vorhanden')
-        self.assertEqual(rows['c.exe'][4],'Quarantäne: Dateityp nicht unterstützt')
+        self.assertEqual(rows['a.txt'][0],'JA')  # everything is selected at first
+        self.assertEqual(rows['a.txt'][2:5],('txt','24 B','a'))
+        self.assertEqual(rows['a.txt'][5],'neue Version 2 von „a“')
+        self.assertEqual(rows['b.txt'][5],'bereits vorhanden')
+        self.assertEqual(rows['c.exe'][5],'Quarantäne: Dateityp nicht unterstützt')
         self.assertIn('Zweite Fassung',preview.preview_excerpt.get('1.0','end'))
         self.assertIn('Noch ist nichts gespeichert',preview.preview_summary)
         self.assertEqual(len(window.store.list(all_versions=True)),1)
@@ -336,6 +337,41 @@ class InterfaceTests(unittest.TestCase):
         versions.version_tree.selection_set(versions.version_tree.get_children()[1]); window.update()
         self.assertIn('Erste Fassung',versions.version_text.get('1.0','end'))
         versions.destroy()
+
+    def test_preview_buttons_stay_visible_and_selection_limits_the_import(self):
+        window=self.window
+        folder=self.base/'quelle'; folder.mkdir()
+        for index in range(40):
+            (folder/f'datei-{index:02}.txt').write_text(f'Inhalt {index}',encoding='utf-8')
+        with patch('app.filedialog.askdirectory',return_value=str(folder)):
+            window.import_local_folder(); self.wait_until_idle(window)
+        preview=window.import_preview_window
+        mail=window.show_mail_preview([{'id':'1','subject':'x','sender':'a','date':'d','attachments':[]}],
+                                      'synthetic-account','INBOX','Konto')
+        for dialog in (preview,mail):
+            for size in ('1080x650','820x480'):
+                dialog.geometry(size); dialog.update()
+                button=dialog.import_button
+                with self.subTest(dialog=dialog.title(),size=size):
+                    self.assertTrue(button.winfo_ismapped())
+                    bottom=button.winfo_rooty()+button.winfo_height()-dialog.winfo_rooty()
+                    self.assertLessEqual(bottom,dialog.winfo_height())
+        window.close_mail_preview(mail)
+        tree=preview.preview_tree
+        self.assertIn('40 von 40 Dateien',preview.preview_status.get())
+        preview.set_rows(range(40),False)
+        self.assertEqual(str(preview.import_button.cget('state')),'disabled')
+        preview.set_rows([0,1,2],True)
+        tree.selection_set('1'); preview.set_rows([int(iid) for iid in tree.selection()])  # "Markierte umschalten"
+        self.assertEqual([tree.item(str(index),'values')[0] for index in range(4)],['JA','NEIN','JA','NEIN'])
+        self.assertIn('2 von 40 Dateien',preview.preview_status.get())
+        with patch('app.messagebox.showinfo') as info:
+            preview.start_import(); self.wait_until_idle(window)
+        self.assertIn('2 Dateien · 2 importiert',info.call_args.args[1])
+        self.assertEqual(sorted(row['title'] for row in window.store.list()),['datei-00','datei-02'])
+        job=window.import_jobs.jobs(1)[0]
+        self.assertEqual(sorted(item['locator'] for item in window.import_jobs.items(job['job_id'])),
+                         ['datei-00.txt','datei-02.txt'])
 
     def test_cancelled_preview_stores_nothing(self):
         window=self.window

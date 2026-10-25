@@ -491,14 +491,16 @@ class App(tk.Tk if tk is not None else object):
         if not paths:
             return
         self.preview_import(lambda cancel,progress:self.import_jobs.preview_files(paths,cancel,progress),
-                            lambda:self.import_jobs.create_for_files(paths))
+                            lambda rows,everything:self.import_jobs.create_for_files([row['path'] for row in rows]))
 
     def import_local_folder(self):
         folder=filedialog.askdirectory(title='Ordner mit Dokumenten auswählen')
         if not folder:
             return
+        # All rows: the folder job also reports unreadable subfolders. A subset: only the chosen files.
         self.preview_import(lambda cancel,progress:self.import_jobs.preview_folder(folder,cancel,progress),
-                            lambda:self.import_jobs.create_for_folder(folder))
+                            lambda rows,everything:self.import_jobs.create_for_folder(folder) if everything else
+                            self.import_jobs.create_selection('folder',folder,[(row['path'],row['locator']) for row in rows]))
 
     def preview_import(self,analyse,create_job):
         """Read the files in the background and show what an import would do; nothing is stored yet."""
@@ -540,28 +542,58 @@ class App(tk.Tk if tk is not None else object):
         window.preview_summary=(f'{len(rows)} Dateien · {counts["new"]} neu · {counts["version"]} neue Version · '
                                 f'{counts["duplicate"]} bereits vorhanden · {counts["quarantined"]} Quarantäne · '
                                 'Noch ist nichts gespeichert.')
-        ttk.Label(window,text=window.preview_summary,padding=(18,5,18,10)).pack(anchor='w')
+        ttk.Label(window,text=window.preview_summary,padding=(18,5,18,10),wraplength=1000).pack(anchor='w')
+        # Buttons first and at the bottom: they stay visible however small the window or large the font.
+        actions=ttk.Frame(window,padding=(18,8,18,16)); actions.pack(side='bottom',fill='x')
+        controls=ttk.Frame(window,padding=(18,8,18,0)); controls.pack(side='bottom',fill='x')
         body=ttk.Panedwindow(window,orient='vertical'); body.pack(fill='both',expand=True,padx=18)
-        columns=('file','type','size','title','outcome')
-        tree=ttk.Treeview(body,columns=columns,show='headings',selectmode='browse')
-        for col,title,width in [('file','Datei',260),('type','Typ',55),('size','Größe',80),
-                                ('title','Titel',230),('outcome','Ergebnis',300)]:
+        columns=('active','file','type','size','title','outcome')
+        tree=ttk.Treeview(body,columns=columns,show='headings',selectmode='extended',height=8)
+        for col,title,width in [('active','Auswahl',70),('file','Datei',250),('type','Typ',55),('size','Größe',80),
+                                ('title','Titel',210),('outcome','Ergebnis',290)]:
             tree.heading(col,text=title); tree.column(col,width=width,stretch=col in ('file','title','outcome'))
-        excerpt=ScrolledText(body,wrap='word',font=('Segoe UI',11),padx=12,pady=10,height=8)
+        excerpt=ScrolledText(body,wrap='word',font=('Segoe UI',11),padx=12,pady=10,height=5)
         body.add(tree,weight=3); body.add(excerpt,weight=1)
+        window.selected=[True]*len(rows)
         for index,row in enumerate(rows):
-            tree.insert('','end',iid=str(index),values=(row['locator'],row['type'],self.file_size_text(row['size']),
+            tree.insert('','end',iid=str(index),values=('JA',row['locator'],row['type'],self.file_size_text(row['size']),
                                                        row['title'],self.preview_outcome(row)))
+        window.preview_status=tk.StringVar()
+        def refresh_status():
+            chosen=sum(window.selected)
+            window.preview_status.set(f'{chosen} von {len(rows)} Dateien zum Import ausgewählt. '
+                                      'Doppelklick oder „Markierte umschalten“ ändert die Auswahl.')
+            window.import_button.configure(state='normal' if chosen else 'disabled')
+        def set_rows(indexes,value=None):
+            for index in indexes:
+                window.selected[index]=(not window.selected[index]) if value is None else value
+                values=list(tree.item(str(index),'values')); values[0]='JA' if window.selected[index] else 'NEIN'
+                tree.item(str(index),values=values,tags=() if window.selected[index] else ('off',))
+            refresh_status()
+        tree.tag_configure('off',foreground='#8a8f98')
+        window.set_rows=set_rows
+        for title,command in (('Alle auswählen',lambda:set_rows(range(len(rows)),True)),
+                              ('Keine auswählen',lambda:set_rows(range(len(rows)),False)),
+                              ('Markierte umschalten',lambda:set_rows([int(iid) for iid in tree.selection()]))):
+            ttk.Button(controls,text=title,command=command).pack(side='left',padx=(0,8))
+        ttk.Label(controls,textvariable=window.preview_status).pack(side='left',padx=(8,0))
+        def toggle_at(event):
+            iid=tree.identify_row(event.y)
+            if iid: set_rows([int(iid)])
+        tree.bind('<Double-1>',toggle_at)
         def show(_=None):
             if tree.selection():
                 row=rows[int(tree.selection()[0])]
                 self.write(excerpt,row['excerpt'] or 'Kein lesbarer Text.')
         tree.bind('<<TreeviewSelect>>',show)
         window.preview_tree=tree; window.preview_excerpt=excerpt
-        actions=ttk.Frame(window,padding=(18,10,18,16)); actions.pack(fill='x')
         def start():
+            chosen=[row for row,active in zip(rows,window.selected) if active]
+            if not chosen:
+                return
+            everything=len(chosen)==len(rows)
             close()
-            self.run_import_job(create_job)
+            self.run_import_job(lambda:create_job(chosen,everything))
         def close():
             if window.import_button in self.buttons: self.buttons.remove(window.import_button)
             if window.winfo_exists(): window.destroy()
@@ -571,6 +603,7 @@ class App(tk.Tk if tk is not None else object):
         self.buttons.append(window.import_button)
         window.protocol('WM_DELETE_WINDOW',close)
         window.start_import=start
+        refresh_status()
         if rows:
             tree.selection_set('0'); show()
         self.import_message.set('Vorschau bereit: '+window.preview_summary)
@@ -896,13 +929,16 @@ class App(tk.Tk if tk is not None else object):
         ttk.Button(controls,text='Alle deaktivieren',command=lambda:self.set_preview_active(window,False)).pack(side='left',padx=(0,8))
         ttk.Button(controls,text='Markierte umschalten',command=lambda:self.toggle_preview_selected(window)).pack(side='left')
         window.preview_status=tk.StringVar()
-        ttk.Label(window,textvariable=window.preview_status,padding=(18,6,18,4)).pack(anchor='w')
+        window.preview_status_label=ttk.Label(window,textvariable=window.preview_status,padding=(18,6,18,4))
+        window.preview_status_label.pack(anchor='w')
         actions=ttk.Frame(window,padding=(18,4,18,16)); actions.pack(fill='x')
         window.import_button=ttk.Button(actions,text='Aktivierte E-Mails importieren',style='Accent.TButton',
                                         command=lambda:self.authorize_mail_import(window,account_id,folder))
         window.import_button.pack(side='right')
         ttk.Button(actions,text='Abbrechen',command=lambda:self.close_mail_preview(window)).pack(side='right',padx=(0,8))
         self.buttons.append(window.import_button)
+        for widget in (actions,window.preview_status_label,controls):  # bottom up, before the list
+            widget.pack_configure(side='bottom',before=body)
         window.protocol('WM_DELETE_WINDOW',lambda:self.close_mail_preview(window))
         window.create_job=create_job or (lambda selected,released:self.importer.create_mail_job(
             self.import_jobs,account_id,folder,selected,released))
