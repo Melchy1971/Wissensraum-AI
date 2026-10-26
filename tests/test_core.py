@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 import urllib.error
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from core import AI, PostgresStore, Store, chunks, discover_documents, import_document, import_documents
+from core import AI, PostgresStore, Store, chunks, discover_documents, import_document, import_documents, preview_documents
 
 class KnowledgeTests(unittest.TestCase):
     def setUp(self):
@@ -142,6 +142,26 @@ class KnowledgeTests(unittest.TestCase):
         self.assertEqual(filenames,{'Start.md','Projekte/2026/Plan.txt'})
         duplicate_report=import_documents(self.store,documents,skipped,errors)
         self.assertEqual(duplicate_report['duplicates'],2)
+
+    def test_folder_import_preview_lists_metadata_without_persisting(self):
+        folder=self.root/'Ablage'
+        nested=folder/'Projekte'/'2026'
+        nested.mkdir(parents=True)
+        (folder/'Start.md').write_text('Übersicht des Wissensraums',encoding='utf-8')
+        (nested/'Plan.txt').write_text('Projektplan mit Meilensteinen',encoding='utf-8')
+        documents,skipped,errors=discover_documents(folder)
+
+        preview=preview_documents(documents,skipped,errors)
+
+        self.assertEqual(preview['found'], 2)
+        self.assertEqual(preview['supported'], 2)
+        self.assertEqual(preview['skipped'], 0)
+        self.assertEqual(preview['errors'], 0)
+        self.assertEqual([item['filename'] for item in preview['items']], ['Start.md', 'Projekte/2026/Plan.txt'])
+        self.assertEqual(preview['items'][0]['title'], 'Start')
+        self.assertGreater(preview['items'][0]['size'], 0)
+        self.assertNotIn('job_id', preview)
+        self.assertEqual(self.store.list(), [])
 
     def test_folder_import_records_progress_job(self):
         folder=self.root/'Ablage'

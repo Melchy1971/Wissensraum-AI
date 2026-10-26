@@ -694,11 +694,21 @@ def discover_documents(folder):
     return documents, skipped, errors
 
 
+def preview_documents(documents, skipped=0, scan_errors=None):
+    items = []
+    for path, stored_name in documents:
+        title, text, _, data = import_document(path)
+        items.append({'filename': stored_name, 'title': title, 'size': len(data), 'preview': text[:240]})
+    return {'found': len(documents) + skipped, 'supported': len(documents), 'skipped': skipped,
+            'errors': len(scan_errors or []), 'details': list(scan_errors or []), 'items': items}
+
+
 def import_documents(store, documents, skipped=0, scan_errors=None, job_source=None):
     """Import discovered documents and retain their relative source paths."""
-    report = {'found':len(documents)+skipped, 'supported':len(documents), 'imported':0,
-              'duplicates':0, 'skipped':skipped, 'errors':len(scan_errors or []),
-              'details':list(scan_errors or [])}
+    preview = preview_documents(documents, skipped, scan_errors)
+    report = {'found': preview['found'], 'supported': preview['supported'], 'imported':0,
+              'duplicates':0, 'skipped':preview['skipped'], 'errors':preview['errors'],
+              'details':list(preview['details'])}
     def job_path_for(source):
         if source is None:
             return None
