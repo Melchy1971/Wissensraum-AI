@@ -204,6 +204,27 @@ class KnowledgeTests(unittest.TestCase):
         filenames = {self.store.get(row['id'])['filename'] for row in self.store.list()}
         self.assertEqual(filenames, {'Start.md', 'Projekte/Plan.txt'})
 
+    def test_folder_import_reimport_creates_version_history_record(self):
+        folder=self.root/'Ablage'
+        nested=folder/'Projekte'
+        nested.mkdir(parents=True)
+        path=folder/'Start.md'
+        path.write_text('Übersicht des Wissensraums',encoding='utf-8')
+        (nested/'Plan.txt').write_text('Projektplan mit Meilensteinen',encoding='utf-8')
+        documents,skipped,errors=discover_documents(folder)
+
+        first=import_documents(self.store,documents,skipped,errors,job_source=str(folder))
+        second=import_documents(self.store,documents,skipped,errors,job_source=str(folder))
+
+        self.assertEqual(first['imported'], 2)
+        self.assertEqual(second['duplicates'], 2)
+        jobs = json.loads((folder/'data'/'import-jobs.json').read_text(encoding='utf-8'))
+        self.assertEqual(len(jobs), 2)
+        self.assertEqual(jobs[0]['status'], 'done')
+        self.assertEqual(jobs[1]['status'], 'done')
+        filenames = {self.store.get(row['id'])['filename'] for row in self.store.list()}
+        self.assertEqual(filenames, {'Start.md', 'Projekte/Plan.txt'})
+
     def test_folder_import_can_be_cancelled_and_records_partial_job(self):
         folder=self.root/'Ablage'
         nested=folder/'Projekte'
