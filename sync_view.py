@@ -9,6 +9,7 @@ from tkinter import messagebox, ttk
 import mail_sync
 
 TICK_MS = 60_000
+STARTUP_DELAY_MS = 5_000  # a sync that became due while the app was closed runs shortly after start
 INTERVAL_LABELS = {mail_sync.interval_label(minutes): minutes for minutes in mail_sync.INTERVALS}
 
 
@@ -56,7 +57,7 @@ class SyncPanel:
         self.run_button.pack(side='left', padx=(0, 8))
         self.status = tk.StringVar()
         ttk.Label(frame, textvariable=self.status, wraplength=950).pack(anchor='w', pady=(4, 0))
-        app.after(TICK_MS, self.tick)
+        app.after(STARTUP_DELAY_MS, self.tick)
         app.after(200, self.poll)
 
     def account_id(self):
