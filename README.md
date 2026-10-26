@@ -49,8 +49,8 @@ Python 3.11 bis 3.13 mit Tkinter voraussetzen, anschließend `sh start.sh` ausf�
 | KI-Fragen | Höchstens acht passende Textabschnitte, Antwort mit [Q1]-Quellenverweisen |
 | Zusammenfassung | Ausgewähltes Dokument bis 24.000 Zeichen |
 | Verlauf | Erfolgreiche KI-Antworten und unveränderliche Quellenkopien in SQL |
-| Sicherung | Konsistente SQLite-Sicherung über die Backup-API |
-| Automatisierung | CLI für Import, Suche, Fragen, Zusammenfassung, Sicherung |
+| Sicherung | Konsistente SQLite-Sicherung über die Backup-API; PostgreSQL über `pg_dump`/`pg_restore` |
+| Automatisierung | CLI für Import, Suche, Fragen, Zusammenfassung, Sicherung, Wiederherstellung |
 | Design | Telekom-Magenta als Akzentfarbe, Hell-/Dunkelmodus und eigenes Logo im Kopfbereich |
 
 Die Suche ist lexikalisch: Begriffe müssen im Dokument vorkommen. Synonyme, echte semantische Suche und Vektor-Embeddings sind in Version 1 nicht implementiert. Bei Mehrwortfragen werden Suchbegriffe mit ODER verknüpft. Häufige Wörter können dadurch irrelevante Treffer erzeugen. Höchstens 30 Texttreffer werden in der Dokumentensuche angezeigt; mehrere Treffer aus demselben Dokument werden zusammengeführt.
@@ -117,6 +117,7 @@ python cli.py search "Freigabe"
 python cli.py ask "Wer gibt Beschaffungsanträge frei?"
 python cli.py summarize 1
 python cli.py backup sicherung.db
+python cli.py restore sicherung.db
 python cli.py config-export wissensraum-konfiguration.json
 python cli.py config-import wissensraum-konfiguration.json
 python cli.py config-sync

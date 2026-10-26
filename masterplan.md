@@ -79,7 +79,7 @@ Die Annahmen werden vor Beginn eines Mehrbenutzer- oder Serverbetriebs neu bewer
 | Datenbanken | SQLite oder PostgreSQL mit eigenem Schema `wissensraum`; beide über geordnete Migrationen bis Schema 4 verwaltet | Lokale Verträge getestet; PostgreSQL-18-CI-Job grün, manueller Migrationstest und Restore-Freigaben noch offen |
 | Schlüssel | Betriebssystem-Schlüsselspeicher; externe Variablen und Dateien lesbar | Sicherheitskritischer Kern vorhanden |
 | Design | Telekom-Magenta, Hell-/Dunkelmodus, eigenes Logo | Produktiv nutzbar |
-| Sicherung | SQLite-Backup; PostgreSQL serverseitig | Wiederherstellung noch nicht automatisiert getestet |
+| Sicherung | SQLite-Backup; PostgreSQL-Backup/Restore über `pg_dump` und `pg_restore` | Wiederherstellung automatisiert getestet |
 
 ### 4.2 Aktuelles Datenmodell
 
@@ -155,8 +155,8 @@ Die Annahmen werden vor Beginn eines Mehrbenutzer- oder Serverbetriebs neu bewer
 - [x] Fail-closed-Startdiagnose für Python, Tcl/Tk, Pillow, sicheren Schlüsselbund, aktive SQLite-/PostgreSQL-Datenbank, Anwendungsschema und Schreibrechte; CLI `doctor` bleibt read-only und meldet ausstehende Konfigurationswiederherstellung redigiert, der Desktop verarbeitet sie erst nach erfolgreicher Diagnose und vor dem normalen Store-Öffnen
 - [x] strukturierte lokale Logs mit Rotation und konsequenter Geheimnisfilterung
 - [ ] Konfigurationsexport und -import ohne Schlüssel, Kennwörter und Token (Code und Tests lokal vollständig; Abschluss erst nach erfolgreichem entferntem CI-Lauf von `test_configuration_transfer_contract_on_real_postgresql`)
-- [ ] SQLite-Wiederherstellung als geführter Ablauf
-- [ ] dokumentierter und automatisiert geprüfter PostgreSQL-Backup-/Restore-Prozess
+- [x] SQLite-Wiederherstellung als geführter Ablauf
+- [x] dokumentierter und automatisiert geprüfter PostgreSQL-Backup-/Restore-Prozess
 - [x] geordneter, versionierter Schema-Migrationsrahmen für SQLite und PostgreSQL mit Metadaten, Sperren, Sicherung/Validierung und Rollback-Tests; PostgreSQL-Reset migrationsbasiert und atomar
 - einheitliches Quellenmodell `sources` für Quelltyp und anwendbare Herkunftsangaben; bestehende Herkunftsangaben werden versioniert migriert
 - Gesundheitsanzeige für aktive Datenbank, KI-Anbieter und E-Mail-Konten
