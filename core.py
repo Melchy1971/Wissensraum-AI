@@ -7,6 +7,7 @@ import json
 import os
 import re
 import sqlite3
+import subprocess
 import urllib.error
 import urllib.request
 from contextlib import closing, contextmanager
@@ -593,11 +594,46 @@ class PostgresStore:
         with self.connect() as db:
             return [dict(row) for row in db.execute('SELECT * FROM ai_runs ORDER BY id DESC LIMIT 100')]
 
-    def backup(self,target):
-        raise ValueError('PostgreSQL-Sicherungen werden auf dem VPS mit pg_dump erstellt; die lokale SQLite-Sicherung ist hierfür nicht anwendbar.')
+    def backup(self, target):
+        target = Path(target)
+        env = os.environ.copy()
+        env['PGPASSWORD'] = self.password
+        command = [
+            'pg_dump',
+            '--format=custom',
+            '--file', str(target),
+            '--host', str(self.profile['host']),
+            '--port', str(self.profile['port']),
+            '--username', str(self.profile['username']),
+            '--dbname', str(self.profile['database']),
+        ]
+        try:
+            subprocess.run(command, check=True, env=env)
+        except FileNotFoundError:
+            raise ValueError('PostgreSQL-Sicherungen werden auf dem VPS mit pg_dump erstellt; die lokale SQLite-Sicherung ist hierfür nicht anwendbar.') from None
+        except Exception:
+            raise ValueError('PostgreSQL-Sicherungen konnten nicht erstellt werden.') from None
 
-    def restore(self, target):
-        raise ValueError('PostgreSQL-Wiederherstellungen werden auf dem VPS mit pg_restore erstellt; die lokale SQLite-Wiederherstellung ist hierfür nicht anwendbar.')
+    def restore(self, source):
+        source = Path(source)
+        env = os.environ.copy()
+        env['PGPASSWORD'] = self.password
+        command = [
+            'pg_restore',
+            '--clean',
+            '--if-exists',
+            '--dbname', str(self.profile['database']),
+            '--host', str(self.profile['host']),
+            '--port', str(self.profile['port']),
+            '--username', str(self.profile['username']),
+            str(source),
+        ]
+        try:
+            subprocess.run(command, check=True, env=env)
+        except FileNotFoundError:
+            raise ValueError('PostgreSQL-Wiederherstellungen werden auf dem VPS mit pg_restore erstellt; die lokale SQLite-Wiederherstellung ist hierfür nicht anwendbar.') from None
+        except Exception:
+            raise ValueError('PostgreSQL-Wiederherstellungen konnten nicht ausgeführt werden.') from None
 
 
 def import_document(path):

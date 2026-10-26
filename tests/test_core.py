@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 import urllib.error
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from core import AI, Store, chunks, discover_documents, import_document, import_documents
+from core import AI, PostgresStore, Store, chunks, discover_documents, import_document, import_documents
 
 class KnowledgeTests(unittest.TestCase):
     def setUp(self):
@@ -69,6 +69,38 @@ class KnowledgeTests(unittest.TestCase):
         self.assertEqual(restored.search('Nachheriger'), [])
         with self.assertRaises(ValueError):
             self.store.restore(self.store.path)
+
+    def test_postgres_backup_uses_pg_dump_custom_format(self):
+        store = PostgresStore({'host': 'pg.example.test', 'port': 5432,
+                               'database': 'wissen', 'username': 'wissen_user',
+                               'sslmode': 'require'}, 'postgres-secret', initialize=False)
+        target = self.root / 'backup.dump'
+        with patch('core.subprocess.run') as run:
+            store.backup(target)
+        run.assert_called_once()
+        command = run.call_args.args[0]
+        self.assertEqual(command[0], 'pg_dump')
+        self.assertIn('--format=custom', command)
+        self.assertIn('--file', command)
+        self.assertIn(str(target), command)
+        self.assertEqual(run.call_args.kwargs['env']['PGPASSWORD'], 'postgres-secret')
+
+    def test_postgres_restore_uses_pg_restore_custom_format(self):
+        store = PostgresStore({'host': 'pg.example.test', 'port': 5432,
+                               'database': 'wissen', 'username': 'wissen_user',
+                               'sslmode': 'require'}, 'postgres-secret', initialize=False)
+        source = self.root / 'backup.dump'
+        source.write_bytes(b'backup')
+        with patch('core.subprocess.run') as run:
+            store.restore(source)
+        run.assert_called_once()
+        command = run.call_args.args[0]
+        self.assertEqual(command[0], 'pg_restore')
+        self.assertIn('--clean', command)
+        self.assertIn('--if-exists', command)
+        self.assertIn('--dbname', command)
+        self.assertIn(str(source), command)
+        self.assertEqual(run.call_args.kwargs['env']['PGPASSWORD'], 'postgres-secret')
 
     def test_restore_replaces_current_database_with_verified_backup(self):
         self.store.add('Alt','Vorheriger Stand')
