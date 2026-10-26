@@ -1,18 +1,18 @@
 # Masterplan Wissensraum-AI
 
-**Dokumentversion:** 1.8
+**Dokumentversion:** 1.9
 
-**Stand:** 23.10.2026
+**Stand:** 26.10.2026
 
-**Produktstand:** 1.9 freigegeben am 23.10.2026 (Stand `4b37177`) · Vorgänger 1.8.1
+**Produktstand:** 2.0 abgenommen am 26.10.2026 (Code-Stand `84f9ecf`) · 1.9 freigegeben am 23.10.2026
 
 **Repository:** `Melchy1971/Wissensraum-AI`
 
-**Geprüfter Repository-Stand:** Commit `4b37177` (scrollbare Einstellungsseiten). CI-Lauf [39918310287](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39918310287) auf `4b37177` (23.10.2026): alle sieben Jobs grün. Davor: Lauf `39914353899` auf `ea7d929` grün; Läufe bis `585ae5a` rot im Vorschauschritt.
+**Geprüfter Repository-Stand:** Commit `18c61f1` (Dokumentation); letzter codewirksamer Stand `84f9ecf`. CI-Lauf [40185408996](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40185408996) auf `84f9ecf`: alle sieben Jobs grün. Release 2.0 wurde am 26.10.2026 mit eigenen Daten abgenommen.
 
 **Ablage:** Einziger Masterplan ist diese Datei `masterplan.md`. Die frühere Kopie `docs/masterplan.md` wurde am 22.10.2026 entfernt.
 
-**Status:** Phasen- und Testplan · Release 1.9 freigegeben, Release 2.0 abgenommen 26.10.2026, Phasen 0 bis 6 ✅ · nächste Phase 7 (Release 2.1), noch nicht freigegeben
+**Status:** Phasen- und Testplan · Release 1.9 freigegeben, Release 2.0 abgenommen 26.10.2026, Phasen 0 bis 6 ✅ · Release 2.0.1 (Soll-Umfang von Phase 6, D-013) in Arbeit, danach Phase 7 (Release 2.1), noch nicht freigegeben
 
 **Legende:** ✅ vollständig implementiert und gesamtes Gate nachweislich bestanden · 🟡 implementiert oder teilweise geprüft, aber noch nicht vollständig abgenommen · ❌ Gate fehlgeschlagen oder Freigabe blockiert · ⬜ geplant und noch nicht begonnen
 
@@ -43,7 +43,7 @@
 | Tests Windows, Python 3.11, 3.12 und 3.13 | 353 Tests, je 337 bestanden, 16 übersprungen (3 POSIX-Logging-Fälle, 10 PostgreSQL, 3 `start.sh`-Tests ohne `sh` im Suchpfad). 3.12 und 3.13: 0 Fehler. 3.11 auf dem Entwicklungsrechner: in jedem Lauf ein bis fünf Fehler beim Löschen des Temp-Ordners nach bestandenem Test (WinError 145), jedes Mal in anderen, überwiegend bereits vorhandenen Tests; der CI-Job Windows/3.11 war in allen geprüften Läufen grün. Vermutlich lokales Zusammenspiel mit dem Virenscanner. | 🟡 lokal, nicht release-blockierend (CI Windows/3.11 grün) |
 | CI-Matrix | Lauf [39918310287](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39918310287) auf `4b37177` (23.10.2026): alle sieben Jobs grün, Windows/Linux × Python 3.11/3.12/3.13 und `postgres` (PostgreSQL 18 einschließlich `pg_dump`/`pg_restore`-Rundlauf). Davor grün: `39914353899` auf `ea7d929`. Läufe bis `585ae5a` rot im Vorschauschritt. | ✅ für `4b37177` |
 
-**Nächster kleinster Schritt:** Release 2.0.1 (D-011), Teilschritt S1 Formate in Arbeit. Danach S2 Regeln, S3 Postfachsynchronisation; Phase 7 erst nach 2.0.1. Verschoben: Kennwort der VPS-Datenbank wird mit dem Live-Release geändert (Entscheidung 24.10.2026).
+**Nächster kleinster Schritt:** Release 2.0.1 (D-013), Teilschritt S1 Formate in Arbeit. Danach S2 Regeln, S3 Postfachsynchronisation; Phase 7 erst nach 2.0.1. Verschoben: Kennwort der VPS-Datenbank wird mit dem Live-Release geändert (Entscheidung 24.10.2026).
 
 ## Aktualisierung 22.10.2026 – Release 1.9 nach Hermes-Merge
 
@@ -157,13 +157,12 @@ Die Annahmen werden vor Beginn eines Mehrbenutzer- oder Serverbetriebs neu bewer
 
 ### 4.3 Qualitätsbasis
 
-- Aktueller Stand 22.10.2026: 353 Tests. Linux Python 3.12/3.13 mit lokalem PostgreSQL 16.2 je 351 bestanden, 2 übersprungen; Linux Python 3.11 ohne PostgreSQL 341 bestanden, 12 übersprungen; Windows Python 3.11/3.12/3.13 je 335 bestanden, 16 übersprungen, unter 3.11 vereinzelt ein umgebungsbedingter Temp-Ordner-Aufräumfehler.
-- Dokumentierter Vorstand `b117ac9`: 321 Tests auf Windows erfolgreich, 9 Übersprünge (3 plattformspezifische Logging-Dateisystemfälle, 6 nicht konfigurierte Live-PostgreSQL-Diensttests).
-- Unterstützte Python-Versionen 3.11, 3.12 und 3.13; CI-Matrix auf Windows und Linux mit allen drei Versionen (seit 22.10.2026, vorher nur 3.11 und 3.13), dazu der Job `postgres`: sieben Jobs
-- grafische Tests unter virtuellem Linux-Bildschirm
-- PostgreSQL-18-Dienst in CI verdrahtet; erfolgreicher entfernter Lauf von `test_configuration_transfer_contract_on_real_postgresql` noch nicht nachgewiesen
-- CI ohne kostenpflichtige KI-, E-Mail- oder Microsoft-Aufrufe
-- API-Verträge über kontrollierte Testantworten
+- Aktueller Stand 26.10.2026: 441 automatisierte Tests. Die vollständige Linux-Prüfung mit Python 3.11, 3.12 und 3.13, PostgreSQL 16, OCR und virtuellem Bildschirm ist grün; unter Windows sind plattform- und dienstbedingte Übersprünge transparent ausgewiesen.
+- Unterstützte Python-Versionen 3.11, 3.12 und 3.13; CI-Matrix auf Windows und Linux mit allen drei Versionen sowie separatem PostgreSQL-18-Job: sieben Jobs.
+- CI-Lauf [40185408996](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40185408996) auf dem letzten codewirksamen Stand `84f9ecf`: alle sieben Jobs grün.
+- PostgreSQL-Verträge, Migrationen, Importaufträge und Backup-/Restore-Rundlauf werden gegen echte PostgreSQL-Testdienste geprüft.
+- Grafische Tests laufen unter virtuellem Linux-Bildschirm; Windows-spezifische Layoutfehler besitzen eigene Regressionstests.
+- CI führt keine kostenpflichtigen KI-, E-Mail- oder Microsoft-Aufrufe aus; externe API-Verträge werden über kontrollierte Testantworten geprüft.
 
 #### Historie Phase 4 (Hermes-Prüfstand, 89 Tests)
 
@@ -208,7 +207,7 @@ Die Funktionen sind im Code vorhanden, in der vollständigen CI-Matrix geprüft 
 5. ✅ **Nachvollziehbare Quellen:** Jede gespeicherte KI-Antwort enthält die tatsächlich verwendeten Textstellen als Quellen-Snapshot.
 6. ✅ **Fail closed:** Ungültige Konfigurationen, fehlende Rechte und unsichere TLS-Einstellungen führen in den implementierten Verbindungs- und Schlüsselpfaden zum Abbruch.
 7. ✅ **Versionierte Vorwärtsmigrationen mit Rückwärtskompatibilitätsprüfung:** Jede Schemaänderung wird als versionierte Vorwärtsmigration ausgeführt und besitzt eine Versionsprüfung, Vorab-Sicherung sowie automatisierte Migrations- und Rückwärtskompatibilitätstests.
-8. **Unvertrauenswürdige Inhalte:** Importierte Texte gelten als Daten, niemals als ausführbare Anweisung.
+8. ✅ **Unvertrauenswürdige Inhalte:** Importierte Texte gelten als Daten, niemals als ausführbare Anweisung.
 9. ✅ **Reproduzierbarkeit:** Unterstützte Python-Versionen und Abhängigkeiten bleiben fest versioniert und durch CI geprüft.
 10. ✅ **Löschtransparenz:** Für den aktuellen Dokumentlöschpfad sind Original, Suchindex, Importmarkierung und erhaltener KI-Quellen-Snapshot dokumentiert und getestet.
 
@@ -229,9 +228,9 @@ Die Funktionen sind im Code vorhanden, in der vollständigen CI-Matrix geprüft 
 | Objekt | Zweck | Release |
 |---|---|---|
 | ✅ `sources` | Herkunft, Quelltyp, Konto, Pfad und Abrufkontext vereinheitlichen | 1.9 (Schema 5 implementiert) |
-| `import_jobs` | Laufstatus, Fortschritt, Fehler, Abbruch und Wiederaufnahme | 2.0 |
-| `attachments` | E-Mail-Anhänge und Beziehung zur Nachricht | 2.0 |
-| `document_versions` | Korrigierte oder erneut importierte Fassungen nachvollziehen | 2.0 |
+| ✅ `import_jobs` / `import_items` / `import_item_errors` | Laufstatus, Fortschritt, Fehler, Abbruch und Wiederaufnahme | 2.0 (Schema 6 implementiert) |
+| ✅ `email_attachments` | E-Mail-Anhänge und Beziehung zur Nachricht | 2.0 (Schema 8 implementiert) |
+| ✅ `document_versions` | Korrigierte oder erneut importierte Fassungen nachvollziehen | 2.0 (Schema 7 implementiert) |
 | `embeddings` | Vektoren, Modell, Dimension, Prüfsumme und Erzeugungszeit | 2.1 |
 | `entities` / `relations` | Kontrollierter Wissensgraph | 2.3 |
 | `audit_events` | Sicherheits- und Betriebsereignisse ohne Geheimnisse | 2.4 |
@@ -248,11 +247,12 @@ Die Phasen werden in der angegebenen Reihenfolge getestet. Eine Phase wird erst 
 | 3 | Ordner-, PST- und E-Mail-Import | ✅ | freigegeben; PST bleibt optional |
 | 4 | Versionierte SQLite-/PostgreSQL-Migrationen | ✅ | freigegeben 23.10.2026 |
 | 5 | Release 1.9 Betriebsfähigkeit | ✅ | freigegeben 23.10.2026 |
-| 6 | Release 2.0 Importplattform | ✅ | freigegeben 23.10.2026, in vier Teilschritten (D-010); 6.1 ✅ (23.10.2026, CI [39925457254](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39925457254) auf `ca5bce6`), 6.2 ✅ (23.10.2026, CI [39932577799](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39932577799) auf `4cdb50e`), 6.3a ✅ (23.10.2026, CI [39942033441](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39942033441) auf `e36be53`), 6.3 ✅ (6.3b 23.10.2026, CI [39976859099](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39976859099) auf `e4d1f95`), alle vier Teilschritte ✅ (6.4 24.10.2026, CI [40097227667](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40097227667) auf `d05ef87`); abgenommen 26.10.2026 durch den Product Owner mit eigenen Daten; Soll-Umfang verschoben |
+| 6 | Release 2.0 Importplattform | ✅ | freigegeben 23.10.2026, in vier Teilschritten (D-010); 6.1 ✅ (23.10.2026, CI [39925457254](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39925457254) auf `ca5bce6`), 6.2 ✅ (23.10.2026, CI [39932577799](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39932577799) auf `4cdb50e`), 6.3a ✅ (23.10.2026, CI [39942033441](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39942033441) auf `e36be53`), 6.3 ✅ (6.3b 23.10.2026, CI [39976859099](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39976859099) auf `e4d1f95`), alle vier Teilschritte ✅ (6.4 24.10.2026, CI [40097227667](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40097227667) auf `d05ef87`); abgenommen 26.10.2026 durch den Product Owner mit eigenen Daten; Soll-Umfang folgt als Release 2.0.1 (D-013), S1 in Arbeit |
 | 7 | Release 2.1 Hybrid-RAG | ⬜ | nach Phase 6 |
 | 8 | Wissensorganisation und Wissensgraph | ⬜ | nach Phase 7 |
 | 9 | Betrieb und Governance | ⬜ | nach Phase 8 |
-| 10 | Mehrbenutzerbetrieb | ⬜ | separates Entscheidungstor |
+| 10 | Release 3.0 Sicherheitskern und Mehrbenutzerbetrieb | ⬜ | separates Architektur- und Sicherheits-Gate |
+| 11 | Release 3.1 VPS-Webanwendung und eigene Domain | ⬜ | erst nach Phase 10; öffentliche Bereitstellung nur mit vollständigem Sicherheits- und Betriebs-Gate |
 
 ### Phase 0 – Installation, Start und Oberfläche ✅
 
@@ -476,7 +476,7 @@ PostgreSQL-Destruktivtests dürfen ausschließlich gegen eine Wegwerfdatenbank m
 
 **Gate:** Ein referenzierter Import-Testbestand und ein wiederholbarer Abbruch-/Fortsetzungstest sind vollständig grün.
 
-**Release 2.0.1 – Soll-Umfang (D-011, Entscheidung Product Owner 26.10.2026):** Ein Teilschritt beginnt erst, wenn der vorherige grün ist.
+**Release 2.0.1 – Soll-Umfang (D-013, Entscheidung Product Owner 26.10.2026):** Ein Teilschritt beginnt erst, wenn der vorherige grün ist.
 
 | Teilschritt | Umfang | Gate | Status |
 |---|---|---|---|
@@ -614,24 +614,90 @@ Erforderlicher Mindestumfang:
 - zentrale Geheimnisverwaltung
 - Betriebs-, Patch- und Incident-Prozess
 
+### Phase 11 – Release 3.1 VPS-Webanwendung und eigene Domain ⬜
+
+**Ziel:** Wissensraum-AI läuft reproduzierbar auf dem eigenen VPS und ist ausschließlich authentifiziert über eine eigene HTTPS-Domain erreichbar.
+
+**Architekturentscheidung:**
+
+- Der vorhandene Python-Fachkern, die Migrationen, Import-, OCR-, E-Mail-, Such- und KI-Dienste werden weiterverwendet.
+- Die Tkinter-Oberfläche wird nicht über das Internet übertragen. Für den Browser entsteht eine getrennte Weboberfläche.
+- Zielstack: FastAPI als API- und Anwendungsschicht, serverseitig gerenderte Oberfläche mit HTMX als Standard, PostgreSQL 18, persistente Hintergrundaufträge, Docker Compose und ein Reverse Proxy mit automatischer TLS-Zertifikatserneuerung.
+- React oder eine andere Single-Page-Anwendung wird nur eingeführt, wenn ein nachgewiesener Interaktionsbedarf mit HTMX nicht wartbar abbildbar ist.
+- PostgreSQL bleibt ausschließlich im internen Servernetz oder auf `localhost`; Port 5432 wird nicht öffentlich freigegeben.
+- Release 3.1 setzt den Sicherheitskern aus Phase 10 voraus. Eine öffentliche Testinstanz ohne Authentifizierung, Rollen, sichere Sitzungen und Uploadschutz ist unzulässig.
+- Die Desktopanwendung bleibt bis zur vollständigen Web-Abnahme als Rückfallweg erhalten. Eine automatische bidirektionale Synchronisation zwischen Desktop- und Webinstanz ist nicht Bestandteil von Release 3.1.
+
+**Teilschritte:**
+
+| Teilschritt | Umfang | Gate |
+|---|---|---|
+| 11.1 Serverfähiger Kern | Fachlogik von Tkinter entkoppeln, stabile Service- und API-Verträge, PostgreSQL als Server-Backend | Alle Kernfunktionen laufen ohne gestartete Desktopoberfläche; bestehende Tests bleiben grün |
+| 11.2 Web-Sicherheit | Anmeldung, sichere Passworthashes oder OIDC, serverseitige Sitzungen, CSRF-Schutz, sichere Cookies, Rate Limits, Rollen und Audit-Ereignisse | Kein Dokument, Original, Importauftrag, KI-Verlauf oder Administrationsendpunkt ist ohne gültige Berechtigung erreichbar |
+| 11.3 Weboberfläche | Dashboard, Dokumente, Suche, Importvorschau, Auftragsfortschritt, KI-Fragen, Quellen, Einstellungen und Systemstatus | Vereinbarte Funktionsparität zur Desktopoberfläche; responsive End-to-End-Tests für Desktop und Mobilbrowser |
+| 11.4 VPS und Domain | Docker-Images, Docker Compose, Reverse Proxy, DNS, HTTPS, Healthchecks, automatische Neustarts, Logrotation und Ressourcenlimits | Reproduzierbare Neuinstallation auf leerem VPS; ausschließlich HTTPS; keine öffentlich erreichbare Datenbank |
+| 11.5 Datenmigration und Abnahme | Sicherung, Übertragung nach PostgreSQL, Prüfsummenvergleich, Restore-Test, externer Zugriffstest und Sicherheitsprüfung | 100 % identische Dokument-Prüfsummen, vollständige Tabellen- und Quellenanzahl, erfolgreicher Restore und keine kritischen Sicherheitsbefunde |
+
+**Muss-Umfang:**
+
+- eigene Domain mit automatischer HTTPS-Erneuerung
+- sichere Anmeldung und Abmeldung
+- mindestens Rollen `Administrator` und `Benutzer`
+- serverseitige Sitzungen mit Ablauf und Widerruf
+- geschützte Upload-, Download- und Exportpfade
+- Hintergrundverarbeitung für Import, OCR, E-Mail und KI-Aufträge
+- Fortschrittsanzeige ohne blockierende HTTP-Anfrage
+- zentrale Geheimnisverwaltung außerhalb von Repository, Datenbank und Logs
+- tägliche PostgreSQL-Sicherung mit verschlüsselter externer Kopie
+- Wiederherstellungsablauf und dokumentierte Betriebsanleitung
+- Healthchecks, strukturierte Logs, Speicher-, CPU- und Plattenwarnungen
+- Patch-, Update- und Incident-Prozess
+
+**Nicht-Ziele für Release 3.1:**
+
+- native Smartphone-App
+- öffentliche Registrierung
+- anonyme Freigabelinks
+- Mandantenbetrieb für fremde Organisationen
+- automatische Synchronisation zweier unabhängig beschreibbarer Wissensdatenbanken
+- Ablösung der Desktopanwendung vor bestandener Web-Abnahme
+
+**Sicherheits-Gate vor öffentlicher Erreichbarkeit:**
+
+- veröffentlichtes VPS-Datenbankkennwort ersetzt und alle abhängigen Konfigurationen rotiert
+- SSH ausschließlich mit Schlüssel; Passwortanmeldung deaktiviert
+- Firewall erlaubt nur die ausdrücklich benötigten Ports
+- PostgreSQL nicht aus dem Internet erreichbar
+- HTTPS erzwungen; sichere Cookies, HSTS und geeignete Security-Header aktiviert
+- Uploads werden außerhalb öffentlich ausführbarer Verzeichnisse gespeichert
+- Brute-Force-, CSRF-, Rechte-, Pfad-, Größen- und Dekompressionsangriffe automatisiert negativ getestet
+- vollständiger Secret-Scan und externer Sicherheitscheck ohne kritischen Befund
+- Backup und Wiederherstellung auf einer leeren Zielumgebung erfolgreich geprobt
+
+**Abnahme:** Ein externer Browser greift über die eigene Domain auf die Anwendung zu. Anmeldung, Dokumentimport, OCR, Suche, KI-Frage, Quellenanzeige, E-Mail-Anhangsfreigabe, Export, Abmeldung, Backup und Wiederherstellung werden mit synthetischen Daten vollständig protokolliert. Direkte Zugriffe auf API, Originaldateien und PostgreSQL ohne Berechtigung schlagen nachweislich fehl.
+
+**Aufwandsschätzung:** 49 bis 95 Entwicklungstage unter der Annahme eines ersten Einzelbenutzer-Webreleases, Wiederverwendung des Python-Fachkerns, HTMX statt vollständiger SPA und ohne native Mobil-App. Sicherheitsprüfung, Datenmigration und Wiederherstellungsabnahme sind darin enthalten und dürfen nicht zugunsten eines früheren Domainzugriffs entfallen.
+
 ## 8. Priorisiertes Arbeitsprogramm
 
 | Priorität | Arbeitspaket | Nutzen | Abhängigkeit |
 |---|---|---|---|
-| P0 | Veröffentlichtes Datenbankkennwort ändern | Schließt unmittelbares Zugangsrisiko | VPS-Zugriff; **Entscheidung Product Owner 24.10.2026:** Änderung erst mit dem Live-Release, bis dahin bleibt das vorhandene Kennwort in Gebrauch. Risiko bis dahin: Wer das veröffentlichte Kennwort kennt, kann sich an der VPS-Datenbank anmelden, soweit Netz und `pg_hba.conf` es zulassen. Muss Teil der Live-Release-Checkliste sein. |
+| P0 | Veröffentlichtes Datenbankkennwort ändern | Schließt unmittelbares Zugangsrisiko | Spätestens vor der ersten extern erreichbaren Instanz von Release 3.1; Rotation ist ein hartes Sicherheits-Gate und keine nachgelagerte Betriebsaufgabe. |
 | ✅ P0 | Vier nachgewiesene Migrations-Testfehler korrigieren (`55bc4ca`) | Stellt ein belastbares Phase-4-Gate her | Hermes-Commit `717db895` |
 | ✅ P0 | Alle fünf CI-Jobs wieder auf Grün bringen (Lauf `39410112241`) | Verhindert Freigabe eines nicht abgenommenen Datenbankumbaus | Korrigierte Migrationstests |
 | ✅ P0 | Linux-Identitätsbindung korrigieren und CI-Matrix für den Head grün nachweisen | Stellt grünes Gate wieder her | Push |
 | ✅ P0 | README und Ist-Stand synchronisieren (Masterplan-Dateien zusammengeführt) | Verhindert Fehlbedienung und falsche Annahmen | Keine |
 | ✅ P0 | Manuellen Migrations- und Wiederherstellungstest protokollieren | Reduziert Datenverlustrisiko | Isolierte SQLite-/PostgreSQL-Testdatenbanken |
-| P1 | Importaufträge und Fehlerjournal | Beherrscht große Datenmengen | Schema-Migration |
-| P1 | E-Mail-Anhänge mit Freigabe | Schließt wesentliche Inhaltslücke | Importaufträge |
-| P1 | OCR | Erschließt gescannte Dokumente | Importaufträge |
+| ✅ P1 | Importaufträge und Fehlerjournal | Beherrscht große Datenmengen | In Release 2.0 umgesetzt und abgenommen |
+| ✅ P1 | E-Mail-Anhänge mit Freigabe | Schließt wesentliche Inhaltslücke | In Release 2.0 umgesetzt und abgenommen |
+| ✅ P1 | OCR | Erschließt gescannte Dokumente | In Release 2.0 umgesetzt und abgenommen |
+| ✅ P1 | Dokumentversionen und Importvorschau | Nachvollziehbare Änderungen und kontrollierter Import | In Release 2.0 umgesetzt und abgenommen |
 | P1 | Evaluationsdatensatz | Messbasis für RAG-Qualität | Repräsentative Testdokumente |
 | P2 | Hybrid-RAG und Reranking | Höhere Treffergenauigkeit | Embedding-Entscheidung, Evaluation |
-| P2 | Dokumentstatus und Versionen | Datenqualität und Aktualität | Schema-Migration |
+| P2 | Dokumentstatus und Wissensorganisation | Datenqualität und Aktualität | Stabile Versionslogik |
 | P3 | Wissensgraph | Strukturierte Zusammenhänge | Stabile Quellen- und Versionslogik |
-| P3 | Mehrbenutzerentscheidung | Skalierung | Eigenes Sicherheits- und Betriebskonzept |
+| P3 | Release 3.0 Sicherheitskern und Mehrbenutzerbetrieb | Sichere Identitäten, Rollen und serverfähiges Bedrohungsmodell | Separates Architektur- und Sicherheits-Gate |
+| P4 | Release 3.1 VPS-Webanwendung und eigene Domain | Ortsunabhängiger, kontrollierter Browserzugriff | Release 3.0, PostgreSQL, Backup/Restore, Domain und VPS |
 
 ## 9. Qualitätskennzahlen
 
@@ -762,7 +828,9 @@ Ein Arbeitspaket ist abgeschlossen, wenn:
 | D-008 | Lokale Vektorsuche für SQLite ist vor Release 2.1 technisch zu entscheiden | Offen |
 | D-009 | OCR mit Tesseract (Apache 2.0) über `pytesseract`, PDF-Seiten mit `pypdfium2` gerendert; lokal, optionale Erweiterung wie die PST-Unterstützung; kein Ghostscript (AGPL) und keine Cloud-OCR | Entschieden 23.10.2026 (Product Owner) |
 | D-010 | Release 2.0 in vier Teilschritten mit eigenem Gate: 6.1 Importaufträge, 6.2 Versionen und Vorschau, 6.3 E-Mail-Anhänge, 6.4 OCR | Entschieden 23.10.2026 (Product Owner) |
-| D-011 | Soll-Umfang von Phase 6 wird als Release 2.0.1 vor Phase 7 umgesetzt, in drei Teilschritten mit eigenem Gate: S1 Formate (HTML, RTF, XLSX, PPTX, EML), S2 Regeln für Kategorien und Tags, S3 zeitgesteuerte Postfachsynchronisation; S3 läuft nur, solange die Anwendung geöffnet ist (keine Windows-Aufgabenplanung) | Entschieden 26.10.2026 (Product Owner) |
+| D-011 | Release 3.1 verlagert die Anwendung auf den eigenen VPS und stellt sie authentifiziert über eine eigene HTTPS-Domain bereit; Phase 10 ist zwingende Sicherheitsvoraussetzung | Entschieden 26.10.2026 (Product Owner) |
+| D-012 | Zielstack für Release 3.1: FastAPI, serverseitige Oberfläche mit HTMX, PostgreSQL 18, persistente Hintergrundaufträge, Docker Compose und Reverse Proxy mit automatischem TLS; SPA nur bei nachgewiesenem Bedarf | Entschieden 26.10.2026 (Product Owner) |
+| D-013 | Soll-Umfang von Phase 6 wird als Release 2.0.1 vor Phase 7 umgesetzt, in drei Teilschritten mit eigenem Gate: S1 Formate (HTML, RTF, XLSX, PPTX, EML), S2 Regeln für Kategorien und Tags, S3 zeitgesteuerte Postfachsynchronisation; S3 läuft nur, solange die Anwendung geöffnet ist (keine Windows-Aufgabenplanung) | Entschieden 26.10.2026 (Product Owner) |
 
 ## 14. Hauptrisiken
 
@@ -777,17 +845,30 @@ Ein Arbeitspaket ist abgeschlossen, wenn:
 | Externe API-Änderungen | Ausfall einzelner Anbieter | Adapterverträge, Versionierung, kontrollierte Fehlerzustände |
 | Fehlende Live-Tests | unerkannte Integrationsfehler | optionale, manuell freigegebene Smoke-Tests mit synthetischen Daten |
 | Unkontrollierter Funktionszuwachs | hohe Kopplung und Regressionen | Release-Gates, Nicht-Ziele, Definition of Done |
+| Öffentliche Weboberfläche vergrößert die Angriffsfläche | Kontoübernahme, Datenabfluss oder Manipulation | Phase 10 als Pflichtvoraussetzung, HTTPS, sichere Sitzungen, Rollen, Rate Limits, Auditierung und externe Sicherheitsprüfung |
+| Fehlerhafte Desktop-zu-VPS-Migration | fehlende Dokumente, beschädigte Originale oder unvollständige Quellen | unveränderte Prüfsummen, Tabellen- und Quellenzählung, Restore-Probe und paralleler Desktop-Rückfallweg bis zur Abnahme |
+| VPS-Ausfall oder Ressourcenerschöpfung | Anwendung und Wissensbestand nicht verfügbar | Healthchecks, Ressourcenlimits, externe Sicherung, RPO 24 Stunden, RTO 2 Stunden und getesteter Neuaufbau |
 
 ## 15. Nächster verbindlicher Release-Schnitt
 
-Release **1.9 – Stabilisierung und Betriebsfähigkeit** ist am 23.10.2026 freigegeben (abgenommen 23.10.2026: CI-Lauf [39918310287](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39918310287) auf `4b37177`, Release-Gate-Protokoll `release-gate-20261022-184843.md`). Alle folgenden Gates sind erfüllt. Der nächste Release ist **2.0 – Robuste Importplattform** (Phase 6); er beginnt erst nach ausdrücklicher Freigabe durch den Product Owner.
+Release **2.0 – Robuste Importplattform** ist am 26.10.2026 auf dem Code-Stand `84f9ecf` abgenommen. Die vier Teilschritte Importaufträge, Dokumentversionen und Vorschau, E-Mail-Anhänge sowie OCR sind umgesetzt, in der CI geprüft und mit eigenen Daten bestätigt. Der nachfolgende Commit `18c61f1` änderte ausschließlich README und Masterplan.
 
-- ✅ alle sieben GitHub-CI-Jobs (Windows/Linux × Python 3.11/3.12/3.13 und `postgres`) für den aktuellen Head grün (erfüllt für `4b37177`, Lauf [39918310287](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39918310287); nach jeder weiteren Änderung erneut nachweisen)
-- ✅ SQLite-Migrationen 1 bis 4 auf 5 mit unveränderten Dokument-Hashes und erwarteten `sources`-Werten geprüft (Release-Gate-Schritt M1 mit historischen Testdatenbanken auf Windows; Migration einer Kopie echter Altdaten nicht anwendbar, weil kein Altbestand mit Inhalt existiert)
-- ✅ PostgreSQL-Migration und atomarer Reset ausschließlich gegen eine isolierte `*_test`-Datenbank geprüft
-- ✅ Dokumentation widerspruchsfrei
-- ✅ SQLite- und PostgreSQL-Wiederherstellung geprüft
-- ✅ strukturierte, geheimnisfreie Diagnose vorhanden
-- ✅ vollständiger Gesamtlauf (aktuell 441 Tests) grün; plattform- oder dienstbedingte Übersprünge transparent ausgewiesen
+Der nächste verbindliche Release ist **2.0.1 – Soll-Umfang der Importplattform** (D-013: weitere Formate, Regeln für Kategorien und Tags, Postfachsynchronisation bei geöffneter Anwendung), danach **2.1 – Hybrid-RAG und Antwortqualität** (Phase 7). Vor Implementierungsbeginn von 2.1 sind festzulegen:
 
-Damit wird zuerst die Betriebs- und Datensicherheit des vorhandenen Funktionsumfangs abgesichert. Danach folgen Importausbau und Hybrid-RAG in getrennten Phasen.
+- versionierter Evaluationsdatensatz mit Fragen, erwarteten Hauptquellen und Ausschlussfällen
+- Embedding-Anbieter und lokales Referenzmodell
+- technische Strategie für Vektorsuche unter SQLite
+- Fusionsverfahren für Volltext- und Vektortreffer
+- Reranker als optionaler, messbar bewerteter Schritt
+- verbindliche Messung von Recall@10, Quellenabdeckung und Retrieval-P95
+
+Release **3.1 – VPS-Webanwendung und eigene Domain** ist beschlossen, beginnt aber erst nach dem Sicherheits- und Mehrbenutzer-Gate von Release 3.0. Die Reihenfolge lautet:
+
+1. Release 2.0.1: Soll-Umfang der Importplattform (D-013)
+2. Release 2.1: Hybrid-RAG und messbare Antwortqualität
+3. Release 2.2 und 2.3: Wissensorganisation und Wissensgraph nach fachlicher Priorisierung
+4. Release 2.4: Betrieb und Governance
+5. Release 3.0: Authentifizierung, Rollen, sichere Sitzungen, Auditierung und serverfähiges Bedrohungsmodell
+6. Release 3.1: Weboberfläche, VPS, Domain, HTTPS, Datenmigration und Betriebsabnahme
+
+Das veröffentlichte VPS-Datenbankkennwort muss spätestens vor der ersten extern erreichbaren Release-3.1-Instanz ersetzt werden. Ohne Kennwortrotation, nicht öffentlich erreichbare Datenbank, vollständiges HTTPS, Authentifizierung, Rechteprüfung, Backup und Restore-Nachweis erfolgt keine Webfreigabe.
