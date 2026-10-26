@@ -160,6 +160,11 @@ class InterfaceTests(unittest.TestCase):
     def cleanup(self):
         if self.window is not None:
             self.window.destroy()
+            self.window=None
+        # Free this test's Tk objects now, in the main thread. Otherwise a later garbage collection
+        # can run them in a worker thread of the next test, where every Tk variable waits about one
+        # second for a main loop that no longer exists and the worker misses the test's time limit.
+        import gc; gc.collect()
         for p in reversed(self.patches): p.stop()
         self.temp.cleanup()
 
