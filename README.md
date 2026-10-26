@@ -6,7 +6,7 @@ Dokumente, Notizen, Originaldateien und KI-Verlauf werden wahlweise in einer lok
 
 ## Masterplan und Roadmap
 
-Der verbindliche [Masterplan mit Release-Roadmap](docs/masterplan.md) trennt den bestätigten Stand 1.8.1 vom integrierten Entwicklungsstand und von geplanten Arbeiten. Dieses Repository befindet sich im Entwicklungsstand **1.9-dev**: Startdiagnose, operative Logs und der Schema-Migrationsrahmen sind implementiert und getestet. Der Konfigurationstransfer ist lokal vollständig, bleibt aber bis zum erfolgreichen entfernten PostgreSQL-Vertragstest offen; weitere Release-1.9-Arbeitspakete sind ebenfalls noch nicht abgeschlossen.
+Der verbindliche [Masterplan mit Release-Roadmap](masterplan.md) trennt den bestätigten Stand 1.8.1 vom integrierten Entwicklungsstand und von geplanten Arbeiten. Dieses Repository befindet sich im Entwicklungsstand **1.9-dev**: Startdiagnose, operative Logs und der Schema-Migrationsrahmen sind implementiert und getestet. Der Konfigurationstransfer ist lokal vollständig, bleibt aber bis zum erfolgreichen entfernten PostgreSQL-Vertragstest offen; weitere Release-1.9-Arbeitspakete sind ebenfalls noch nicht abgeschlossen.
 
 ### Startdiagnose (Release 1.9)
 

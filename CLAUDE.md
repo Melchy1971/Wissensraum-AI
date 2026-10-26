@@ -16,7 +16,7 @@ Der Offline-Kern muss ohne KI-Anbieter funktionieren. Ein Webserver, Mehrbenutze
 
 Lies vor jeder nicht-trivialen Änderung mindestens:
 
-1. `docs/masterplan.md` – verbindliche Phasen, Status, Test-Gates und Release-Freigaben
+1. `masterplan.md` – verbindliche Phasen, Status, Test-Gates und Release-Freigaben
 2. `README.md` – Bedienung, Produktgrenzen, Datenhaltung und unterstützte Konfiguration
 3. die betroffenen Implementierungsdateien und Tests
 4. `.github/workflows/tests.yml` – tatsächlich geprüfte Python-, Betriebssystem- und PostgreSQL-Matrix
