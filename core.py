@@ -278,6 +278,26 @@ class Store:
             with dest:
                 source.backup(dest)
 
+    def restore(self, source):
+        source = Path(source)
+        if source.resolve() == self.path.resolve():
+            raise ValueError('Die Wiederherstellung muss aus einer anderen Datei erfolgen.')
+        if not source.is_file():
+            raise ValueError('Die Sicherungsdatei wurde nicht gefunden.')
+        temporary = self.path.with_name(self.path.name + '.restore-' + uuid.uuid4().hex)
+        try:
+            with closing(sqlite3.connect(source)) as backup, closing(sqlite3.connect(temporary)) as target:
+                with target:
+                    backup.backup(target)
+            if self.path.exists():
+                self.path.unlink()
+            os.replace(temporary, self.path)
+        finally:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
+
 
 class _PostgresConnection:
     def __init__(self,connection):
@@ -575,6 +595,9 @@ class PostgresStore:
 
     def backup(self,target):
         raise ValueError('PostgreSQL-Sicherungen werden auf dem VPS mit pg_dump erstellt; die lokale SQLite-Sicherung ist hierfür nicht anwendbar.')
+
+    def restore(self, target):
+        raise ValueError('PostgreSQL-Wiederherstellungen werden auf dem VPS mit pg_restore erstellt; die lokale SQLite-Wiederherstellung ist hierfür nicht anwendbar.')
 
 
 def import_document(path):

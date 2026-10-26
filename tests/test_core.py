@@ -54,6 +54,38 @@ class KnowledgeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.store.backup(self.store.path)
 
+    def test_restore_replaces_current_database_with_verified_backup(self):
+        self.store.add('Alt','Vorheriger Stand')
+        backup_path = self.root/'backup.db'
+        self.store.backup(backup_path)
+
+        self.store.add('Neu','Nachheriger Stand')
+        self.store.restore(backup_path)
+
+        restored = Store(self.store.path)
+        titles = [row['title'] for row in restored.list()]
+        self.assertEqual(titles, ['Alt'])
+        self.assertEqual(restored.search('Vorheriger')[0]['title'], 'Alt')
+        self.assertEqual(restored.search('Nachheriger'), [])
+        with self.assertRaises(ValueError):
+            self.store.restore(self.store.path)
+
+    def test_restore_replaces_current_database_with_verified_backup(self):
+        self.store.add('Alt','Vorheriger Stand')
+        backup_path = self.root/'backup.db'
+        self.store.backup(backup_path)
+
+        self.store.add('Neu','Nachheriger Stand')
+        self.store.restore(backup_path)
+
+        restored = Store(self.store.path)
+        titles = [row['title'] for row in restored.list()]
+        self.assertEqual(titles, ['Alt'])
+        self.assertEqual(restored.search('Vorheriger')[0]['title'], 'Alt')
+        self.assertEqual(restored.search('Nachheriger'), [])
+        with self.assertRaises(ValueError):
+            self.store.restore(self.store.path)
+
     def test_utf8_and_cp1252_import(self):
         p = self.root/'test.txt'
         p.write_bytes('Grüße'.encode('cp1252'))

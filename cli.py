@@ -52,6 +52,8 @@ def main(argv=None):
     summary.add_argument('id',type=int)
     backup = commands.add_parser('backup')
     backup.add_argument('target',type=Path)
+    restore = commands.add_parser('restore')
+    restore.add_argument('source',type=Path)
     config_export = commands.add_parser('config-export')
     config_export.add_argument('target',type=Path)
     config_import = commands.add_parser('config-import')
@@ -120,6 +122,9 @@ def main(argv=None):
             elif args.command == 'backup':
                 store.backup(args.target)
                 result = {'backup':str(args.target)}
+            elif args.command == 'restore':
+                store.restore(args.source)
+                result = {'restored_from':str(args.source)}
             elif args.command == 'config-import':
                 transfer=ConfigurationTransfer(store,BASE,database_settings,DesignSettings(BASE))
                 try:
