@@ -703,7 +703,7 @@ def preview_documents(documents, skipped=0, scan_errors=None):
             'errors': len(scan_errors or []), 'details': list(scan_errors or []), 'items': items}
 
 
-def import_documents(store, documents, skipped=0, scan_errors=None, job_source=None):
+def import_documents(store, documents, skipped=0, scan_errors=None, job_source=None, progress_hook=None):
     """Import discovered documents and retain their relative source paths."""
     preview = preview_documents(documents, skipped, scan_errors)
     report = {'found': preview['found'], 'supported': preview['supported'], 'imported':0,
@@ -736,8 +736,10 @@ def import_documents(store, documents, skipped=0, scan_errors=None, job_source=N
         records.append({
             'id': job_id,
             'source': str(job_source),
+            'documents': [{'path': str(path), 'filename': name} for path, name in documents],
             'found': report['found'],
             'supported': report['supported'],
+            'processed': 0,
             'imported': 0,
             'duplicates': 0,
             'skipped': report['skipped'],
@@ -757,20 +759,79 @@ def import_documents(store, documents, skipped=0, scan_errors=None, job_source=N
             except Exception as error:
                 report['errors'] += 1
                 report['details'].append(f'{stored_name}: {error}')
+            finally:
+                if job_path is not None and records:
+                    records[-1].update({
+                        'processed': report['imported'] + report['duplicates'] + report['errors'],
+                        'found': report['found'], 'supported': report['supported'],
+                        'imported': report['imported'], 'duplicates': report['duplicates'],
+                        'skipped': report['skipped'], 'errors': report['errors'],
+                        'status': 'running', 'completed_at': None,
+                    })
+                    write_records(job_path, records)
+                    if progress_hook is not None:
+                        progress_hook(dict(records[-1]))
         if job_path is not None and records:
             records[-1].update({
+                'processed': report['imported'] + report['duplicates'] + report['errors'],
                 'found': report['found'], 'supported': report['supported'],
                 'imported': report['imported'], 'duplicates': report['duplicates'],
                 'skipped': report['skipped'], 'errors': report['errors'],
                 'status': 'done', 'completed_at': timestamp(),
             })
             write_records(job_path, records)
+            if progress_hook is not None:
+                progress_hook(dict(records[-1]))
     except Exception:
         if job_path is not None and records:
             records[-1].update({'status': 'failed', 'completed_at': timestamp()})
             write_records(job_path, records)
         raise
     return report
+
+
+def resume_import_documents(store, job_source, job_id=None, progress_hook=None):
+    from datetime import datetime, timezone
+    def timestamp():
+        return datetime.now(timezone.utc).isoformat(timespec='seconds')
+    job_path = Path(job_source) / 'data' / 'import-jobs.json'
+    if not job_path.exists():
+        raise FileNotFoundError(job_path)
+    records = json.loads(job_path.read_text(encoding='utf-8'))
+    if not records:
+        raise ValueError('Keine Importaufträge vorhanden.')
+    if job_id is None:
+        for record in reversed(records):
+            if record.get('status') in {'running', 'failed', 'paused'}:
+                job = record
+                break
+        else:
+            job = records[-1]
+    else:
+        for record in records:
+            if record.get('id') == job_id:
+                job = record
+                break
+        else:
+            raise ValueError('Importauftrag nicht gefunden.')
+    documents = job.get('documents')
+    if not documents:
+        raise ValueError('Importauftrag enthält keine Dokumente.')
+    start_index = int(job.get('next_index', job.get('processed', 0)))
+    remaining = [(Path(item['path']), item['filename']) for item in documents[start_index:]]
+    report = import_documents(store, remaining, skipped=0, scan_errors=[], job_source=job_source, progress_hook=progress_hook)
+    job['processed'] = start_index + report['imported'] + report['duplicates'] + report['errors']
+    job['imported'] = job.get('imported', 0) + report['imported']
+    job['duplicates'] = job.get('duplicates', 0) + report['duplicates']
+    job['errors'] = job.get('errors', 0) + report['errors']
+    job['status'] = 'done'
+    job['completed_at'] = timestamp()
+    job['next_index'] = len(documents)
+    records[records.index(job)] = job
+    job_path.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding='utf-8')
+    return report
+
+
 
 
 def load_key(base):

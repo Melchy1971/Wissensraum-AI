@@ -8,7 +8,10 @@ import unittest
 from contextlib import redirect_stderr
 from unittest.mock import Mock, patch
 import sys
-sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / '.venv' / 'Lib' / 'site-packages'))
+sys.path.insert(0, str(ROOT / 'tests'))
+sys.path.insert(0, str(ROOT))
 import app
 from settings import Settings
 from test_settings import FakeVault

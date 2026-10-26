@@ -6,10 +6,12 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import sys
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / '.venv' / 'Lib' / 'site-packages'))
+sys.path.insert(0, str(ROOT))
 from PIL import Image
 
-import sys
-sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from configuration_authority import configuration_operation_lock
 from design import DesignSettings
 

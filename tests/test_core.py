@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 import urllib.error
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from core import AI, PostgresStore, Store, chunks, discover_documents, import_document, import_documents, preview_documents
+from core import AI, PostgresStore, Store, chunks, discover_documents, import_document, import_documents, preview_documents, resume_import_documents
 
 class KnowledgeTests(unittest.TestCase):
     def setUp(self):
@@ -162,6 +162,73 @@ class KnowledgeTests(unittest.TestCase):
         self.assertGreater(preview['items'][0]['size'], 0)
         self.assertNotIn('job_id', preview)
         self.assertEqual(self.store.list(), [])
+
+    def test_resume_import_documents_continues_paused_job(self):
+        folder=self.root/'Ablage'
+        nested=folder/'Projekte'
+        nested.mkdir(parents=True)
+        first=folder/'Start.md'
+        second=nested/'Plan.txt'
+        first.write_text('Übersicht des Wissensraums',encoding='utf-8')
+        second.write_text('Projektplan mit Meilensteinen',encoding='utf-8')
+        documents,skipped,errors=discover_documents(folder)
+        self.store.add('Start','Übersicht des Wissensraums',filename='Start.md',original=first.read_bytes())
+        jobs_path = folder/'data'/'import-jobs.json'
+        jobs_path.parent.mkdir(parents=True, exist_ok=True)
+        jobs_path.write_text(json.dumps([{
+            'id': 'job-1',
+            'source': str(folder),
+            'documents': [{'path': str(path), 'filename': name} for path, name in documents],
+            'found': 2,
+            'supported': 2,
+            'processed': 1,
+            'imported': 1,
+            'duplicates': 0,
+            'skipped': 0,
+            'errors': 0,
+            'status': 'running',
+            'started_at': '2026-10-26T00:00:00+00:00',
+            'completed_at': None,
+            'next_index': 1,
+        }], ensure_ascii=False, indent=2), encoding='utf-8')
+
+        report = resume_import_documents(self.store, folder)
+
+        self.assertEqual(report['imported'], 1)
+        self.assertEqual(report['duplicates'], 0)
+        jobs = json.loads(jobs_path.read_text(encoding='utf-8'))
+        self.assertEqual(jobs[0]['processed'], 2)
+        self.assertEqual(jobs[0]['imported'], 2)
+        self.assertEqual(jobs[0]['next_index'], 2)
+        self.assertEqual(jobs[0]['status'], 'done')
+        filenames = {self.store.get(row['id'])['filename'] for row in self.store.list()}
+        self.assertEqual(filenames, {'Start.md', 'Projekte/Plan.txt'})
+
+    def test_folder_import_updates_progress_during_job(self):
+        folder=self.root/'Ablage'
+        nested=folder/'Projekte'
+        nested.mkdir(parents=True)
+        (folder/'Start.md').write_text('Übersicht des Wissensraums',encoding='utf-8')
+        (nested/'Plan.txt').write_text('Projektplan mit Meilensteinen',encoding='utf-8')
+        documents,skipped,errors=discover_documents(folder)
+        snapshots = []
+        def hook(report):
+            snapshots.append(dict(report))
+
+        report=import_documents(self.store,documents,skipped,errors,job_source=str(folder), progress_hook=hook)
+
+        self.assertEqual(report['imported'], 2)
+        self.assertTrue(snapshots)
+        self.assertEqual(snapshots[0]['processed'], 1)
+        self.assertEqual(snapshots[0]['imported'], 1)
+        self.assertEqual(snapshots[0]['status'], 'running')
+        self.assertEqual(snapshots[-1]['processed'], 2)
+        self.assertEqual(snapshots[-1]['imported'], 2)
+        self.assertEqual(snapshots[-1]['status'], 'done')
+        jobs = json.loads((folder/'data'/'import-jobs.json').read_text(encoding='utf-8'))
+        self.assertEqual(jobs[0]['processed'], 2)
+        self.assertEqual(jobs[0]['imported'], 2)
+        self.assertEqual(jobs[0]['status'], 'done')
 
     def test_folder_import_records_progress_job(self):
         folder=self.root/'Ablage'
