@@ -78,4 +78,31 @@ CREATE TABLE IF NOT EXISTS email_attachments (
  email_document_id INTEGER REFERENCES documents(id) ON DELETE SET NULL,
  name TEXT NOT NULL, content_type TEXT NOT NULL DEFAULT '', size INTEGER
 );
-PRAGMA user_version = 8;
+CREATE TABLE IF NOT EXISTS tags (
+ id INTEGER PRIMARY KEY, name TEXT NOT NULL, normalized TEXT NOT NULL UNIQUE
+);
+CREATE TABLE IF NOT EXISTS document_tags (
+ document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+ tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+ PRIMARY KEY(document_id, tag_id)
+);
+CREATE TABLE IF NOT EXISTS rules (
+ id INTEGER PRIMARY KEY, position INTEGER NOT NULL, name TEXT NOT NULL,
+ enabled INTEGER NOT NULL DEFAULT 1, source_type TEXT NOT NULL DEFAULT '',
+ path_pattern TEXT NOT NULL DEFAULT '', sender_domain TEXT NOT NULL DEFAULT '',
+ extension TEXT NOT NULL DEFAULT '', keyword TEXT NOT NULL DEFAULT '',
+ category TEXT NOT NULL DEFAULT '', tags TEXT NOT NULL DEFAULT '',
+ created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS rule_runs (
+ id INTEGER PRIMARY KEY, status TEXT NOT NULL DEFAULT 'applied',
+ created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, reverted_at TEXT
+);
+CREATE TABLE IF NOT EXISTS rule_run_changes (
+ run_id INTEGER NOT NULL REFERENCES rule_runs(id) ON DELETE CASCADE,
+ document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+ previous_category TEXT NOT NULL, new_category TEXT NOT NULL,
+ added_tags TEXT NOT NULL DEFAULT '',
+ PRIMARY KEY(run_id, document_id)
+);
+PRAGMA user_version = 9;

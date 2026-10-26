@@ -377,6 +377,11 @@ class PostgresStoreTests(unittest.TestCase):
                                   'WHERE s.locator LIKE ?', ('%nachricht.eml',)).fetchone()['original']
         self.assertNotIn(b'ANHANGSINHALT-EML', bytes(original))
 
+    def test_rules_tags_and_reverted_runs_on_real_postgresql(self):
+        from test_rules import import_and_rules_scenario
+        with tempfile.TemporaryDirectory() as folder:
+            import_and_rules_scenario(self, PostgresStore(self.profile, self.password), Path(folder))
+
     def test_malformed_legacy_schema_is_rejected_without_stamp(self):
         with self._raw_connect() as connection:
             with connection.transaction():
@@ -522,10 +527,10 @@ class PostgresStoreTests(unittest.TestCase):
         reset = DatabaseSettings(Path.cwd(), vault, environ={}).reset_postgresql(
             self.profile, self.password, self.profile['database'])
         self.assertEqual(reset['tables'], [
-            'ai_runs', 'chunks', 'document_versions', 'documents', 'email_accounts', 'email_attachments',
-            'email_imports',
-            'import_item_errors', 'import_items', 'import_jobs',
-            'schema_migrations', 'settings', 'sources'])
+            'ai_runs', 'chunks', 'document_tags', 'document_versions', 'documents', 'email_accounts',
+            'email_attachments', 'email_imports',
+            'import_item_errors', 'import_items', 'import_jobs', 'rule_run_changes', 'rule_runs', 'rules',
+            'schema_migrations', 'settings', 'sources', 'tags'])
         with PostgresStore(self.profile, self.password).connect() as db:
             data_tables = [table for table in reset['tables'] if table != 'schema_migrations']
             self.assertTrue(all(db.execute(

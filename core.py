@@ -104,11 +104,42 @@ def _versions(db, doc_id):
         'ORDER BY v.version DESC', (doc_id,))]
 
 
-def _list(db, all_versions):
-    where = '' if all_versions else ' WHERE '+CURRENT_VERSION_FILTER
-    return [dict(row) for row in db.execute(
+# Documents carrying a tag (normalized name as parameter); used by list and search filters.
+TAG_FILTER = ('d.id IN (SELECT dt.document_id FROM document_tags dt JOIN tags t ON t.id=dt.tag_id '
+              'WHERE t.normalized=?)')
+
+
+def _list(db, all_versions, tag=None):
+    import rules
+    conditions = ([] if all_versions else [CURRENT_VERSION_FILTER]) + ([TAG_FILTER] if tag else [])
+    where = ' WHERE '+' AND '.join(conditions) if conditions else ''
+    rows = [dict(row) for row in db.execute(
         'SELECT d.id,d.title,d.category,d.created_at,COALESCE(v.version,1) AS version FROM documents d '
-        'LEFT JOIN document_versions v ON v.document_id=d.id'+where+' ORDER BY d.id DESC')]
+        'LEFT JOIN document_versions v ON v.document_id=d.id'+where+' ORDER BY d.id DESC',
+        (tag.casefold(),) if tag else ())]
+    tags = rules.tags_by_document(db)
+    for row in rows:
+        row['tags'] = tags.get(row['id'], [])
+    return rows
+
+
+def _insert_document(db, title, content, category, filename, original, digest, source, returning):
+    """Insert a new document whose area and tags may come from the rules (step S2)."""
+    import rules
+    ruled_category, ruled_tags = rules.decide_for_import(db, title, content, filename, source)
+    category = ruled_category or category.strip() or 'Allgemein'
+    query = 'INSERT INTO documents(title,category,filename,original,content,sha256) VALUES(?,?,?,?,?,?)'
+    if returning:
+        doc_id = db.execute(query+' RETURNING id', (title, category, filename, original, content, digest)
+                            ).fetchone()['id']
+    else:
+        doc_id = db.execute(query, (title, category, filename, original, content, digest)).lastrowid
+    db.executemany('INSERT INTO chunks(document_id,ordinal,content) VALUES(?,?,?)',
+                   ((doc_id, i+1, part) for i, part in enumerate(chunks(content))))
+    db.execute('INSERT INTO sources(document_id,source_type,account_id,locator) VALUES(?,?,?,?)',
+               (doc_id, *source))
+    rules.add_tags(db, doc_id, ruled_tags)
+    return doc_id
 
 
 class Store:
@@ -162,6 +193,21 @@ class Store:
         'email_attachments': {
             'document_id':('INTEGER',0,None,1), 'email_document_id':('INTEGER',0,None,0),
             'name':('TEXT',1,None,0), 'content_type':('TEXT',1,"''",0), 'size':('INTEGER',0,None,0)},
+        'tags': {'id':('INTEGER',0,None,1), 'name':('TEXT',1,None,0), 'normalized':('TEXT',1,None,0)},
+        'document_tags': {'document_id':('INTEGER',1,None,1), 'tag_id':('INTEGER',1,None,2)},
+        'rules': {
+            'id':('INTEGER',0,None,1), 'position':('INTEGER',1,None,0), 'name':('TEXT',1,None,0),
+            'enabled':('INTEGER',1,'1',0), 'source_type':('TEXT',1,"''",0), 'path_pattern':('TEXT',1,"''",0),
+            'sender_domain':('TEXT',1,"''",0), 'extension':('TEXT',1,"''",0), 'keyword':('TEXT',1,"''",0),
+            'category':('TEXT',1,"''",0), 'tags':('TEXT',1,"''",0),
+            'created_at':('TEXT',1,'current_timestamp',0)},
+        'rule_runs': {
+            'id':('INTEGER',0,None,1), 'status':('TEXT',1,"'applied'",0),
+            'created_at':('TEXT',1,'current_timestamp',0), 'reverted_at':('TEXT',0,None,0)},
+        'rule_run_changes': {
+            'run_id':('INTEGER',1,None,1), 'document_id':('INTEGER',1,None,2),
+            'previous_category':('TEXT',1,None,0), 'new_category':('TEXT',1,None,0),
+            'added_tags':('TEXT',1,"''",0)},
     }
     schema_contract = {table:frozenset(columns) for table,columns in column_contract.items()}
     version_tables = {
@@ -177,6 +223,9 @@ class Store:
         7: frozenset({'documents','chunks','search_index','ai_runs','settings','email_accounts',
                       'email_imports','sources','import_jobs','import_items','import_item_errors',
                       'document_versions'}),
+        8: frozenset({'documents','chunks','search_index','ai_runs','settings','email_accounts',
+                      'email_imports','sources','import_jobs','import_items','import_item_errors',
+                      'document_versions','email_attachments'}),
         CURRENT_SCHEMA_VERSION: frozenset(schema_contract),
     }
     primary_keys = {
@@ -185,9 +234,12 @@ class Store:
         'email_imports': ('account_id','remote_id'), 'sources': ('document_id',),
         'import_jobs': ('id',), 'import_items': ('id',), 'import_item_errors': ('id',),
         'document_versions': ('document_id',), 'email_attachments': ('document_id',),
+        'tags': ('id',), 'document_tags': ('document_id','tag_id'), 'rules': ('id',), 'rule_runs': ('id',),
+        'rule_run_changes': ('run_id','document_id'),
     }
     unique_keys = {'documents': {('sha256',)}, 'chunks': {('document_id','ordinal')},
-                   'import_items': {('job_id','ordinal')}, 'document_versions': {('lineage_id','version')}}
+                   'import_items': {('job_id','ordinal')}, 'document_versions': {('lineage_id','version')},
+                   'tags': {('normalized',)}}
     foreign_keys = {
         'chunks': {('document_id','documents','id','CASCADE')},
         'email_imports': {('account_id','email_accounts','id','CASCADE'),
@@ -199,6 +251,8 @@ class Store:
         'document_versions': {('document_id','documents','id','CASCADE')},
         'email_attachments': {('document_id','documents','id','CASCADE'),
                               ('email_document_id','documents','id','SET NULL')},
+        'document_tags': {('document_id','documents','id','CASCADE'), ('tag_id','tags','id','CASCADE')},
+        'rule_run_changes': {('run_id','rule_runs','id','CASCADE'), ('document_id','documents','id','CASCADE')},
     }
     sql_fragments = {
         ('view','chunks_search'): ('select c.id, d.title, d.category, c.content','join documents d'),
@@ -349,19 +403,13 @@ class Store:
             if existing:
                 return existing['id'], False
             lineage = _version_lineage(db, source) if versioned else None
-            cur = db.execute('INSERT INTO documents(title,category,filename,original,content,sha256) VALUES(?,?,?,?,?,?)',
-                             (title, category.strip() or 'Allgemein', filename, original, content, digest))
-            doc_id = cur.lastrowid
-            db.executemany('INSERT INTO chunks(document_id,ordinal,content) VALUES(?,?,?)',
-                           ((doc_id, i+1, part) for i, part in enumerate(chunks(content))))
-            db.execute('INSERT INTO sources(document_id,source_type,account_id,locator) VALUES(?,?,?,?)',
-                       (doc_id, *source))
+            doc_id = _insert_document(db, title, content, category, filename, original, digest, source, False)
             _record_version(db, doc_id, lineage)
             return doc_id, True
 
-    def list(self, all_versions=False):
+    def list(self, all_versions=False, tag=None):
         with self.connect() as db:
-            return _list(db, all_versions)
+            return _list(db, all_versions, tag)
 
     def versions(self, doc_id):
         """All versions of the document's lineage, newest first."""
@@ -385,7 +433,7 @@ class Store:
             db.execute('DELETE FROM chunks WHERE document_id=?', (doc_id,))
             db.execute('DELETE FROM documents WHERE id=?', (doc_id,))
 
-    def search(self, query, limit=8, all_versions=False):
+    def search(self, query, limit=8, all_versions=False, tag=None):
         words = list(dict.fromkeys(re.findall(r'\w+', query, re.UNICODE)))[:30]
         if not words:
             return []
@@ -395,8 +443,10 @@ class Store:
                   c.ordinal,c.content,bm25(search_index,4,2,1) AS rank
                   FROM search_index JOIN chunks c ON c.id=search_index.rowid
                   JOIN documents d ON d.id=c.document_id WHERE search_index MATCH ?'''
-                  + ('' if all_versions else ' AND '+CURRENT_VERSION_FILTER) + '''
-                  ORDER BY rank,c.id LIMIT ?''', (fts, max(1, min(limit, 30)))).fetchall()
+                  + ('' if all_versions else ' AND '+CURRENT_VERSION_FILTER)
+                  + (' AND '+TAG_FILTER if tag else '') + '''
+                  ORDER BY rank,c.id LIMIT ?''',
+                  (fts, *((tag.casefold(),) if tag else ()), max(1, min(limit, 30)))).fetchall()
             return [dict(r) for r in rows]
 
     def log(self, kind, question, answer, sources, model):
@@ -495,6 +545,27 @@ class PostgresStore:
             'document_id':('bigint','int8','NO',None,'NO'), 'email_document_id':('bigint','int8','YES',None,'NO'),
             'name':('text','text','NO',None,'NO'), 'content_type':('text','text','NO',"''",'NO'),
             'size':('bigint','int8','YES',None,'NO')},
+        'tags': {
+            'id':('bigint','int8','NO',None,'YES'), 'name':('text','text','NO',None,'NO'),
+            'normalized':('text','text','NO',None,'NO')},
+        'document_tags': {
+            'document_id':('bigint','int8','NO',None,'NO'), 'tag_id':('bigint','int8','NO',None,'NO')},
+        'rules': {
+            'id':('bigint','int8','NO',None,'YES'), 'position':('integer','int4','NO',None,'NO'),
+            'name':('text','text','NO',None,'NO'), 'enabled':('integer','int4','NO','1','NO'),
+            'source_type':('text','text','NO',"''",'NO'), 'path_pattern':('text','text','NO',"''",'NO'),
+            'sender_domain':('text','text','NO',"''",'NO'), 'extension':('text','text','NO',"''",'NO'),
+            'keyword':('text','text','NO',"''",'NO'), 'category':('text','text','NO',"''",'NO'),
+            'tags':('text','text','NO',"''",'NO'),
+            'created_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO')},
+        'rule_runs': {
+            'id':('bigint','int8','NO',None,'YES'), 'status':('text','text','NO',"'applied'",'NO'),
+            'created_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO'),
+            'reverted_at':('timestamp with time zone','timestamptz','YES',None,'NO')},
+        'rule_run_changes': {
+            'run_id':('bigint','int8','NO',None,'NO'), 'document_id':('bigint','int8','NO',None,'NO'),
+            'previous_category':('text','text','NO',None,'NO'), 'new_category':('text','text','NO',None,'NO'),
+            'added_tags':('text','text','NO',"''",'NO')},
     }
     schema_contract = {table:frozenset(columns) for table,columns in column_contract.items()}
     required_constraints = {
@@ -524,6 +595,16 @@ class PostgresStore:
         'email_attachments_pkey': ('email_attachments','p',('document_id',),None,(),None),
         'email_attachments_document_id_fkey': ('email_attachments','f',('document_id',),'documents',('id',),'c'),
         'email_attachments_email_document_id_fkey': ('email_attachments','f',('email_document_id',),'documents',('id',),'n'),
+        'tags_pkey': ('tags','p',('id',),None,(),None),
+        'tags_normalized_key': ('tags','u',('normalized',),None,(),None),
+        'document_tags_pkey': ('document_tags','p',('document_id','tag_id'),None,(),None),
+        'document_tags_document_id_fkey': ('document_tags','f',('document_id',),'documents',('id',),'c'),
+        'document_tags_tag_id_fkey': ('document_tags','f',('tag_id',),'tags',('id',),'c'),
+        'rules_pkey': ('rules','p',('id',),None,(),None),
+        'rule_runs_pkey': ('rule_runs','p',('id',),None,(),None),
+        'rule_run_changes_pkey': ('rule_run_changes','p',('run_id','document_id'),None,(),None),
+        'rule_run_changes_run_id_fkey': ('rule_run_changes','f',('run_id',),'rule_runs',('id',),'c'),
+        'rule_run_changes_document_id_fkey': ('rule_run_changes','f',('document_id',),'documents',('id',),'c'),
     }
     required_indexes = {
         'chunks_document_id_idx': ('chunks','(document_id)'),
@@ -711,20 +792,13 @@ class PostgresStore:
             if existing:
                 return existing['id'],False
             lineage=_version_lineage(db,source) if versioned else None
-            row=db.execute('''INSERT INTO documents(title,category,filename,original,content,sha256)
-                              VALUES(?,?,?,?,?,?) RETURNING id''',
-                           (title,category.strip() or 'Allgemein',filename,original,content,digest)).fetchone()
-            doc_id=row['id']
-            db.executemany('INSERT INTO chunks(document_id,ordinal,content) VALUES(?,?,?)',
-                           ((doc_id,index+1,part) for index,part in enumerate(chunks(content))))
-            db.execute('INSERT INTO sources(document_id,source_type,account_id,locator) VALUES(?,?,?,?)',
-                       (doc_id,*source))
+            doc_id=_insert_document(db,title,content,category,filename,original,digest,source,True)
             _record_version(db,doc_id,lineage)
             return doc_id,True
 
-    def list(self,all_versions=False):
+    def list(self,all_versions=False,tag=None):
         with self.connect() as db:
-            return _list(db,all_versions)
+            return _list(db,all_versions,tag)
 
     def versions(self,doc_id):
         with self.connect() as db:
@@ -745,7 +819,7 @@ class PostgresStore:
         with self.connect() as db:
             db.execute('DELETE FROM documents WHERE id=?',(doc_id,))
 
-    def search(self,query,limit=8,all_versions=False):
+    def search(self,query,limit=8,all_versions=False,tag=None):
         words=list(dict.fromkeys(re.findall(r'\w+',query,re.UNICODE)))[:30]
         if not words:
             return []
@@ -757,8 +831,10 @@ class PostgresStore:
                   FROM chunks c JOIN documents d ON d.id=c.document_id
                   WHERE (to_tsvector('simple',c.content) @@ websearch_to_tsquery('simple',?)
                      OR to_tsvector('simple',d.title || ' ' || d.category) @@ websearch_to_tsquery('simple',?))'''
-                  + ('' if all_versions else ' AND '+CURRENT_VERSION_FILTER) + '''
-                  ORDER BY rank,c.id LIMIT ?''',(expression,expression,expression,max(1,min(limit,30)))).fetchall()
+                  + ('' if all_versions else ' AND '+CURRENT_VERSION_FILTER)
+                  + (' AND '+TAG_FILTER if tag else '') + '''
+                  ORDER BY rank,c.id LIMIT ?''',(expression,expression,expression,
+                                                 *((tag.casefold(),) if tag else ()),max(1,min(limit,30)))).fetchall()
         return [dict(row) for row in rows]
 
     def log(self,kind,question,answer,sources,model):

@@ -73,6 +73,9 @@ Grenzen: 20 MB lokale Originaldatei, Dateiinhalt passend zur Endung, DOCX, XLSX 
 | `settings` | Nicht geheime Anwendungseinstellungen |
 | `email_accounts` | Kontoname, Anbieter, Adresse, Serverparameter und OAuth-Anwendungskennung; keine Kennwörter oder Token |
 | `email_imports` | Dauerhafte Zuordnung importierter Nachrichten zu Konto, Postfachordner und Dokument |
+| `tags`, `document_tags` | Tags und ihre Zuordnung zu Dokumenten; Groß- und Kleinschreibung zählt beim Vergleich nicht (Schema 9) |
+| `rules` | Regeln für Bereich und Tags in fester Reihenfolge (Schema 9) |
+| `rule_runs`, `rule_run_changes` | Bestätigte Anwendungen auf vorhandene Dokumente mit vorherigem Bereich und hinzugefügten Tags, für die Rücknahme (Schema 9) |
 
 `schema.sql` dokumentiert das SQLite-Schema. Die ausführbare Schema-Historie liegt in den geordneten, versionierten SQLite- und PostgreSQL-Migrationen in `migrations.py`. SQLite speichert die Version in `PRAGMA user_version`, PostgreSQL in `wissensraum.schema_migrations`. Beide Backends haben denselben fachlichen Speicherumfang, verwenden aber unterschiedliche Volltexttechnik. SQL-Werte werden parametrisiert gebunden. KI-Ausgaben werden niemals als SQL oder Programmcode ausgeführt.
 
@@ -145,6 +148,16 @@ python cli.py job-report 3 importbericht.csv
 python cli.py preview Dokumente
 python cli.py list
 python cli.py list --all-versions
+python cli.py list --tag Rechnung
+python cli.py search "Freigabe" --tag Rechnung
+python cli.py tags
+python cli.py rules
+python cli.py rule-add "Rechnungen" --extension pdf --path-pattern Rechnungen --category Finanzen --tags "Rechnung, Steuer"
+python cli.py rule-delete 2
+python cli.py rules-preview
+python cli.py rules-apply --confirm
+python cli.py rules-runs
+python cli.py rules-revert 1
 python cli.py strip-mail-attachments --dry-run
 python cli.py ocr-status
 python cli.py retry-no-text
@@ -176,7 +189,7 @@ Der Import akzeptiert nur Format `wissensraum-configuration`, Version `1` und di
 
 ## Prüfung dieser Auslieferung
 
-- 454 automatisierte Tests prüfen Speicherung, BLOB-Erhalt, Dubletten, Suche, Sicherung, Dokumentextraktion, rekursiven Ordnerimport, Designpersistenz, Logo-Normalisierung, Hell-/Dunkelmodus, KI-Adapter, Schlüsselspeicherung, geordnete SQLite-/PostgreSQL-Schema-Migrationen einschließlich Sperren, Sicherung, Validierung und Rollback, Datenbankprofile, sicheren Konfigurationstransfer, Startdiagnose, strukturiertes Logging einschließlich Rotation, Zielbesitz und Geheimnisfilterung, atomaren PostgreSQL-Reset, TLS-Verbindungskonfiguration, E-Mail-Auswahlfreigabe, Anwendungsende, IMAP-Nur-Lesen-Import, PST-Import und Microsoft-Graph-Import sowie beschädigte Konfigurationsdateien und abgebrochene Schreibvorgänge. Dazu kommen Importaufträge (Abbruch, Fortsetzung, Absturz zwischen Dokument und Statuseintrag, Quarantänegründe, Importbericht) ein Referenzbestand aus 1.000 gemischten Dateien sowie Dokumentversionen, Importvorschau und die Freigabe von E-Mail-Anhängen mit aufgezeichneten IMAP-, Graph- und PST-Abrufen, E-Mail- und PST-Aufträge die Bereinigung alter IMAP-Originale sowie die Texterkennung mit echtem Tesseract. Stand 26.10.2026: 454 Tests. Linux mit Python 3.11, 3.12 und 3.13, lokalem PostgreSQL 16, Tesseract 4.1 mit Deutsch und Englisch und virtuellem Bildschirm: je 452 bestanden, zwei übersprungen (Windows-Pfadfälle). Windows mit Python 3.12 ohne OCR-Pakete: 409 bestanden, 28 übersprungen; die OCR-Tests liefen zusätzlich unter Windows mit Python 3.13 und Tesseract 5.5 erfolgreich (PostgreSQL ohne Testdienst, POSIX-Logging, `start.sh` ohne `sh`). Windows mit Python 3.11 und 3.13 auf dem Entwicklungsrechner: ebenso, bis auf zwei bis zehn umgebungsbedingte Fehler beim Löschen von Temp-Ordnern nach bestandenem Test (WinError 145), jedes Mal in anderen Tests; in der CI tritt das nicht auf. Ein echter PostgreSQL-18-Dienst ist in der CI-Konfiguration verdrahtet; der erfolgreiche entfernte CI-Lauf von `test_configuration_transfer_contract_on_real_postgresql` ist noch nicht nachgewiesen und bleibt das externe Abschluss-Gate für den Konfigurationstransfer.
+- 469 automatisierte Tests prüfen Speicherung, BLOB-Erhalt, Dubletten, Suche, Sicherung, Dokumentextraktion, rekursiven Ordnerimport, Designpersistenz, Logo-Normalisierung, Hell-/Dunkelmodus, KI-Adapter, Schlüsselspeicherung, geordnete SQLite-/PostgreSQL-Schema-Migrationen einschließlich Sperren, Sicherung, Validierung und Rollback, Datenbankprofile, sicheren Konfigurationstransfer, Startdiagnose, strukturiertes Logging einschließlich Rotation, Zielbesitz und Geheimnisfilterung, atomaren PostgreSQL-Reset, TLS-Verbindungskonfiguration, E-Mail-Auswahlfreigabe, Anwendungsende, IMAP-Nur-Lesen-Import, PST-Import und Microsoft-Graph-Import sowie beschädigte Konfigurationsdateien und abgebrochene Schreibvorgänge. Dazu kommen Importaufträge (Abbruch, Fortsetzung, Absturz zwischen Dokument und Statuseintrag, Quarantänegründe, Importbericht) ein Referenzbestand aus 1.000 gemischten Dateien sowie Dokumentversionen, Importvorschau und die Freigabe von E-Mail-Anhängen mit aufgezeichneten IMAP-, Graph- und PST-Abrufen, E-Mail- und PST-Aufträge die Bereinigung alter IMAP-Originale sowie die Texterkennung mit echtem Tesseract, weitere Formate und Regeln für Bereich und Tags mit Vorschau, Lauf und Rücknahme. Stand 26.10.2026 (Schritt S2): 469 Tests. Linux mit Python 3.11, 3.12 und 3.13, lokalem PostgreSQL 16, Tesseract 4.1 mit Deutsch und Englisch und virtuellem Bildschirm: je 467 bestanden, zwei übersprungen (Windows-Pfadfälle). Windows mit Python 3.12 ohne OCR-Pakete: 409 bestanden, 28 übersprungen; die OCR-Tests liefen zusätzlich unter Windows mit Python 3.13 und Tesseract 5.5 erfolgreich (PostgreSQL ohne Testdienst, POSIX-Logging, `start.sh` ohne `sh`). Windows mit Python 3.11 und 3.13 auf dem Entwicklungsrechner: ebenso, bis auf zwei bis zehn umgebungsbedingte Fehler beim Löschen von Temp-Ordnern nach bestandenem Test (WinError 145), jedes Mal in anderen Tests; in der CI tritt das nicht auf. Ein echter PostgreSQL-18-Dienst ist in der CI-Konfiguration verdrahtet; der erfolgreiche entfernte CI-Lauf von `test_configuration_transfer_contract_on_real_postgresql` ist noch nicht nachgewiesen und bleibt das externe Abschluss-Gate für den Konfigurationstransfer.
 - KI-Vertrag mit simulierten API-Antworten geprüft. Live-Test mit synthetischen Testdaten durchgeführt; die API antwortete mit HTTP 429. Live-Antwortqualität ist deshalb nicht bestätigt.
 - Die Desktop-Oberfläche wird unter Linux mit virtuellem Bildschirm gestartet und automatisiert geprüft. GitHub Actions erzeugt zusätzlich Vorschauen der Einstellungen und des Importbereichs. Die Windows-Matrix kompiliert die Python-Dateien und prüft den Inhalt von `start_windows.bat` automatisiert auf die unterstützte Versionslogik; die Batchdatei selbst wird in CI nicht ausgeführt oder kompiliert.
 - GitHub Actions prüft Python 3.11, 3.12 und 3.13 auf Windows und Linux, einschließlich grafischer Oberflächentests, und führt die PostgreSQL-Verträge gegen PostgreSQL 18 aus. Der aktuelle Status ist im Actions-Tab sichtbar.
@@ -280,6 +293,12 @@ Hinweis zu älteren IMAP-Importen: Bis einschließlich Schritt 6.2 lud der IMAP-
 ### Weitere Formate (Release 2.0.1, Schritt S1)
 
 HTML-Seiten werden ohne Skripte und Formatangaben gelesen, der Seitentitel wird Dokumenttitel. RTF wird mit `striprtf` gelesen. XLSX liefert je Tabellenblatt einen Abschnitt `[Tabelle Name]` mit den Zellwerten (bei Formeln der zuletzt gespeicherte Wert), PPTX je Folie einen Abschnitt `[Folie n]` mit Texten, Tabellen und Sprechernotizen. Eine gespeicherte E-Mail (EML) wird wie eine E-Mail aus dem Postfach gelesen: Betreff als Titel, Kopfzeilen, Text und die Namen der Anhänge. Der Inhalt ihrer Anhänge wird nicht übernommen, das gespeicherte Original enthält ihn nicht. Neue Pakete: `openpyxl` (MIT), `python-pptx` (MIT), `striprtf` (BSD-3-Clause); `start_windows.bat` installiert sie beim nächsten Start.
+
+### Regeln für Bereich und Tags (Release 2.0.1, Schritt S2)
+
+Unter Einstellungen > Regeln legst du Regeln an. Bedingungen: Quellentyp (Datei, IMAP, Microsoft 365, PST, E-Mail-Anhang), Ordner- oder Dateimuster, Absenderdomäne, Dateiendung, Stichwort in Titel oder Text. Alle Bedingungen einer Regel müssen zutreffen. Aktionen: Bereich setzen, Tags setzen. Die Regeln gelten in ihrer Reihenfolge: Den Bereich setzt die erste passende Regel, Tags kommen von allen passenden Regeln. Ein Muster ohne `*` oder `?` trifft jeden Pfad, der den Text enthält, mit Platzhaltern gilt das ganze Muster (`*/Rechnungen/*.pdf`). Die Absenderdomäne kommt aus der Zeile „Von:“ und umfasst ihre Unterdomänen. Regeln dürfen auch den Bereich von E-Mails ändern, die Herkunft bleibt in der Quellentabelle erhalten. Notizen ändern Regeln nie.
+
+Regeln wirken beim Import. Vorhandene Dokumente ändern sich nur über „Vorschau für vorhandene Dokumente“ und „Änderungen übernehmen“ (CLI: `rules-apply --confirm`). Jede Übernahme ist ein Lauf. „Ausgewählten Lauf zurücknehmen“ setzt Bereiche und Tags auf den Stand davor. Hat jemand den Bereich eines Dokuments nach dem Lauf erneut geändert, bleibt dieser neuere Bereich und die Rücknahme meldet ihn als Konflikt. In „Dokumente & Suche“ zeigt eine Spalte die Tags. Das Feld „Tag“ filtert Liste und Suche.
 
 ### Texterkennung (OCR, Release 2.0, Schritt 6.4)
 

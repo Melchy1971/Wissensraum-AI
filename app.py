@@ -13,6 +13,8 @@ except (ImportError, OSError):
     tk=ttk=filedialog=messagebox=simpledialog=ScrolledText=None
 from import_jobs import MAIL_KINDS, OUTCOME_LABELS, REASON_LABELS, ImportJobs
 import mail_cleanup
+import rules
+from rules_view import RulesPage
 from settings import Settings, SystemVault, PROVIDERS
 from database import DatabaseSettings, resolve_sqlite_path
 from diagnostics import DiagnosticResult, format_diagnostics, health_overview, run_diagnostics
@@ -115,6 +117,9 @@ def show_startup_failure(results):
     print(text,file=sys.stderr)
 
 
+ALL_TAGS = 'alle Tags'
+
+
 class App(tk.Tk if tk is not None else object):
     @destroy_root_on_startup_failure
     def __init__(self,startup=None):
@@ -207,16 +212,23 @@ class App(tk.Tk if tk is not None else object):
         entry.bind('<Return>',lambda _:self.refresh())
         ttk.Button(search,text='Suchen',command=self.refresh).pack(side='left',padx=(8,0))
         ttk.Button(search,text='Alle anzeigen',command=self.clear_search).pack(side='left',padx=(8,0))
+        ttk.Label(search,text='Tag').pack(side='left',padx=(16,4))
+        self.tag_filter = tk.StringVar(value=ALL_TAGS)
+        self.tag_box = ttk.Combobox(search,textvariable=self.tag_filter,state='readonly',width=22,values=[ALL_TAGS])
+        self.tag_box.pack(side='left')
+        self.tag_box.bind('<<ComboboxSelected>>',lambda _:self.refresh())
         split = ttk.Panedwindow(self.library,orient='horizontal')
         split.pack(fill='both',expand=True)
         left, right = ttk.Frame(split), ttk.Frame(split)
         split.add(left,weight=2)
         split.add(right,weight=3)
-        self.tree = ttk.Treeview(left,columns=('title','category'),show='headings',selectmode='browse')
+        self.tree = ttk.Treeview(left,columns=('title','category','tags'),show='headings',selectmode='browse')
         self.tree.heading('title',text='Titel')
         self.tree.heading('category',text='Bereich')
+        self.tree.heading('tags',text='Tags')
         self.tree.column('title',width=230)
         self.tree.column('category',width=110)
+        self.tree.column('tags',width=110)
         scroll = ttk.Scrollbar(left,orient='vertical',command=self.tree.yview)
         self.tree.configure(yscrollcommand=scroll.set)
         scroll.pack(side='right',fill='y')
@@ -392,16 +404,24 @@ class App(tk.Tk if tk is not None else object):
     def refresh(self):
         try:
             query = self.query.get().strip()
+            tag = self.tag_filter.get()
+            tag = None if tag == ALL_TAGS else tag.rsplit(' (',1)[0]
             if query:
-                found = self.store.search(query,30)
+                found = self.store.search(query,30,tag=tag)
                 ids = list(dict.fromkeys(r['document_id'] for r in found))
                 rows = [self.store.get(i) for i in ids]
             else:
-                rows = self.store.list()
+                rows = self.store.list(tag=tag)
+            with self.store.connect() as db:
+                tags = rules.tags_by_document(db)
+                counts = rules.tag_counts(db)
+            self.tag_box.configure(values=[ALL_TAGS]+[f'{name} ({count})' for name,count in counts])
             self.tree.delete(*self.tree.get_children())
             for r in rows:
-                self.tree.insert('', 'end', iid=str(r['id']),values=(r['title'],r['category']))
+                self.tree.insert('', 'end', iid=str(r['id']),values=(r['title'],r['category'],
+                                                                     ', '.join(tags.get(r['id'],[]))))
             suffix = ' · maximal 30 Texttreffer' if query else ''
+            suffix += f' · Tag {tag}' if tag else ''
             self.status.set(f'{len(rows)} Dokumente angezeigt{suffix}')
         except Exception as e:
             messagebox.showerror('Suche fehlgeschlagen',str(e),parent=self)
@@ -412,8 +432,10 @@ class App(tk.Tk if tk is not None else object):
             versions = self.store.versions(doc['id'])
             version = next((row['version'] for row in versions if row['id']==doc['id']),1)
             line = f'Version {version} von {len(versions)}' if len(versions)>1 else 'Version 1'
-            self.write(self.detail,f'{doc["title"]}\nBereich: {doc["category"]}\nErfasst: {doc["created_at"]} UTC\n'
-                                   f'{line}\n\n{doc["content"]}')
+            with self.store.connect() as db:
+                tags = ', '.join(rules.document_tags(db,doc['id'])) or 'keine'
+            self.write(self.detail,f'{doc["title"]}\nBereich: {doc["category"]}\nTags: {tags}\n'
+                                   f'Erfasst: {doc["created_at"]} UTC\n{line}\n\n{doc["content"]}')
 
     def show_versions(self):
         doc_id=self.selected()
@@ -1118,6 +1140,7 @@ class App(tk.Tk if tk is not None else object):
         self.ai_settings_frame=self.add_scrollable_settings_page('KI-Anbieter')
         self.database_settings_frame=self.add_scrollable_settings_page('Datenbank')
         self.mail_settings_frame=self.add_scrollable_settings_page('E-Mail-Konten')
+        self.rules_settings_frame=self.add_scrollable_settings_page('Regeln')
         self.design_settings_frame=self.add_scrollable_settings_page('Design')
         self.configuration_settings_frame=self.add_scrollable_settings_page('Konfiguration')
         frame=self.ai_settings_frame
@@ -1170,6 +1193,7 @@ class App(tk.Tk if tk is not None else object):
         self.build_mail_settings()
         self.build_design_settings()
         self.build_configuration_settings()
+        self.rules_page=RulesPage(self,self.rules_settings_frame)
 
     def build_configuration_settings(self):
         frame=self.configuration_settings_frame

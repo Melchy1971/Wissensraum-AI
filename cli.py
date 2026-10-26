@@ -12,6 +12,7 @@ from diagnostics import DiagnosticResult, format_diagnostics, health_overview, r
 from importer import Importer, MailAccounts
 from import_jobs import ImportJobs
 import mail_cleanup
+import rules
 from configuration import (APPLY_ERROR, EXPORT_ERROR, ConfigurationTransfer,
                            ConfigurationTransferError, RECOVERY_ERROR,
                            pending_configuration_recovery,
@@ -39,6 +40,34 @@ def _close_logger(logger):
     except BaseException:
         warn_operational_logging_failure()
 
+RULE_COMMANDS = ('tags','rules','rule-add','rule-delete','rules-preview','rules-apply','rules-runs','rules-revert')
+
+
+def rule_command(store,args):
+    """Rules and tags (step S2); existing documents change only with rules-apply --confirm."""
+    with store.connect() as db:
+        if args.command == 'tags':
+            return [{'tag':name,'documents':count} for name,count in rules.tag_counts(db)]
+        if args.command == 'rules':
+            return rules.list_rules(db)
+        if args.command == 'rule-add':
+            fields = {name:getattr(args,name) for name in ('name','source_type','path_pattern','sender_domain',
+                                                           'extension','keyword','category','tags')}
+            return {'rule_id':rules.save_rule(db,fields)}
+        if args.command == 'rule-delete':
+            rules.delete_rule(db,args.rule_id)
+            return {'deleted':args.rule_id}
+        if args.command == 'rules-runs':
+            return rules.runs(db)
+        if args.command == 'rules-revert':
+            return rules.revert(db,store.backend,args.run_id)
+        rows = rules.preview(db)
+        if args.command == 'rules-preview' or not args.confirm:
+            return {'documents':len(rows),'changes':rows,
+                    'hint':'Nichts geändert. Mit rules-apply --confirm übernehmen.'}
+        return rules.apply(db,store.backend,rows)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description='Wissensraum: SQL-Wissensmanagement')
     parser.add_argument('--db',type=Path,help='Lokale SQLite-Datei; überschreibt die konfigurierte Datenquelle')
@@ -48,6 +77,21 @@ def main(argv=None):
     commands.add_parser('config-sync')
     listing = commands.add_parser('list')
     listing.add_argument('--all-versions',action='store_true',help='auch ältere Versionen anzeigen')
+    listing.add_argument('--tag',help='nur Dokumente mit diesem Tag')
+    commands.add_parser('tags',help='Alle Tags mit Anzahl der Dokumente')
+    commands.add_parser('rules',help='Regeln für Bereich und Tags in ihrer Reihenfolge anzeigen')
+    rule_add = commands.add_parser('rule-add',help='Regel anlegen (mindestens eine Bedingung, Bereich oder Tags)')
+    rule_add.add_argument('name')
+    for option in ('source-type','path-pattern','sender-domain','extension','keyword','category','tags'):
+        rule_add.add_argument('--'+option,default='')
+    rule_delete = commands.add_parser('rule-delete',help='Regel löschen; gesetzte Bereiche und Tags bleiben')
+    rule_delete.add_argument('rule_id',type=int)
+    commands.add_parser('rules-preview',help='Zeigen, was die Regeln an vorhandenen Dokumenten ändern würden')
+    rules_apply = commands.add_parser('rules-apply',help='Regeln auf vorhandene Dokumente anwenden (als Lauf)')
+    rules_apply.add_argument('--confirm',action='store_true',help='Änderungen wirklich übernehmen')
+    commands.add_parser('rules-runs',help='Angewendete Läufe anzeigen')
+    rules_revert = commands.add_parser('rules-revert',help='Lauf vollständig zurücknehmen')
+    rules_revert.add_argument('run_id',type=int)
     versions = commands.add_parser('versions',help='Alle Versionen eines Dokuments anzeigen')
     versions.add_argument('id',type=int)
     strip = commands.add_parser('strip-mail-attachments',
@@ -74,6 +118,8 @@ def main(argv=None):
     for name in ('search','ask'):
         sub = commands.add_parser(name)
         sub.add_argument('query')
+        if name == 'search':
+            sub.add_argument('--tag',help='nur Dokumente mit diesem Tag')
     summary = commands.add_parser('summarize')
     summary.add_argument('id',type=int)
     backup = commands.add_parser('backup')
@@ -161,7 +207,9 @@ def main(argv=None):
         _log_event(logger,'command_started',metadata=metadata)
         try:
             if args.command == 'list':
-                result = store.list(all_versions=args.all_versions)
+                result = store.list(all_versions=args.all_versions,tag=args.tag)
+            elif args.command in RULE_COMMANDS:
+                result = rule_command(store,args)
             elif args.command == 'ocr-status':
                 import ocr
                 result = ocr.status()
@@ -200,7 +248,7 @@ def main(argv=None):
                 _log_event(logger,'command_completed',metadata=metadata)
                 return 1 if any(result.status == 'FAIL' for result in results) else 0
             elif args.command == 'search':
-                result = store.search(args.query)
+                result = store.search(args.query,tag=args.tag)
             elif args.command == 'backup':
                 store.backup(args.target)
                 result = {'backup':str(args.target)}

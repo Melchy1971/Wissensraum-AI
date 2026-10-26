@@ -114,6 +114,13 @@ SQLITE_HISTORICAL_MIGRATIONS = (
             UNIQUE(lineage_id, version)
         )""",
     )),
+    (8, (
+        """CREATE TABLE email_attachments (
+            document_id INTEGER PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+            email_document_id INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+            name TEXT NOT NULL, content_type TEXT NOT NULL DEFAULT '', size INTEGER
+        )""",
+    )),
 )
 
 
@@ -246,7 +253,8 @@ class FakePostgres:
         elif self.version == CURRENT_SCHEMA_VERSION:
             tables |= {'documents', 'chunks', 'ai_runs', 'settings', 'email_accounts',
                        'email_imports', 'sources', 'import_jobs', 'import_items',
-                       'import_item_errors', 'document_versions', 'email_attachments'}
+                       'import_item_errors', 'document_versions', 'email_attachments',
+                       'tags', 'document_tags', 'rules', 'rule_runs', 'rule_run_changes'}
         return tables
 
 
@@ -310,6 +318,10 @@ class SQLiteMigrationTests(unittest.TestCase):
                         self.assertEqual(db.execute('SELECT document_id,lineage_id,version FROM document_versions'
                                                     ).fetchall(), [(1, 1, 1)])
                     self.assertEqual(db.execute('SELECT count(*) FROM email_attachments').fetchone()[0], 0)
+                    # Migration 9 adds empty tag and rule tables; existing categories stay unchanged.
+                    for table in ('tags', 'document_tags', 'rules', 'rule_runs', 'rule_run_changes'):
+                        self.assertEqual(db.execute(f'SELECT count(*) FROM {table}').fetchone()[0], 0)
+                    self.assertEqual(db.execute('SELECT category FROM documents').fetchone()[0], 'Archiv')
 
     def test_historical_fixtures_do_not_depend_on_runtime_migrations(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -606,7 +618,9 @@ class PostgresMigrationTests(unittest.TestCase):
                'referenced_table':referenced,'referenced_columns':list(referenced_columns),
                'delete_action':action}
               for table,kind,columns,referenced,referenced_columns,action in POSTGRES_LEGACY_CONSTRAINTS
-              if table.startswith('import_') or table in ('document_versions', 'email_attachments')),
+              if table.startswith('import_') or table in ('document_versions', 'email_attachments', 'tags',
+                                                          'document_tags', 'rules', 'rule_runs',
+                                                          'rule_run_changes')),
         ]
         indexes = [
             {'table_name':'chunks','index_name':'chunks_document_id_idx','index_definition':'CREATE INDEX chunks_document_id_idx ON wissensraum.chunks USING btree (document_id)'},

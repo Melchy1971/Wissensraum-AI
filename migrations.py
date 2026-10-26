@@ -9,7 +9,7 @@ import uuid
 from contextlib import closing, contextmanager
 from pathlib import Path
 
-CURRENT_SCHEMA_VERSION = 8
+CURRENT_SCHEMA_VERSION = 9
 # Unversioned PostgreSQL schemas predate schema_migrations and match version 4.
 POSTGRES_LEGACY_SCHEMA_VERSION = 4
 # ponytail: source_type is validated in application code (core.SOURCE_TYPES), not by a
@@ -145,6 +145,35 @@ SQLITE_MIGRATIONS = (
             name TEXT NOT NULL, content_type TEXT NOT NULL DEFAULT '', size INTEGER
         )""",
     )),
+    (9, (
+        """CREATE TABLE IF NOT EXISTS tags (
+            id INTEGER PRIMARY KEY, name TEXT NOT NULL, normalized TEXT NOT NULL UNIQUE
+        )""",
+        """CREATE TABLE IF NOT EXISTS document_tags (
+            document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+            PRIMARY KEY(document_id, tag_id)
+        )""",
+        """CREATE TABLE IF NOT EXISTS rules (
+            id INTEGER PRIMARY KEY, position INTEGER NOT NULL, name TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1, source_type TEXT NOT NULL DEFAULT '',
+            path_pattern TEXT NOT NULL DEFAULT '', sender_domain TEXT NOT NULL DEFAULT '',
+            extension TEXT NOT NULL DEFAULT '', keyword TEXT NOT NULL DEFAULT '',
+            category TEXT NOT NULL DEFAULT '', tags TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE IF NOT EXISTS rule_runs (
+            id INTEGER PRIMARY KEY, status TEXT NOT NULL DEFAULT 'applied',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, reverted_at TEXT
+        )""",
+        """CREATE TABLE IF NOT EXISTS rule_run_changes (
+            run_id INTEGER NOT NULL REFERENCES rule_runs(id) ON DELETE CASCADE,
+            document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            previous_category TEXT NOT NULL, new_category TEXT NOT NULL,
+            added_tags TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY(run_id, document_id)
+        )""",
+    )),
 )
 
 
@@ -264,6 +293,35 @@ POSTGRES_MIGRATIONS = (
             name TEXT NOT NULL, content_type TEXT NOT NULL DEFAULT '', size BIGINT
         )""",
     )),
+    (9, (
+        """CREATE TABLE IF NOT EXISTS tags (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, name TEXT NOT NULL, normalized TEXT NOT NULL UNIQUE
+        )""",
+        """CREATE TABLE IF NOT EXISTS document_tags (
+            document_id BIGINT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            tag_id BIGINT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+            PRIMARY KEY(document_id, tag_id)
+        )""",
+        """CREATE TABLE IF NOT EXISTS rules (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, position INTEGER NOT NULL, name TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1, source_type TEXT NOT NULL DEFAULT '',
+            path_pattern TEXT NOT NULL DEFAULT '', sender_domain TEXT NOT NULL DEFAULT '',
+            extension TEXT NOT NULL DEFAULT '', keyword TEXT NOT NULL DEFAULT '',
+            category TEXT NOT NULL DEFAULT '', tags TEXT NOT NULL DEFAULT '',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE IF NOT EXISTS rule_runs (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, status TEXT NOT NULL DEFAULT 'applied',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, reverted_at TIMESTAMPTZ
+        )""",
+        """CREATE TABLE IF NOT EXISTS rule_run_changes (
+            run_id BIGINT NOT NULL REFERENCES rule_runs(id) ON DELETE CASCADE,
+            document_id BIGINT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            previous_category TEXT NOT NULL, new_category TEXT NOT NULL,
+            added_tags TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY(run_id, document_id)
+        )""",
+    )),
 )
 
 POSTGRES_APPLICATION_TABLES = {
@@ -274,7 +332,8 @@ SQLITE_TABLE_VERSIONS = {
     'documents': 1, 'chunks': 1, 'ai_runs': 1, 'settings': 2,
     'email_accounts': 3, 'email_imports': 4, 'sources': 5,
     'import_jobs': 6, 'import_items': 6, 'import_item_errors': 6, 'document_versions': 7,
-    'email_attachments': 8,
+    'email_attachments': 8, 'tags': 9, 'document_tags': 9, 'rules': 9, 'rule_runs': 9,
+    'rule_run_changes': 9,
 }
 
 # Constant SQL list of all application tables, derived from the catalog so that
@@ -328,6 +387,19 @@ SQLITE_COLUMNS = {
     'email_attachments': (('document_id','INTEGER',0,None,1), ('email_document_id','INTEGER',0,None,0),
                           ('name','TEXT',1,None,0), ('content_type','TEXT',1,"''",0),
                           ('size','INTEGER',0,None,0)),
+    'tags': (('id','INTEGER',0,None,1), ('name','TEXT',1,None,0), ('normalized','TEXT',1,None,0)),
+    'document_tags': (('document_id','INTEGER',1,None,1), ('tag_id','INTEGER',1,None,2)),
+    'rules': (('id','INTEGER',0,None,1), ('position','INTEGER',1,None,0), ('name','TEXT',1,None,0),
+              ('enabled','INTEGER',1,'1',0), ('source_type','TEXT',1,"''",0),
+              ('path_pattern','TEXT',1,"''",0), ('sender_domain','TEXT',1,"''",0),
+              ('extension','TEXT',1,"''",0), ('keyword','TEXT',1,"''",0),
+              ('category','TEXT',1,"''",0), ('tags','TEXT',1,"''",0),
+              ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
+    'rule_runs': (('id','INTEGER',0,None,1), ('status','TEXT',1,"'applied'",0),
+                  ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0), ('reverted_at','TEXT',0,None,0)),
+    'rule_run_changes': (('run_id','INTEGER',1,None,1), ('document_id','INTEGER',1,None,2),
+                         ('previous_category','TEXT',1,None,0), ('new_category','TEXT',1,None,0),
+                         ('added_tags','TEXT',1,"''",0)),
 }
 
 SQLITE_UNIQUE_CONSTRAINTS = {
@@ -336,6 +408,8 @@ SQLITE_UNIQUE_CONSTRAINTS = {
     'email_imports': set(), 'sources': set(),
     'import_jobs': set(), 'import_items': {('job_id','ordinal')}, 'import_item_errors': set(),
     'document_versions': {('lineage_id','version')}, 'email_attachments': set(),
+    'tags': {('normalized',)}, 'document_tags': set(), 'rules': set(), 'rule_runs': set(),
+    'rule_run_changes': set(),
 }
 
 SQLITE_FOREIGN_KEYS = {
@@ -356,6 +430,12 @@ SQLITE_FOREIGN_KEYS = {
     'document_versions': {('document_id','documents','id','NO ACTION','CASCADE')},
     'email_attachments': {('document_id','documents','id','NO ACTION','CASCADE'),
                           ('email_document_id','documents','id','NO ACTION','SET NULL')},
+    'tags': set(),
+    'document_tags': {('document_id','documents','id','NO ACTION','CASCADE'),
+                      ('tag_id','tags','id','NO ACTION','CASCADE')},
+    'rules': set(), 'rule_runs': set(),
+    'rule_run_changes': {('run_id','rule_runs','id','NO ACTION','CASCADE'),
+                         ('document_id','documents','id','NO ACTION','CASCADE')},
 }
 
 POSTGRES_LEGACY_COLUMNS = {
@@ -433,6 +513,32 @@ POSTGRES_LEGACY_COLUMNS = {
     ('email_attachments','name','text','NO','NO',None,None),
     ('email_attachments','content_type','text','NO','NO',"''::text",None),
     ('email_attachments','size','bigint','YES','NO',None,None),
+    ('tags','id','bigint','NO','YES',None,'ALWAYS'),
+    ('tags','name','text','NO','NO',None,None),
+    ('tags','normalized','text','NO','NO',None,None),
+    ('document_tags','document_id','bigint','NO','NO',None,None),
+    ('document_tags','tag_id','bigint','NO','NO',None,None),
+    ('rules','id','bigint','NO','YES',None,'ALWAYS'),
+    ('rules','position','integer','NO','NO',None,None),
+    ('rules','name','text','NO','NO',None,None),
+    ('rules','enabled','integer','NO','NO','1',None),
+    ('rules','source_type','text','NO','NO',"''::text",None),
+    ('rules','path_pattern','text','NO','NO',"''::text",None),
+    ('rules','sender_domain','text','NO','NO',"''::text",None),
+    ('rules','extension','text','NO','NO',"''::text",None),
+    ('rules','keyword','text','NO','NO',"''::text",None),
+    ('rules','category','text','NO','NO',"''::text",None),
+    ('rules','tags','text','NO','NO',"''::text",None),
+    ('rules','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('rule_runs','id','bigint','NO','YES',None,'ALWAYS'),
+    ('rule_runs','status','text','NO','NO',"'applied'::text",None),
+    ('rule_runs','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('rule_runs','reverted_at','timestamp with time zone','YES','NO',None,None),
+    ('rule_run_changes','run_id','bigint','NO','NO',None,None),
+    ('rule_run_changes','document_id','bigint','NO','NO',None,None),
+    ('rule_run_changes','previous_category','text','NO','NO',None,None),
+    ('rule_run_changes','new_category','text','NO','NO',None,None),
+    ('rule_run_changes','added_tags','text','NO','NO',"''::text",None),
 }
 
 POSTGRES_LEGACY_CONSTRAINTS = {
@@ -462,6 +568,16 @@ POSTGRES_LEGACY_CONSTRAINTS = {
     ('email_attachments', 'p', ('document_id',), None, (), ' '),
     ('email_attachments', 'f', ('document_id',), 'documents', ('id',), 'c'),
     ('email_attachments', 'f', ('email_document_id',), 'documents', ('id',), 'n'),
+    ('tags', 'p', ('id',), None, (), ' '),
+    ('tags', 'u', ('normalized',), None, (), ' '),
+    ('document_tags', 'p', ('document_id', 'tag_id'), None, (), ' '),
+    ('document_tags', 'f', ('document_id',), 'documents', ('id',), 'c'),
+    ('document_tags', 'f', ('tag_id',), 'tags', ('id',), 'c'),
+    ('rules', 'p', ('id',), None, (), ' '),
+    ('rule_runs', 'p', ('id',), None, (), ' '),
+    ('rule_run_changes', 'p', ('run_id', 'document_id'), None, (), ' '),
+    ('rule_run_changes', 'f', ('run_id',), 'rule_runs', ('id',), 'c'),
+    ('rule_run_changes', 'f', ('document_id',), 'documents', ('id',), 'c'),
 }
 
 

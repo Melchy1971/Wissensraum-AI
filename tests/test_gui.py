@@ -375,6 +375,44 @@ class InterfaceTests(unittest.TestCase):
         self.assertEqual(sorted(item['locator'] for item in window.import_jobs.items(job['job_id'])),
                          ['datei-00.txt','datei-02.txt'])
 
+    def test_rules_page_previews_applies_filters_and_reverts(self):
+        window=self.window
+        self.assertIn('Regeln',[window.settings_sections.tab(t,'text') for t in window.settings_sections.tabs()])
+        doc_id=window.store.add('Angebot','Betreff: Angebot\nVon: Erika <erika@kunde.example>\n\nText','E-Mail · Konto',
+                                'Angebot.eml',b'raw',('imap','konto','INBOX/1'))[0]
+        page=window.rules_page
+        page.new()
+        page.values['name'].set('Kunde')
+        with patch('rules_view.messagebox.showerror') as error:
+            page.save()  # no condition yet
+        self.assertIn('Bedingung',error.call_args.args[1])
+        page.values['sender_domain'].set('@Kunde.Example')
+        page.values['category'].set('Kunden')
+        page.values['tags'].set('Kunde, Angebot')
+        page.save()
+        self.assertEqual(page.tree.item(str(page.selected_id),'values')[3],'Absender @kunde.example')
+        self.assertEqual(window.store.get(doc_id)['category'],'E-Mail · Konto')  # saving a rule changes nothing
+        page.preview(); self.wait_until_idle(window)
+        preview=page.preview_window
+        self.assertEqual(preview.preview_tree.item('0','values'),('Angebot','E-Mail · Konto','Kunden','Kunde, Angebot'))
+        preview.confirm_button.invoke(); self.wait_until_idle(window)
+        self.assertEqual(window.store.get(doc_id)['category'],'Kunden')
+        self.assertEqual(window.tree.item(str(doc_id),'values')[2],'Angebot, Kunde')
+        self.assertIn('Kunde (1)',window.tag_box.cget('values'))
+        window.store.add('Ohne Tag','Anderer Text')
+        window.tag_filter.set('Kunde (1)'); window.refresh()
+        self.assertEqual(window.tree.get_children(),(str(doc_id),))
+        window.tree.selection_set(str(doc_id)); window.show_document()
+        self.assertIn('Tags: Angebot, Kunde',window.detail.get('1.0','end'))
+        window.tag_filter.set(app.ALL_TAGS); window.refresh()
+        self.assertEqual(len(window.tree.get_children()),2)
+        page.runs.selection_set(page.runs.get_children()[0])
+        with patch('rules_view.messagebox.askyesno',return_value=True):
+            page.revert(); self.wait_until_idle(window)
+        self.assertEqual(window.store.get(doc_id)['category'],'E-Mail · Konto')
+        self.assertIn('zurückgenommen',page.runs.item(page.runs.get_children()[0],'values')[3])
+        self.assertEqual(window.tag_box.cget('values'),(app.ALL_TAGS,))
+
     def test_cancelled_preview_stores_nothing(self):
         window=self.window
         folder=self.base/'quelle'; folder.mkdir()

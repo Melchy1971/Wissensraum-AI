@@ -58,9 +58,10 @@ class FakeResetConnection:
         if query.startswith('DROP SCHEMA'):
             self.schema=None
         if 'FROM information_schema.tables' in query:
-            tables=['ai_runs','chunks','document_versions','documents','email_accounts','email_attachments','email_imports',
-                    'import_item_errors','import_items','import_jobs',
-                    'schema_migrations','settings','sources'] if self.schema == 'new' else []
+            tables=['ai_runs','chunks','document_tags','document_versions','documents','email_accounts',
+                    'email_attachments','email_imports','import_item_errors','import_items','import_jobs',
+                    'rule_run_changes','rule_runs','rules','schema_migrations','settings','sources',
+                    'tags'] if self.schema == 'new' else []
             rows=[(name,) for name in tables] if self.tuple_rows else [{'table_name':name} for name in tables]
             return type('Result',(),{'fetchall':lambda _:rows})()
         if 'SELECT MAX(version)' in query:
@@ -474,9 +475,10 @@ class DatabaseSettingsTests(unittest.TestCase):
         self.assertEqual(sum('pg_advisory_xact_lock' in q for q in queries),1)
         self.assertLess(next(i for i,q in enumerate(queries) if q.startswith('SET LOCAL lock_timeout')),
                         next(i for i,q in enumerate(queries) if 'pg_advisory_xact_lock' in q))
-        self.assertEqual(result['tables'],['ai_runs','chunks','document_versions','documents','email_accounts',
-                                           'email_attachments','email_imports','import_item_errors','import_items',
-                                           'import_jobs','schema_migrations','settings','sources'])
+        self.assertEqual(result['tables'],['ai_runs','chunks','document_tags','document_versions','documents',
+                                           'email_accounts','email_attachments','email_imports',
+                                           'import_item_errors','import_items','import_jobs','rule_run_changes',
+                                           'rule_runs','rules','schema_migrations','settings','sources','tags'])
         self.assertTrue(connection.closed)
 
     def test_failed_reset_rolls_back_and_preserves_previous_schema(self):
