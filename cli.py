@@ -2,7 +2,7 @@
 import argparse
 import json
 from pathlib import Path
-from core import Store, import_document
+from core import Store, discover_documents, import_documents, import_document
 from settings import Settings
 from settings import SystemVault
 from database import DatabaseSettings, resolve_sqlite_path
@@ -35,6 +35,37 @@ def _close_logger(logger):
     except BaseException:
         warn_operational_logging_failure()
 
+
+def _write_import_report(path, report, format_):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if format_ == 'csv':
+        lines = ['field,value']
+        for key in ('found', 'supported', 'imported', 'duplicates', 'skipped', 'errors'):
+            if key in report:
+                lines.append(f'{key},{report[key]}')
+        details = report.get('details', [])
+        if details:
+            escaped = ' | '.join(str(item).replace('"', '""') for item in details)
+            lines.append(f'details,"{escaped}"')
+        path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+        return
+    lines = [
+        '# Importbericht',
+        '',
+        f"- Gefunden: {report.get('found', 0)}",
+        f"- Unterstützt: {report.get('supported', 0)}",
+        f"- Importiert: {report.get('imported', 0)}",
+        f"- Duplikate: {report.get('duplicates', 0)}",
+        f"- Übersprungen: {report.get('skipped', 0)}",
+        f"- Fehler: {report.get('errors', 0)}",
+    ]
+    details = report.get('details', [])
+    if details:
+        lines += ['', '## Details'] + [f'- {item}' for item in details]
+    path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description='Wissensraum: SQL-Wissensmanagement')
     parser.add_argument('--db',type=Path,help='Lokale SQLite-Datei; überschreibt die konfigurierte Datenquelle')
@@ -45,6 +76,10 @@ def main(argv=None):
     imp = commands.add_parser('import')
     imp.add_argument('path',type=Path)
     imp.add_argument('--category',default='Allgemein')
+    imp_folder = commands.add_parser('import-folder')
+    imp_folder.add_argument('path',type=Path)
+    imp_folder.add_argument('--report',type=Path)
+    imp_folder.add_argument('--report-format',choices=('markdown','csv'),default='markdown')
     for name in ('search','ask'):
         sub = commands.add_parser(name)
         sub.add_argument('query')
@@ -117,6 +152,12 @@ def main(argv=None):
                 title,text,name,data = import_document(args.path)
                 doc_id,created = store.add(title,text,args.category,name,data)
                 result = {'id':doc_id,'created':created}
+            elif args.command == 'import-folder':
+                documents, skipped, errors = discover_documents(args.path)
+                report = import_documents(store, documents, skipped, errors)
+                result = report
+                if args.report:
+                    _write_import_report(args.report, report, args.report_format)
             elif args.command == 'search':
                 result = store.search(args.query)
             elif args.command == 'backup':
