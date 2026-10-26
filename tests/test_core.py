@@ -143,6 +143,32 @@ class KnowledgeTests(unittest.TestCase):
         duplicate_report=import_documents(self.store,documents,skipped,errors)
         self.assertEqual(duplicate_report['duplicates'],2)
 
+    def test_folder_import_records_progress_job(self):
+        folder=self.root/'Ablage'
+        nested=folder/'Projekte'
+        nested.mkdir(parents=True)
+        (folder/'Start.md').write_text('Übersicht des Wissensraums',encoding='utf-8')
+        (nested/'Plan.txt').write_text('Projektplan mit Meilensteinen',encoding='utf-8')
+        documents,skipped,errors=discover_documents(folder)
+
+        report=import_documents(self.store,documents,skipped,errors,job_source=str(folder))
+
+        self.assertIn('job_id', report)
+        jobs_path = folder/'data'/'import-jobs.json'
+        self.assertTrue(jobs_path.is_file())
+        jobs = json.loads(jobs_path.read_text(encoding='utf-8'))
+        self.assertEqual(len(jobs), 1)
+        job = jobs[0]
+        self.assertEqual(job['id'], report['job_id'])
+        self.assertEqual(job['source'], str(folder))
+        self.assertEqual(job['status'], 'done')
+        self.assertEqual(job['found'], 2)
+        self.assertEqual(job['supported'], 2)
+        self.assertEqual(job['imported'], 2)
+        self.assertEqual(job['duplicates'], 0)
+        self.assertEqual(job['skipped'], 0)
+        self.assertEqual(job['errors'], 0)
+
     def test_docx_tables(self):
         from docx import Document
         p = self.root/'test.docx'

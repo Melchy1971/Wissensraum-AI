@@ -694,19 +694,72 @@ def discover_documents(folder):
     return documents, skipped, errors
 
 
-def import_documents(store, documents, skipped=0, scan_errors=None):
+def import_documents(store, documents, skipped=0, scan_errors=None, job_source=None):
     """Import discovered documents and retain their relative source paths."""
     report = {'found':len(documents)+skipped, 'supported':len(documents), 'imported':0,
               'duplicates':0, 'skipped':skipped, 'errors':len(scan_errors or []),
               'details':list(scan_errors or [])}
-    for path, stored_name in documents:
+    def job_path_for(source):
+        if source is None:
+            return None
+        return Path(source) / 'data' / 'import-jobs.json'
+    def timestamp():
+        from datetime import datetime, timezone
+        return datetime.now(timezone.utc).isoformat(timespec='seconds')
+    def load_records(path):
+        if path is None or not path.exists():
+            return []
         try:
-            title, text, _, data = import_document(path)
-            _, created = store.add(title, text, filename=stored_name, original=data)
-            report['imported' if created else 'duplicates'] += 1
-        except Exception as error:
-            report['errors'] += 1
-            report['details'].append(f'{stored_name}: {error}')
+            return json.loads(path.read_text(encoding='utf-8'))
+        except Exception:
+            return []
+    def write_records(path, records):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + '.tmp-' + uuid.uuid4().hex)
+        tmp.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding='utf-8')
+        os.replace(tmp, path)
+
+    job_path = job_path_for(job_source)
+    records = load_records(job_path)
+    if job_path is not None:
+        job_id = uuid.uuid4().hex
+        records.append({
+            'id': job_id,
+            'source': str(job_source),
+            'found': report['found'],
+            'supported': report['supported'],
+            'imported': 0,
+            'duplicates': 0,
+            'skipped': report['skipped'],
+            'errors': report['errors'],
+            'status': 'running',
+            'started_at': timestamp(),
+            'completed_at': None,
+        })
+        write_records(job_path, records)
+        report['job_id'] = job_id
+    try:
+        for path, stored_name in documents:
+            try:
+                title, text, _, data = import_document(path)
+                _, created = store.add(title, text, filename=stored_name, original=data)
+                report['imported' if created else 'duplicates'] += 1
+            except Exception as error:
+                report['errors'] += 1
+                report['details'].append(f'{stored_name}: {error}')
+        if job_path is not None and records:
+            records[-1].update({
+                'found': report['found'], 'supported': report['supported'],
+                'imported': report['imported'], 'duplicates': report['duplicates'],
+                'skipped': report['skipped'], 'errors': report['errors'],
+                'status': 'done', 'completed_at': timestamp(),
+            })
+            write_records(job_path, records)
+    except Exception:
+        if job_path is not None and records:
+            records[-1].update({'status': 'failed', 'completed_at': timestamp()})
+            write_records(job_path, records)
+        raise
     return report
 
 
