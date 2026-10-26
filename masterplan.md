@@ -8,7 +8,7 @@
 
 **Repository:** `Melchy1971/Wissensraum-AI`
 
-**Geprüfter Repository-Stand:** Commit `18c61f1` (Dokumentation); letzter codewirksamer Stand `84f9ecf`. CI-Lauf [40185408996](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40185408996) auf `84f9ecf`: alle sieben Jobs grün. Release 2.0 wurde am 26.10.2026 mit eigenen Daten abgenommen.
+**Geprüfte Codebasis:** Letzter codewirksamer Stand `84f9ecf`. CI-Lauf [40185408996](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40185408996): alle sieben Jobs grün. Release 2.0 wurde am 26.10.2026 mit eigenen Daten abgenommen; nachfolgende Commits bis zu dieser Planaktualisierung betreffen ausschließlich README und Masterplan.
 
 **Ablage:** Einziger Masterplan ist diese Datei `masterplan.md`. Die frühere Kopie `docs/masterplan.md` wurde am 22.10.2026 entfernt.
 
@@ -476,6 +476,7 @@ PostgreSQL-Destruktivtests dürfen ausschließlich gegen eine Wegwerfdatenbank m
 
 **Gate:** Ein referenzierter Import-Testbestand und ein wiederholbarer Abbruch-/Fortsetzungstest sind vollständig grün.
 
+<<<<<<< HEAD
 **Release 2.0.1 – Soll-Umfang (D-013, Entscheidung Product Owner 26.10.2026):** Ein Teilschritt beginnt erst, wenn der vorherige grün ist.
 
 | Teilschritt | Umfang | Gate | Status |
@@ -485,6 +486,9 @@ PostgreSQL-Destruktivtests dürfen ausschließlich gegen eine Wegwerfdatenbank m
 | S3 Postfachsynchronisation | Je Konto ausdrücklich zu aktivieren, mit Intervall; nur neue Nachrichten als Auftrag; nur bei geöffneter Anwendung; Anhänge nie automatisch. | Ohne Aktivierung kein Abruf; kein Anhangsinhalt ohne Freigabe (aufgezeichnete Abrufe wie 6.3); keine Doppelanlage; bei Anmeldefehler Stopp mit Grund; Postfach bleibt nur lesbar; beide Backends, CI grün | ⬜ |
 
 **Stand 24.10.2026:** Muss-Umfang vollständig umgesetzt, Abnahmekriterien und Gate automatisiert erfüllt (Teilschritte 6.1 bis 6.4, jeweils CI grün). Soll-Umfang nicht umgesetzt: weitere Formate (HTML, RTF, XLSX, PPTX, EML), regelbasierte Kategorien und Tags, zeitgesteuerte Postfachsynchronisation. **Entscheidung Product Owner 24.10.2026:** Der Soll-Umfang wird aus Release 2.0 herausgenommen und später einzeln eingeplant. Offen: Abnahme durch den Product Owner mit eigenen Daten.
+=======
+**Zwischenstand 24.10.2026:** Muss-Umfang vollständig umgesetzt, Abnahmekriterien und Gate automatisiert erfüllt (Teilschritte 6.1 bis 6.4, jeweils CI grün). Soll-Umfang nicht umgesetzt: weitere Formate (HTML, RTF, XLSX, PPTX, EML), regelbasierte Kategorien und Tags, zeitgesteuerte Postfachsynchronisation. **Entscheidung Product Owner 24.10.2026:** Der Soll-Umfang wird aus Release 2.0 herausgenommen und später einzeln eingeplant. Die zu diesem Zeitpunkt noch offene Abnahme mit eigenen Daten wurde am 26.10.2026 abgeschlossen und ist unmittelbar nach diesem Zwischenstand dokumentiert.
+>>>>>>> 7d24e5571278baa4a2e9ee36824245eb0c636515
 
 **Abnahme Release 2.0 mit eigenen Daten, abgeschlossen 26.10.2026** (lesend geprüft in der SQLite-Datenbank und im Betriebsprotokoll des Product Owners):
 
