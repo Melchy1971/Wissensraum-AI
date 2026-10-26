@@ -2,7 +2,7 @@
 
 - **Dokumentversion:** 1.0
 - **Stand:** 22.10.2026
-- **Produktstand:** 1.9-dev (Basis 1.8.1)
+- **Produktstand:** 2.0-dev (Basis 1.9)
 - **Repository:** `Melchy1971/Wissensraum-AI`
 - **Status:** Verbindliche Planungsgrundlage
 
@@ -65,7 +65,7 @@ Die Annahmen werden vor Beginn eines Mehrbenutzer- oder Serverbetriebs neu bewer
 
 ### 4.1 Produktfunktionen
 
-| Bereich | Aktueller Stand 1.9-dev | Reifegrad |
+| Bereich | Aktueller Stand 2.0-dev | Reifegrad |
 |---|---|---|
 | Desktop-Oberfläche | Deutsche Tkinter-Oberfläche mit Hauptnavigation und kontrolliertem Beenden | Produktiv nutzbar |
 | Lokale Dokumente | TXT, Markdown, textbasierte PDF und DOCX | Produktiv nutzbar |
@@ -135,17 +135,17 @@ Die Annahmen werden vor Beginn eines Mehrbenutzer- oder Serverbetriebs neu bewer
 
 | Objekt | Zweck | Release |
 |---|---|---|
-| `sources` | Herkunft, Quelltyp, Konto, Pfad und Abrufkontext vereinheitlichen | 1.9 |
-| `import_jobs` | Laufstatus, Fortschritt, Fehler, Abbruch und Wiederaufnahme | 2.0 |
-| `attachments` | E-Mail-Anhänge und Beziehung zur Nachricht | 2.0 |
-| `document_versions` | Korrigierte oder erneut importierte Fassungen nachvollziehen | 2.0 |
-| `embeddings` | Vektoren, Modell, Dimension, Prüfsumme und Erzeugungszeit | 2.1 |
-| `entities` / `relations` | Kontrollierter Wissensgraph | 2.3 |
-| `audit_events` | Sicherheits- und Betriebsereignisse ohne Geheimnisse | 2.4 |
+| `sources` | Herkunft, Quelltyp, Konto, Pfad und Abrufkontext vereinheitlichen | 2.0 |
+| `import_jobs` | Laufstatus, Fortschritt, Fehler, Abbruch und Wiederaufnahme | 2.1 |
+| `attachments` | E-Mail-Anhänge und Beziehung zur Nachricht | 2.1 |
+| `document_versions` | Korrigierte oder erneut importierte Fassungen nachvollziehen | 2.1 |
+| `embeddings` | Vektoren, Modell, Dimension, Prüfsumme und Erzeugungszeit | 2.2 |
+| `entities` / `relations` | Kontrollierter Wissensgraph | 2.4 |
+| `audit_events` | Sicherheits- und Betriebsereignisse ohne Geheimnisse | 2.5 |
 
 ## 7. Release-Roadmap
 
-### Release 1.9 – Stabilisierung und Betriebsfähigkeit
+### Release 2.0 – Stabilisierung und Betriebsfähigkeit
 
 **Ziel:** Der bestehende Funktionsumfang wird konsistent installierbar, diagnostizierbar und wiederherstellbar.
 
@@ -170,7 +170,7 @@ Die Annahmen werden vor Beginn eines Mehrbenutzer- oder Serverbetriebs neu bewer
 - alle bisherigen Funktionen unter SQLite und PostgreSQL ohne Regression
 - im Testbestand für lokale Dateien, Notizen, PST, IMAP und Microsoft Graph besitzt jedes neu importierte oder migrierte Dokument genau einen gültigen `sources`-Bezug; Quelltyp und anwendbare Herkunftsangaben entsprechen unter SQLite und PostgreSQL zu 100 % den erwarteten Werten
 
-### Release 2.0 – Robuste Importplattform
+### Release 2.1 – Robuste Importplattform
 
 **Ziel:** Große und heterogene Quellen werden kontrolliert, transparent und wiederaufnehmbar verarbeitet.
 
@@ -198,7 +198,7 @@ Die Annahmen werden vor Beginn eines Mehrbenutzer- oder Serverbetriebs neu bewer
 - 1.000 gemischte Testdateien werden mit mindestens 99 % technisch korrekt abgeschlossen; fachlich nicht extrahierbare Dateien werden eindeutig ausgewiesen
 - Anhänge werden niemals ohne Freigabe gespeichert
 
-### Release 2.1 – Hybrid-RAG und Antwortqualität
+### Release 2.2 – Hybrid-RAG und Antwortqualität
 
 **Ziel:** Relevante Inhalte werden auch bei Synonymen und abweichender Formulierung zuverlässig gefunden.
 
@@ -221,7 +221,7 @@ Die Annahmen werden vor Beginn eines Mehrbenutzer- oder Serverbetriebs neu bewer
 - unbelegte Antworten werden sichtbar markiert und nicht als gesichert dargestellt
 - Retrieval-P95 unter 2 Sekunden für den vereinbarten Referenzbestand
 
-### Release 2.2 – Wissensorganisation
+### Release 2.3 – Wissensorganisation
 
 **Ziel:** Dokumente werden über reine Suche hinaus als gepflegter Wissensbestand verwaltet.
 
@@ -241,7 +241,7 @@ Die Annahmen werden vor Beginn eines Mehrbenutzer- oder Serverbetriebs neu bewer
 - Originaldatei und Original-Hash bleiben unverändert
 - veraltete Inhalte können aus KI-Antworten ausgeschlossen werden
 
-### Release 2.3 – Wissensgraph
+### Release 2.4 – Wissensgraph
 
 **Ziel:** Personen, Organisationen, Prozesse, Systeme, Entscheidungen und ihre Beziehungen werden strukturiert nutzbar.
 
@@ -260,7 +260,7 @@ Die Annahmen werden vor Beginn eines Mehrbenutzer- oder Serverbetriebs neu bewer
 - KI-Vorschläge bleiben bis zur Bestätigung als ungeprüft markiert
 - Änderungen sind umkehrbar und protokolliert
 
-### Release 2.4 – Betrieb und Governance
+### Release 2.5 – Betrieb und Governance
 
 **Ziel:** Datenqualität, Kosten, Sicherheit und Wiederherstellbarkeit werden messbar gesteuert.
 
@@ -281,7 +281,7 @@ Die Annahmen werden vor Beginn eines Mehrbenutzer- oder Serverbetriebs neu bewer
 - quartalsweise Wiederherstellungsprüfung erfolgreich
 - kritische Sicherheitslücken blockieren ein Release
 
-### Release 3.0 – Mehrbenutzerbetrieb, nur nach eigener Freigabe
+### Release 3.1 – Mehrbenutzerbetrieb, nur nach eigener Freigabe
 
 **Entscheidungstor:** Mehrbenutzerbetrieb verändert Bedrohungsmodell, Datenmodell und Betriebsverantwortung. Er wird nicht schrittweise in die Einzelplatzversion eingeschoben.
 
@@ -378,7 +378,7 @@ Ein Arbeitspaket ist abgeschlossen, wenn:
 - CI auf allen unterstützten Plattformen grün ist
 - messbare Abnahmekriterien erfüllt und nachgewiesen sind
 
-### 12.1 DoD-Nachweis: strukturierte lokale Logs (Release 1.9)
+### 12.1 DoD-Nachweis: strukturierte lokale Logs (Release 2.0)
 
 | Prüfaspekt | Bewertung und Nachweis |
 |---|---|
@@ -391,7 +391,7 @@ Ein Arbeitspaket ist abgeschlossen, wenn:
 | Sicherheit | Nur exakte eingebaute Skalartypen und freigegebene Metadaten gelangen in das Schema; Ausnahmetexte, Tracebacks und nicht freigegebene Werte werden verworfen. Formbasierte und bekannte-Wert-Redaktion sind eine zusätzliche Grenze, ersetzen aber weder Dateirechte noch die Prüfung vor Weitergabe. Pfad-, Windows- und Hardlink-Aliasse eines vorhandenen Ziels teilen dieselbe Besitzsperre. |
 | Messbarer Testnachweis | Historischer fokussierter Abschlusslauf: `python -m unittest tests.test_logging tests.test_logging_integration -v` = 79 Tests, erfolgreich, 3 POSIX-Dateisystemtests plattformbedingt übersprungen. Aktueller vollständiger Windows-Lauf: `python -m unittest discover -s tests -v` = 321 Tests, erfolgreich, 9 Übersprünge (3 plattformspezifische Logging-Dateisystemfälle und 6 nicht konfigurierte Live-PostgreSQL-Diensttests). |
 
-### 12.2 DoD-Nachweis: sicherer Konfigurationstransfer (Release 1.9)
+### 12.2 DoD-Nachweis: sicherer Konfigurationstransfer (Release 2.0)
 
 | Prüfaspekt | Bewertung und Nachweis |
 |---|---|
@@ -404,7 +404,7 @@ Ein Arbeitspaket ist abgeschlossen, wenn:
 | UI-Themes | Der Konfigurationsbereich verwendet bestehende ttk-Stile und ist damit in Hell- und Dunkelmodus eingebunden; Abbruch-, Fehler- und Erfolgspfade sind ohne Live-Anzeige getestet, die Auffindbarkeit im Einstellungs-Notebook im GUI-Vertragstest. |
 | Messbarer Testnachweis | Historischer fokussierter Abschlusslauf: `python -m unittest discover -s tests -p 'test_configuration.py' -v` = 53 Tests, erfolgreich. Aktueller vollständiger Windows-Lauf: `python -m unittest discover -s tests -v` = 321 Tests, erfolgreich, 9 Übersprünge (3 plattformspezifische Logging-Dateisystemfälle und 6 nicht konfigurierte Live-PostgreSQL-Diensttests). Der erfolgreiche entfernte CI-Lauf von `test_configuration_transfer_contract_on_real_postgresql` bleibt ausstehend. |
 
-### 12.3 DoD-Nachweis: Schema-Migrationsrahmen (Release 1.9)
+### 12.3 DoD-Nachweis: Schema-Migrationsrahmen (Release 2.0)
 
 | Prüfaspekt | Bewertung und Nachweis |
 |---|---|
@@ -425,8 +425,8 @@ Ein Arbeitspaket ist abgeschlossen, wenn:
 | D-005 | Telekom-Magenta und eigenes Logo bilden die Designbasis | Gültig |
 | D-006 | Hybrid-RAG wird erst nach Aufbau eines Evaluationsdatensatzes freigegeben | Beschlossen |
 | D-007 | Mehrbenutzerbetrieb benötigt ein separates Architektur- und Sicherheits-Gate | Beschlossen |
-| D-008 | Lokale Vektorsuche für SQLite ist vor Release 2.1 technisch zu entscheiden | Offen |
-| D-009 | OCR-Engine und Lizenzmodell sind vor Release 2.0 festzulegen | Offen |
+| D-008 | Lokale Vektorsuche für SQLite ist vor Release 2.2 technisch zu entscheiden | Offen |
+| D-009 | OCR-Engine und Lizenzmodell sind vor Release 2.1 festzulegen | Offen |
 
 ## 14. Hauptrisiken
 
@@ -444,7 +444,7 @@ Ein Arbeitspaket ist abgeschlossen, wenn:
 
 ## 15. Nächster verbindlicher Release-Schnitt
 
-Der nächste Release ist **1.9 – Stabilisierung und Betriebsfähigkeit**. Neue Großfunktionen wie OCR, E-Mail-Anhänge und Vektorsuche beginnen erst, wenn folgende Gates erfüllt sind:
+Der nächste Release ist **2.0 – Stabilisierung und Betriebsfähigkeit**. Neue Großfunktionen wie OCR, E-Mail-Anhänge und Vektorsuche beginnen erst, wenn folgende Gates erfüllt sind:
 
 - Dokumentation widerspruchsfrei
 - Datenbankmigrationen versioniert

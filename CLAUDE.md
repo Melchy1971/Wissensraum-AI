@@ -27,7 +27,7 @@ Statusangaben im Masterplan dürfen nur aufgrund nachprüfbarer Ergebnisse geän
 
 ## 4. Aktueller Arbeitsschwerpunkt
 
-Der aktuelle Freigabeblocker steht in **Phase 4 – Versionierte Datenbankmigrationen** des Masterplans.
+Der aktuelle Freigabeblocker steht in **Phase 5 – Release 2.0 Betriebsfähigkeit** des Masterplans.
 
 Der Hermes-Stand enthält bereits:
 
@@ -39,9 +39,9 @@ Der Hermes-Stand enthält bereits:
 - atomaren PostgreSQL-Schema-Reset
 - Schutz destruktiver PostgreSQL-Tests
 
-Diese Funktionen sind implementiert, aber noch nicht freigegeben. Der dokumentierte Prüfstand umfasst 89 Tests; 3 lokale Fehler und ein vollständig roter CI-Lauf blockieren die Abnahme. Die im Masterplan aufgeführten Fehler zuerst reproduzieren und an ihrer Ursache beheben. Phase 4 darf erst auf ✅ gesetzt werden, wenn ihr vollständiges Gate erfüllt ist.
+Diese Funktionen sind implementiert, aber noch nicht freigegeben. Der dokumentierte Prüfstand umfasst 321 Tests; 9 Übersprünge und ein vollständig grüner CI-Lauf blockieren die Abnahme nicht, aber die offenen 2.0-Freigaben bleiben als Prozess offen.
 
-Ohne ausdrückliche Anweisung keine Arbeit aus Phase 5 oder später beginnen, solange Phase 4 rot ist.
+Ohne ausdrückliche Anweisung keine Arbeit aus Phase 6 oder später beginnen, solange Phase 5 offen ist.
 
 ## 5. Architektur und Zuständigkeiten
 
