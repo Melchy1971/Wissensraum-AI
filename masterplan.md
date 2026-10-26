@@ -43,7 +43,7 @@
 | Tests Windows, Python 3.11, 3.12 und 3.13 | 353 Tests, je 337 bestanden, 16 übersprungen (3 POSIX-Logging-Fälle, 10 PostgreSQL, 3 `start.sh`-Tests ohne `sh` im Suchpfad). 3.12 und 3.13: 0 Fehler. 3.11 auf dem Entwicklungsrechner: in jedem Lauf ein bis fünf Fehler beim Löschen des Temp-Ordners nach bestandenem Test (WinError 145), jedes Mal in anderen, überwiegend bereits vorhandenen Tests; der CI-Job Windows/3.11 war in allen geprüften Läufen grün. Vermutlich lokales Zusammenspiel mit dem Virenscanner. | 🟡 lokal, nicht release-blockierend (CI Windows/3.11 grün) |
 | CI-Matrix | Lauf [39918310287](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39918310287) auf `4b37177` (23.10.2026): alle sieben Jobs grün, Windows/Linux × Python 3.11/3.12/3.13 und `postgres` (PostgreSQL 18 einschließlich `pg_dump`/`pg_restore`-Rundlauf). Davor grün: `39914353899` auf `ea7d929`. Läufe bis `585ae5a` rot im Vorschauschritt. | ✅ für `4b37177` |
 
-**Nächster kleinster Schritt:** Release 2.0.1 ist abgeschlossen (S1 bis S3 ✅). Als Nächstes die Festlegungen für Release 2.1 (Phase 7, siehe Abschnitt 15) durch den Product Owner. Verschoben: Kennwort der VPS-Datenbank wird mit dem Live-Release geändert (Entscheidung 24.10.2026).
+**Nächster kleinster Schritt:** Release 2.0.1 ist abgeschlossen (S1 bis S3 ✅). Festlegungen für Release 2.1 getroffen (D-014). Als Nächstes Teilschritte und Gates von Phase 7 planen und freigeben. Verschoben: Kennwort der VPS-Datenbank wird mit dem Live-Release geändert (Entscheidung 24.10.2026).
 
 ## Aktualisierung 22.10.2026 – Release 1.9 nach Hermes-Merge
 
@@ -825,12 +825,13 @@ Ein Arbeitspaket ist abgeschlossen, wenn:
 | D-005 | ✅ Telekom-Magenta und eigenes Logo bilden die Designbasis | Gültig und umgesetzt |
 | D-006 | Hybrid-RAG wird erst nach Aufbau eines Evaluationsdatensatzes freigegeben | Beschlossen |
 | D-007 | Mehrbenutzerbetrieb benötigt ein separates Architektur- und Sicherheits-Gate | Beschlossen |
-| D-008 | Lokale Vektorsuche für SQLite ist vor Release 2.1 technisch zu entscheiden | Offen |
+| D-008 | Lokale Vektorsuche für SQLite ist vor Release 2.1 technisch zu entscheiden | Entschieden 26.10.2026 mit D-014: exakter Vergleich aller Vektoren mit numpy, sqlite-vec erst bei verfehltem P95 |
 | D-009 | OCR mit Tesseract (Apache 2.0) über `pytesseract`, PDF-Seiten mit `pypdfium2` gerendert; lokal, optionale Erweiterung wie die PST-Unterstützung; kein Ghostscript (AGPL) und keine Cloud-OCR | Entschieden 23.10.2026 (Product Owner) |
 | D-010 | Release 2.0 in vier Teilschritten mit eigenem Gate: 6.1 Importaufträge, 6.2 Versionen und Vorschau, 6.3 E-Mail-Anhänge, 6.4 OCR | Entschieden 23.10.2026 (Product Owner) |
 | D-011 | Release 3.1 verlagert die Anwendung auf den eigenen VPS und stellt sie authentifiziert über eine eigene HTTPS-Domain bereit; Phase 10 ist zwingende Sicherheitsvoraussetzung | Entschieden 26.10.2026 (Product Owner) |
 | D-012 | Zielstack für Release 3.1: FastAPI, serverseitige Oberfläche mit HTMX, PostgreSQL 18, persistente Hintergrundaufträge, Docker Compose und Reverse Proxy mit automatischem TLS; SPA nur bei nachgewiesenem Bedarf | Entschieden 26.10.2026 (Product Owner) |
 | D-013 | Soll-Umfang von Phase 6 wird als Release 2.0.1 vor Phase 7 umgesetzt, in drei Teilschritten mit eigenem Gate: S1 Formate (HTML, RTF, XLSX, PPTX, EML), S2 Regeln für Kategorien und Tags, S3 zeitgesteuerte Postfachsynchronisation; S3 läuft nur, solange die Anwendung geöffnet ist (keine Windows-Aufgabenplanung) | Entschieden 26.10.2026 (Product Owner) |
+| D-014 | Festlegungen für Release 2.1: (1) Evaluationsdatensatz aus zwei Teilen, etwa 60 synthetische Fragen mit eingecheckten Vektoren des Referenzmodells für die CI und 20 bis 30 eigene Fragen des Product Owners mit erwarteter Quelle für die Abnahme; (2) Referenzmodell Qwen3-Embedding 0.6B lokal über Ollama (Apache 2.0, 1.024 Dimensionen), OpenAI text-embedding-3-small wählbar; Modell und Dimension je Vektor gespeichert, Modellwechsel erzwingt Neuberechnung; (3) SQLite: exakter Vergleich aller Vektoren (BLOB, numpy), PostgreSQL: pgvector; (4) Fusion Reciprocal Rank Fusion mit k = 60 aus je 50 Volltext- und Vektortreffern; (5) Reranker als Schnittstelle, erste Variante über die aktive Chat-KI, standardmäßig aus, Nutzen wird gemessen; (6) Messung: Recall@10 ≥ 0,85, Hauptquelle in ≥ 95 % der beantworteten Fragen, P95 der Suche einschließlich Frage-Vektor ohne KI-Antwort unter 2 s bei 10.000 Dokumenten und etwa 50.000 Abschnitten auf SQLite, automatisch aus dem versionierten Datensatz | Entschieden 26.10.2026 (Product Owner) |
 
 ## 14. Hauptrisiken
 
@@ -853,7 +854,7 @@ Ein Arbeitspaket ist abgeschlossen, wenn:
 
 Release **2.0 – Robuste Importplattform** ist am 26.10.2026 auf dem Code-Stand `84f9ecf` abgenommen. Die vier Teilschritte Importaufträge, Dokumentversionen und Vorschau, E-Mail-Anhänge sowie OCR sind umgesetzt, in der CI geprüft und mit eigenen Daten bestätigt. Der nachfolgende Commit `18c61f1` änderte ausschließlich README und Masterplan.
 
-Release **2.0.1 – Soll-Umfang der Importplattform** (D-013: weitere Formate, Regeln für Kategorien und Tags, Postfachsynchronisation bei geöffneter Anwendung) ist am 26.10.2026 abgenommen. Der nächste verbindliche Release ist **2.1 – Hybrid-RAG und Antwortqualität** (Phase 7). Vor Implementierungsbeginn von 2.1 sind festzulegen:
+Release **2.0.1 – Soll-Umfang der Importplattform** (D-013: weitere Formate, Regeln für Kategorien und Tags, Postfachsynchronisation bei geöffneter Anwendung) ist am 26.10.2026 abgenommen. Der nächste verbindliche Release ist **2.1 – Hybrid-RAG und Antwortqualität** (Phase 7). Die folgenden Festlegungen sind mit D-014 am 26.10.2026 getroffen:
 
 - versionierter Evaluationsdatensatz mit Fragen, erwarteten Hauptquellen und Ausschlussfällen
 - Embedding-Anbieter und lokales Referenzmodell
