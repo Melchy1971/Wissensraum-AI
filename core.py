@@ -26,7 +26,9 @@ SCHEMA = ('PRAGMA foreign_keys = ON;\n' + '\n'.join(
     ', content TEXT NOT NULL,\n            UNIQUE(document_id, ordinal)',
     ', content TEXT NOT NULL, UNIQUE(document_id, ordinal)')
 
-SUPPORTED_DOCUMENT_SUFFIXES = frozenset({'.txt', '.md', '.pdf', '.docx'})
+SUPPORTED_DOCUMENT_SUFFIXES = frozenset({'.txt', '.md', '.pdf', '.docx', '.html', '.htm', '.rtf', '.xlsx', '.pptx',
+                                         '.eml'})
+SUPPORTED_FORMATS_TEXT = 'TXT, Markdown, PDF, DOCX, HTML, RTF, XLSX, PPTX und EML'
 SOURCE_TYPES = frozenset({'note', 'file', 'pst', 'imap', 'graph', 'attachment'})
 # Image files have no text layer; they wait in quarantine for OCR (step 6.4).
 IMAGE_SUFFIXES = frozenset({'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tif', '.tiff', '.webp', '.heic'})
@@ -799,18 +801,23 @@ class ImportRejected(ValueError):
         self.reason = reason
 
 
-def _docx_within_limits(data):
+def _zip_within_limits(data, label='DOCX'):
+    """Entry count, unpacked size and compression ratio of an Office Open XML container."""
     import zipfile
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
             entries = archive.infolist()
     except zipfile.BadZipFile:
-        raise ImportRejected('damaged', 'DOCX-Datei ist beschädigt.') from None
+        raise ImportRejected('damaged', f'{label}-Datei ist beschädigt.') from None
     uncompressed = sum(entry.file_size for entry in entries)
     compressed = max(1, sum(entry.compress_size for entry in entries))
     if (len(entries) > MAX_DOCX_ENTRIES or uncompressed > MAX_DOCX_UNCOMPRESSED_BYTES
             or uncompressed / compressed > MAX_DOCX_COMPRESSION_RATIO):
-        raise ImportRejected('limits', 'DOCX-Datei überschreitet die Entpackgrenzen.')
+        raise ImportRejected('limits', f'{label}-Datei überschreitet die Entpackgrenzen.')
+
+
+def _docx_within_limits(data):
+    _zip_within_limits(data, 'DOCX')
 
 
 class OcrDeferred(Exception):
@@ -848,22 +855,25 @@ def extract_document(name, data, allow_ocr=True):
             raise ImportRejected('too_large', 'Maximal 2 Millionen Textzeichen pro Dokument.')
         return Path(name).stem or name, text, name, data
     if suffix not in SUPPORTED_DOCUMENT_SUFFIXES:
-        raise ImportRejected('unsupported', 'Unterstützt werden TXT, Markdown, PDF und DOCX.')
+        raise ImportRejected('unsupported', f'Unterstützt werden {SUPPORTED_FORMATS_TEXT}.')
     if len(data) > MAX_DOCUMENT_BYTES:
         raise ImportRejected('too_large', 'Datei überschreitet das Limit von 20 MB.')
+    import formats
+    title = Path(name).stem or name
     if suffix in ('.txt', '.md'):
-        if data.startswith((b'\xff\xfe', b'\xfe\xff')):
-            text = data.decode('utf-16')
-        elif b'\x00' in data:
-            raise ImportRejected('signature', 'Textdatei enthält Binärdaten.')
-        else:
-            try:
-                text = data.decode('utf-8-sig')
-            except UnicodeDecodeError:
-                try:
-                    text = data.decode('cp1252')
-                except UnicodeDecodeError:
-                    raise ImportRejected('damaged', 'Textkodierung ist nicht lesbar.') from None
+        text = formats.decode_text(data)
+    elif suffix in ('.html', '.htm'):
+        page_title, text = formats.html_document(data)
+        title = page_title or title
+    elif suffix == '.rtf':
+        text = formats.rtf_document(data)
+    elif suffix == '.xlsx':
+        text = formats.xlsx_document(data)
+    elif suffix == '.pptx':
+        text = formats.pptx_document(data)
+    elif suffix == '.eml':
+        subject, text, data = formats.eml_document(data)  # stored original without attachment content
+        title = subject or title
     elif suffix == '.pdf':
         if b'%PDF-' not in data[:1024]:
             raise ImportRejected('signature', 'Datei ist kein PDF.')
@@ -887,9 +897,7 @@ def extract_document(name, data, allow_ocr=True):
                 raise OcrDeferred(len(reader.pages))
             text = ocr.pdf_text(data)  # scanned PDF: recognize the rendered pages
     else:  # .docx
-        if not data.startswith(b'PK\x03\x04'):
-            raise ImportRejected('signature', 'Datei ist kein DOCX-Dokument.')
-        _docx_within_limits(data)
+        formats.office_container(data, '.docx')
         from docx import Document
         try:
             doc = Document(io.BytesIO(data))
@@ -902,7 +910,7 @@ def extract_document(name, data, allow_ocr=True):
         raise ImportRejected('no_text', 'Datei enthält keinen lesbaren Text.')
     if len(text.strip()) > MAX_DOCUMENT_CHARACTERS:
         raise ImportRejected('too_large', 'Maximal 2 Millionen Textzeichen pro Dokument.')
-    return Path(name).stem or name, text, name, data
+    return title, text, name, data
 
 
 def discover_documents(folder, include_unsupported=False):

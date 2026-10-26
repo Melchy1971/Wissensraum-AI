@@ -97,8 +97,15 @@ def build_reference_corpus(folder) -> dict:
         path.write_bytes(data)
         expected[locator] = (status, reason)
 
-    for index in range(300):
+    for index in range(175):
         put(f'text/notiz-{index:03}.txt', f'Referenztext {index} zur Freigabe'.encode('utf-8'), 'imported')
+    # Formats of Release 2.0.1: 25 readable files each (125 instead of 125 plain text files).
+    for index in range(25):
+        put(f'web/seite-{index:03}.html', html_doc(f'HTML Referenz {index}', f'Seite {index}'), 'imported')
+        put(f'rtf/brief-{index:03}.rtf', rtf_doc(f'RTF Referenz {index} Prüfung'), 'imported')
+        put(f'tabellen/liste-{index:03}.xlsx', xlsx_with_text(f'XLSX Referenz {index}'), 'imported')
+        put(f'folien/vortrag-{index:03}.pptx', pptx_with_text(f'PPTX Referenz {index}', slides=1), 'imported')
+        put(f'mail/nachricht-{index:03}.eml', eml_with_attachment(f'EML Referenz {index}', attachment=None), 'imported')
     for index in range(150):
         put(f'text/md/seite-{index:03}.md', f'# Markdown {index}\nInhalt {index}'.encode('utf-8'), 'imported')
     for index in range(200):
@@ -111,12 +118,14 @@ def build_reference_corpus(folder) -> dict:
     for index in range(40):
         put(f'scan/scan-{index:03}.pdf', blank, 'quarantined', 'no_text')
     for index in range(30):
-        suffix = ('png', 'exe', 'xlsx')[index % 3]
+        suffix = ('png', 'exe', 'ods')[index % 3]  # ods: still unsupported
         put(f'fremd/datei-{index:03}.{suffix}', b'\x89PNG' + bytes([index]),
             'quarantined', 'no_text' if suffix == 'png' else 'unsupported')  # images wait for OCR (6.4)
     encrypted = encrypted_pdf()
-    for index in range(20):
+    for index in range(10):
         put(f'geschuetzt/vertraulich-{index:03}.pdf', encrypted, 'quarantined', 'encrypted')
+    for index in range(10):  # password-protected Office files
+        put(f'geschuetzt/kennwort-{index:03}.{("xlsx", "pptx")[index % 2]}', office_cfb(), 'quarantined', 'encrypted')
     for index in range(20):
         put(f'falsch/umbenannt-{index:03}.pdf', f'Kein PDF {index}'.encode('utf-8'), 'quarantined', 'signature')
     broken = not_a_word_zip()
@@ -193,3 +202,84 @@ def character_error_rate(expected, actual):
             current.append(min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (left != right)))
         previous = current
     return previous[-1] / max(1, len(expected))
+
+
+# --- Formats of Release 2.0.1 (S1) ------------------------------------------------------
+def html_doc(text, title='Seite'):
+    return (f'<!DOCTYPE html><html><head><title>{title}</title><style>.x{{color:red}}</style>'
+            f'<script>var geheim = "Skriptinhalt";</script></head><body><h1>{title}</h1>'
+            f'<p>{text}</p><ul><li>Punkt eins</li><li>Punkt zwei</li></ul></body></html>').encode('utf-8')
+
+
+def rtf_doc(text):
+    escaped = ''.join(f"\\'{ord(c):02x}" if ord(c) > 127 else c for c in text)
+    return ('{\\rtf1\\ansi\\ansicpg1252\\deff0{\\fonttbl{\\f0 Arial;}}\\f0\\fs22 '
+            + escaped + '\\par Zweite Zeile\\par}').encode('latin-1')
+
+
+def xlsx_with_text(text, rows=3):
+    import io
+    from openpyxl import Workbook
+    book = Workbook()
+    sheet = book.active
+    sheet.title = 'Umsatz'
+    sheet.append(['Monat', 'Betrag', 'Notiz'])
+    for index in range(1, rows):
+        sheet.append([f'Monat {index}', 1000 * index, text if index == 1 else None])
+    second = book.create_sheet('Kontakte')
+    second.append(['Name', 'Ort'])
+    second.append(['Frau Weiß', 'Köln'])
+    output = io.BytesIO()
+    book.save(output)
+    return output.getvalue()
+
+
+def pptx_with_text(text, slides=2):
+    import io
+    from pptx import Presentation
+    from pptx.util import Inches
+    deck = Presentation()
+    for index in range(slides):
+        slide = deck.slides.add_slide(deck.slide_layouts[1])
+        slide.shapes.title.text = f'Folientitel {index + 1}'
+        slide.placeholders[1].text = text if index == 0 else f'Inhalt {index + 1}'
+        if index == 0:
+            table = slide.shapes.add_table(2, 2, Inches(1), Inches(4), Inches(4), Inches(1)).table
+            table.cell(0, 0).text, table.cell(0, 1).text = 'Kennzahl', 'Wert'
+            table.cell(1, 0).text, table.cell(1, 1).text = 'Quote', '97'
+            slide.notes_slide.notes_text_frame.text = 'Sprechernotiz zur ersten Folie'
+    output = io.BytesIO()
+    deck.save(output)
+    return output.getvalue()
+
+
+def eml_with_attachment(text, attachment=b'%PDF-1.4 ANHANGSINHALT-EML', name='anlage.pdf'):
+    from email import policy
+    from email.message import EmailMessage
+    message = EmailMessage()
+    message['From'] = 'absender@example.test'
+    message['To'] = 'markus@example.test'
+    message['Subject'] = 'Gespeicherte Nachricht'
+    message['Date'] = 'Mon, 26 Oct 2026 08:00:00 +0100'
+    message['Message-ID'] = '<gespeichert@example.test>'
+    message.set_content(text)
+    if attachment is not None:
+        message.add_attachment(attachment, maintype='application', subtype='pdf', filename=name)
+    return message.as_bytes(policy=policy.SMTP)
+
+
+def office_cfb():
+    """Start of an OLE compound file: what Office writes for password-protected documents."""
+    return b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1' + b'\x00' * 504 + b'EncryptedPackage'
+
+
+def office_bomb(suffix):
+    import io
+    import zipfile
+    main = {'.xlsx': 'xl/workbook.xml', '.pptx': 'ppt/presentation.xml', '.docx': 'word/document.xml'}[suffix]
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr('[Content_Types].xml', '<Types/>')
+        archive.writestr(main, '<x/>')
+        archive.writestr('fuellung.xml', b'\0' * (10 * 1024 * 1024))
+    return output.getvalue()

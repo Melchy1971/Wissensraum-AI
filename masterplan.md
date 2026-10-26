@@ -43,7 +43,7 @@
 | Tests Windows, Python 3.11, 3.12 und 3.13 | 353 Tests, je 337 bestanden, 16 übersprungen (3 POSIX-Logging-Fälle, 10 PostgreSQL, 3 `start.sh`-Tests ohne `sh` im Suchpfad). 3.12 und 3.13: 0 Fehler. 3.11 auf dem Entwicklungsrechner: in jedem Lauf ein bis fünf Fehler beim Löschen des Temp-Ordners nach bestandenem Test (WinError 145), jedes Mal in anderen, überwiegend bereits vorhandenen Tests; der CI-Job Windows/3.11 war in allen geprüften Läufen grün. Vermutlich lokales Zusammenspiel mit dem Virenscanner. | 🟡 lokal, nicht release-blockierend (CI Windows/3.11 grün) |
 | CI-Matrix | Lauf [39918310287](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39918310287) auf `4b37177` (23.10.2026): alle sieben Jobs grün, Windows/Linux × Python 3.11/3.12/3.13 und `postgres` (PostgreSQL 18 einschließlich `pg_dump`/`pg_restore`-Rundlauf). Davor grün: `39914353899` auf `ea7d929`. Läufe bis `585ae5a` rot im Vorschauschritt. | ✅ für `4b37177` |
 
-**Nächster kleinster Schritt:** Freigabe und Zuschnitt von Phase 7 (Release 2.1 Hybrid-RAG) durch den Product Owner. Release 2.0 abgenommen 26.10.2026 (Stand `84f9ecf`, CI [40185408996](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40185408996)). Verschoben: Soll-Umfang von Phase 6 (Entscheidung 24.10.2026); Kennwort der VPS-Datenbank wird mit dem Live-Release geändert (Entscheidung 24.10.2026).
+**Nächster kleinster Schritt:** Release 2.0.1 (D-011), Teilschritt S1 Formate in Arbeit. Danach S2 Regeln, S3 Postfachsynchronisation; Phase 7 erst nach 2.0.1. Verschoben: Kennwort der VPS-Datenbank wird mit dem Live-Release geändert (Entscheidung 24.10.2026).
 
 ## Aktualisierung 22.10.2026 – Release 1.9 nach Hermes-Merge
 
@@ -476,6 +476,14 @@ PostgreSQL-Destruktivtests dürfen ausschließlich gegen eine Wegwerfdatenbank m
 
 **Gate:** Ein referenzierter Import-Testbestand und ein wiederholbarer Abbruch-/Fortsetzungstest sind vollständig grün.
 
+**Release 2.0.1 – Soll-Umfang (D-011, Entscheidung Product Owner 26.10.2026):** Ein Teilschritt beginnt erst, wenn der vorherige grün ist.
+
+| Teilschritt | Umfang | Gate | Status |
+|---|---|---|---|
+| S1 Formate | HTML, RTF, XLSX, PPTX, EML. Neue Pakete `openpyxl` 3.1.5 (MIT), `python-pptx` 1.0.2 (MIT), `striprtf` 0.0.35 (BSD-3-Clause). XLSX und PPTX mit denselben Entpackgrenzen wie DOCX und einer Obergrenze für Zellen und Folien. In EML-Dateien werden Anhänge nur mit Namen aufgeführt. | Je Format Testdateien für lesbar, beschädigt, falsche Endung, Entpackbombe und verschlüsselt; Referenzbestand von 1.000 Dateien um die neuen Formate erweitert, weiter mindestens 99 %; beide Backends, CI grün | 🟡 lokal erfüllt 26.10.2026: `formats.py` (HTML ohne Skript und Stil mit Seitentitel; RTF; XLSX je Tabellenblatt mit Zellgrenze; PPTX je Folie mit Tabellen und Notizen und Foliengrenze; EML mit Anhangsnamen, Original ohne Anhangsinhalt); gemeinsame Office-Prüfung für DOCX, XLSX und PPTX: Kennwortschutz (OLE-Kopf) als „verschlüsselt“, Entpackgrenzen, fremder Office-Hauptteil als „Signatur“, fehlender Hauptteil wie bisher als „beschädigt“. `tests/test_formats.py` (12 Tests) deckt je Format lesbar, beschädigt, falsche Endung, Entpackbombe und Kennwortschutz ab. Referenzbestand: 25 Dateien je neuem Format und 10 kennwortgeschützte Office-Dateien, weiter 1.000 Dateien, 850 Dokumente, 140 Quarantäne, 100 % korrekt. PostgreSQL: `test_new_formats_import_as_job_on_real_postgresql`. Mutationsproben (Skripte im HTML-Text, ohne Kennworterkennung, EML mit Anhängen gespeichert, ohne Entpackgrenzen, ohne Zellgrenze, fremdes Office-Format als beschädigt): alle schlagen fehl. Linux 3.11 und 3.13 mit PostgreSQL: 454 Tests, 0 Fehler. CI ausstehend. |
+| S2 Regeln | Schema 9 mit Tags und Regeln (Quellentyp, Ordner- oder Dateimuster, Absenderdomäne, Endung, Stichwort; setzt Bereich und Tags). Wirkt beim Import; auf vorhandene Dokumente nur nach Vorschau und Bestätigung. | Eindeutige Auswertung bei mehreren passenden Regeln (feste Reihenfolge); ohne Bestätigung keine Änderung an vorhandenen Dokumenten; Tags durchsuch- und filterbar; beide Backends, CI grün | ⬜ |
+| S3 Postfachsynchronisation | Je Konto ausdrücklich zu aktivieren, mit Intervall; nur neue Nachrichten als Auftrag; nur bei geöffneter Anwendung; Anhänge nie automatisch. | Ohne Aktivierung kein Abruf; kein Anhangsinhalt ohne Freigabe (aufgezeichnete Abrufe wie 6.3); keine Doppelanlage; bei Anmeldefehler Stopp mit Grund; Postfach bleibt nur lesbar; beide Backends, CI grün | ⬜ |
+
 **Stand 24.10.2026:** Muss-Umfang vollständig umgesetzt, Abnahmekriterien und Gate automatisiert erfüllt (Teilschritte 6.1 bis 6.4, jeweils CI grün). Soll-Umfang nicht umgesetzt: weitere Formate (HTML, RTF, XLSX, PPTX, EML), regelbasierte Kategorien und Tags, zeitgesteuerte Postfachsynchronisation. **Entscheidung Product Owner 24.10.2026:** Der Soll-Umfang wird aus Release 2.0 herausgenommen und später einzeln eingeplant. Offen: Abnahme durch den Product Owner mit eigenen Daten.
 
 **Abnahme Release 2.0 mit eigenen Daten, abgeschlossen 26.10.2026** (lesend geprüft in der SQLite-Datenbank und im Betriebsprotokoll des Product Owners):
@@ -754,6 +762,7 @@ Ein Arbeitspaket ist abgeschlossen, wenn:
 | D-008 | Lokale Vektorsuche für SQLite ist vor Release 2.1 technisch zu entscheiden | Offen |
 | D-009 | OCR mit Tesseract (Apache 2.0) über `pytesseract`, PDF-Seiten mit `pypdfium2` gerendert; lokal, optionale Erweiterung wie die PST-Unterstützung; kein Ghostscript (AGPL) und keine Cloud-OCR | Entschieden 23.10.2026 (Product Owner) |
 | D-010 | Release 2.0 in vier Teilschritten mit eigenem Gate: 6.1 Importaufträge, 6.2 Versionen und Vorschau, 6.3 E-Mail-Anhänge, 6.4 OCR | Entschieden 23.10.2026 (Product Owner) |
+| D-011 | Soll-Umfang von Phase 6 wird als Release 2.0.1 vor Phase 7 umgesetzt, in drei Teilschritten mit eigenem Gate: S1 Formate (HTML, RTF, XLSX, PPTX, EML), S2 Regeln für Kategorien und Tags, S3 zeitgesteuerte Postfachsynchronisation; S3 läuft nur, solange die Anwendung geöffnet ist (keine Windows-Aufgabenplanung) | Entschieden 26.10.2026 (Product Owner) |
 
 ## 14. Hauptrisiken
 

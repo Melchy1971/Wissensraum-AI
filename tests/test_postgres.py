@@ -356,6 +356,27 @@ class PostgresStoreTests(unittest.TestCase):
         self.assertEqual((result['changed'], result['backup']), (1, ''))
         self.assertIn(b'X-Wissensraum-Anhaenge-nicht-gespeichert: 1', store.get(old_id)['original'])
 
+    def test_new_formats_import_as_job_on_real_postgresql(self):
+        import import_fixtures as fx
+        from import_jobs import ImportJobs
+        store = PostgresStore(self.profile, self.password)
+        jobs = ImportJobs(store)
+        with tempfile.TemporaryDirectory() as folder:
+            folder = Path(folder)
+            files = {'seite.html': fx.html_doc('PG HTML Inhalt'), 'brief.rtf': fx.rtf_doc('PG RTF Inhalt'),
+                     'liste.xlsx': fx.xlsx_with_text('PG XLSX Inhalt'), 'vortrag.pptx': fx.pptx_with_text('PG PPTX Inhalt'),
+                     'nachricht.eml': fx.eml_with_attachment('PG EML Inhalt'), 'geschuetzt.xlsx': fx.office_cfb()}
+            for name, data in files.items():
+                (folder / name).write_bytes(data)
+            summary = jobs.run(jobs.create_for_folder(folder))
+        self.assertEqual((summary['imported'], summary['quarantined']), (5, 1))
+        for word in ('HTML', 'RTF', 'XLSX', 'PPTX', 'EML'):
+            self.assertTrue(store.search(f'PG {word} Inhalt'), word)
+        with store.connect() as db:
+            original = db.execute('SELECT d.original FROM documents d JOIN sources s ON s.document_id=d.id '
+                                  'WHERE s.locator LIKE ?', ('%nachricht.eml',)).fetchone()['original']
+        self.assertNotIn(b'ANHANGSINHALT-EML', bytes(original))
+
     def test_malformed_legacy_schema_is_rejected_without_stamp(self):
         with self._raw_connect() as connection:
             with connection.transaction():

@@ -49,12 +49,7 @@ MAX_MESSAGE_TEXT_BYTES = 25*1024*1024
 MAX_ATTACHMENT_ENCODED_BYTES = MAX_DOCUMENT_BYTES*4//3+4096
 
 
-def attachment_line(attachments):
-    """Readable list of attachment names for the e-mail text; content is never included."""
-    if not attachments:
-        return ''
-    return 'Anhänge: '+'; '.join(f'{item["name"]} ({item.get("content_type") or "unbekannt"}, '
-                                  f'{item.get("size") or 0} Bytes)' for item in attachments)
+from formats import attachment_line  # noqa: E402,F401
 
 
 def _report():
@@ -62,46 +57,8 @@ def _report():
             'attachments_duplicates':0,'attachments_quarantined':0,'attachments_errors':0,'quarantine':[]}
 
 
-class _HTMLText(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.parts=[]
-    def handle_data(self,data):
-        if data.strip():
-            self.parts.append(data.strip())
-
-
-def html_text(value):
-    parser=_HTMLText()
-    parser.feed(value or '')
-    return '\n'.join(parser.parts)
-
-
-def decoded(value):
-    try:
-        return str(make_header(decode_header(value or ''))).strip()
-    except (LookupError,UnicodeError):
-        return str(value or '').strip()
-
-
-def email_body(message):
-    plain=[]
-    html=[]
-    parts=message.walk() if message.is_multipart() else (message,)
-    for part in parts:
-        if part.get_content_disposition()=='attachment':
-            continue
-        kind=part.get_content_type()
-        if kind not in ('text/plain','text/html'):
-            continue
-        try:
-            value=part.get_content()
-        except (LookupError,UnicodeError):
-            payload=part.get_payload(decode=True) or b''
-            value=payload.decode(part.get_content_charset() or 'utf-8',errors='replace')
-        (plain if kind=='text/plain' else html).append(str(value))
-    text='\n\n'.join(plain).strip()
-    return text or html_text('\n'.join(html))
+# Shared with file import (formats.py): HTML text, header decoding, message body.
+from formats import decoded, email_body, html_text  # noqa: E402,F401
 
 
 class MailAccounts:
