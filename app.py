@@ -247,7 +247,12 @@ class App(tk.Tk if tk is not None else object):
         self.history = ScrolledText(self.history_tab,wrap='word',font=('Segoe UI',11),padx=14,pady=12)
         self.history.pack(fill='both',expand=True)
         source='PostgreSQL' if self.store.backend=='postgresql' else 'SQLite · Einzelplatz'
-        self.status = tk.StringVar(value='Bereit · '+source)
+        try:
+            with self.store.connect() as db:
+                accounts = db.execute('SELECT COUNT(*) AS count FROM email_accounts').fetchone()['count']
+        except Exception:
+            accounts = '?'
+        self.status = tk.StringVar(value=f'Bereit · {source} · E-Mail-Konten: {accounts}')
         ttk.Label(self,textvariable=self.status,padding=(24,0,24,12)).pack(fill='x')
         self.build_import()
         self.build_settings()
