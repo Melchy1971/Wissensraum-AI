@@ -75,7 +75,7 @@ def check_keyring(vault):
         return DiagnosticResult('keyring', 'FAIL', 'Kein sicherer Betriebssystem-Schlüsselspeicher verfügbar.', {})
 
 
-def check_active_database(database_settings, sqlite_path, force_sqlite=False):
+def check_active_database(database_settings, sqlite_path, force_sqlite=False, store=None):
     try:
         backend = 'sqlite' if force_sqlite else database_settings.profile()['backend']
     except Exception:
@@ -84,6 +84,13 @@ def check_active_database(database_settings, sqlite_path, force_sqlite=False):
                                 {'backend': 'Unknown'})
     label = 'PostgreSQL' if backend == 'postgresql' else 'SQLite'
     details = {'backend': label}
+    if store is not None:
+        details['active_provider'] = getattr(store, 'backend', 'unknown')
+        try:
+            with store.connect() as db:
+                details['email_accounts'] = db.execute('SELECT COUNT(*) AS count FROM email_accounts').fetchone()['count']
+        except Exception:
+            details['email_accounts'] = 'unavailable'
     try:
         health = database_settings.health(Path(sqlite_path), force_sqlite=force_sqlite)
     except Exception:
