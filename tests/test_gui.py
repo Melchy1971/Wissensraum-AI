@@ -188,6 +188,12 @@ class InterfaceTests(unittest.TestCase):
             window.exit_button.invoke()
         destroy.assert_called_once_with()
 
+    def test_status_bar_includes_backend_provider_and_email_count(self):
+        self.assertIn('SQLite', self.window.status.get())
+        self.assertIn('E-Mail-Konten', self.window.status.get())
+        self.assertIn('OpenAI', self.window.provider_notice.get())
+        self.assertIn('SQLite', self.window.status_context)
+
     def test_startup_diagnostics_show_nonblocking_warning(self):
         self.assertIn('SQLite',self.window.diagnostic_notice.get())
         self.assertIn('Startdiagnose',self.window.diagnostic_notice.get())
