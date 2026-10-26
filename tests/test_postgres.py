@@ -382,6 +382,31 @@ class PostgresStoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             import_and_rules_scenario(self, PostgresStore(self.profile, self.password), Path(folder))
 
+    def test_mail_sync_on_real_postgresql(self):
+        from import_jobs import ImportJobs
+        from importer import Importer, MailAccounts
+        from mail_fakes import FakeImapServer, mail
+        from mail_sync import MailSync
+        from test_settings import FakeVault
+        store = PostgresStore(self.profile, self.password)
+        with tempfile.TemporaryDirectory() as folder:
+            accounts = MailAccounts(store, FakeVault(), Path(folder))
+            importer = Importer(store, accounts)
+            account_id = accounts.save({'label': 'Arbeit', 'provider': 'imap', 'email': 'm@example.test',
+                                        'username': 'm', 'host': 'imap.example.test', 'port': 993}, 'geheim')
+            server = FakeImapServer({1: mail('Alt', 'Vorher.')})
+            real = importer._imap_login
+            importer._imap_login = lambda account, folder_, factory=None: real(account, folder_, server.client)
+            now = [1000.0]
+            sync = MailSync(store, importer, ImportJobs(store, importer), lambda: now[0])
+            sync.activate(account_id, 15)
+            server.raw['2'] = mail('Neu', 'Nachher.')
+            now[0] += 15 * 60
+            self.assertEqual(sync.run_due()[account_id]['imported'], 1)
+            now[0] += 15 * 60
+            self.assertEqual(sync.run_due()[account_id]['imported'], 0)
+        self.assertEqual([row['title'] for row in store.list()], ['Neu'])
+
     def test_malformed_legacy_schema_is_rejected_without_stamp(self):
         with self._raw_connect() as connection:
             with connection.transaction():

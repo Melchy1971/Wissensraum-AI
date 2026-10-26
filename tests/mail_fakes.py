@@ -40,6 +40,9 @@ class FakeImapServer:
         self.raw = {str(uid): data for uid, data in messages.items()}
         self.fetches = []  # (uid, spec)
         self.literal_names = literal_names
+        self.uidvalidity = 1  # changed by tests to simulate a renumbered folder
+        self.refuse_login = False  # simulates a revoked app password
+        self.searches = []
 
     def client(self, host, port):
         return FakeImapClient(self)
@@ -126,7 +129,14 @@ class FakeImapClient:
         self.server = server
 
     def login(self, user, password):
+        if self.server.refuse_login:
+            import imaplib
+            raise imaplib.IMAP4.error(b'[AUTHENTICATIONFAILED] Invalid credentials')
         return 'OK', []
+
+    def response(self, code):
+        assert code == 'UIDVALIDITY'
+        return code, [str(self.server.uidvalidity).encode()]
 
     def select(self, folder, readonly=False):
         assert readonly, 'mailbox must be opened read-only'
@@ -134,7 +144,13 @@ class FakeImapClient:
 
     def uid(self, command, *args):
         if command == 'search':
-            return 'OK', [' '.join(self.server.raw).encode()]
+            self.server.searches.append(args)
+            uids = sorted(self.server.raw, key=int)
+            if args[1:2] == ('UID',):
+                low = int(args[2].split(':')[0])
+                # like a real server, "n:*" also returns the highest UID when nothing is above n
+                uids = [uid for uid in uids if int(uid) >= low] or uids[-1:]
+            return 'OK', [' '.join(uids).encode()]
         if command == 'fetch':
             uid = args[0].decode() if isinstance(args[0], bytes) else str(args[0])
             return 'OK', self.server.respond(uid, args[1])

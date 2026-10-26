@@ -503,6 +503,36 @@ class InterfaceTests(unittest.TestCase):
         self.assertEqual(window.mail_accounts.get(account_id)['username'],'owner@gmail.com')
         self.assertEqual(str(window.mail_fields['username'].cget('state')),'disabled')
 
+    def test_mail_sync_is_activated_per_account_and_runs_from_the_timer(self):
+        from mail_fakes import FakeImapServer, mail
+        window=self.window
+        panel=window.sync_panel
+        self.assertIn('Konto zuerst speichern',panel.status.get())
+        account_id=window.mail_accounts.save({'label':'Arbeit','provider':'imap','email':'m@example.test','username':'m',
+                                              'host':'imap.example.test','port':993},'geheim')
+        server=FakeImapServer({7:mail('Alt','Vorher da.')})
+        real=window.importer._imap_login
+        window.importer._imap_login=lambda account,folder,factory=None:real(account,folder,server.client)
+        window.refresh_mail_accounts(account_id)
+        self.assertIn('ist aus',panel.status.get())
+        clock=[1_000_000.0]; panel.sync.clock=lambda:clock[0]
+        panel.interval.set('15 Min.')
+        panel.activate(); self.wait_until_idle(window)
+        self.assertIn('Aktiv, alle 15 Min., Ordner INBOX',panel.status.get())
+        server.raw['8']=mail('Neu','Nach der Aktivierung.')
+        panel.tick(); self.assertFalse(panel.running)  # not due yet
+        clock[0]+=15*60
+        panel.tick()
+        import time
+        deadline=time.monotonic()+20
+        while (panel.running or panel.pending is None) and time.monotonic()<deadline:
+            time.sleep(0.02)
+        panel.poll()
+        self.assertEqual(window.status.get(),'Synchronisation: 1 neue E-Mails')
+        self.assertEqual([row['title'] for row in window.store.list()],['Neu'])
+        panel.deactivate()
+        self.assertIn('ist aus',panel.status.get())
+
     def test_database_profile_is_stored_without_password(self):
         window=self.window
         values={'host':'db.example.test','port':'5432','database':'wissen_test','username':'test_user',

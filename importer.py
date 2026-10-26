@@ -27,6 +27,10 @@ MAIL_PROVIDERS = {
     'imap': {'name':'Sonstiges IMAP-Konto', 'host':'', 'port':993, 'auth':'password'},
 }
 MS_SCOPES = ['Mail.Read']
+
+
+class MailLoginError(ValueError):
+    """Sign-in, credential or folder problem that retrying alone cannot fix (stops mailbox sync)."""
 GMAIL_APP_PASSWORD = re.compile(r'[a-z]{16}')
 
 
@@ -219,7 +223,7 @@ class MailAccounts:
         account=self.get(account_id)
         saved=self.vault.get(self.secret_name(account_id))
         if not saved:
-            raise ValueError('Microsoft-Konto zuerst unter Einstellungen verbinden.')
+            raise MailLoginError('Microsoft-Konto zuerst unter Einstellungen verbinden.')
         import msal
         cache=msal.SerializableTokenCache()
         cache.deserialize(saved)
@@ -227,7 +231,7 @@ class MailAccounts:
         accounts=app.get_accounts(username=account['email']) or app.get_accounts()
         result=app.acquire_token_silent(MS_SCOPES,account=accounts[0] if accounts else None)
         if not result or 'access_token' not in result:
-            raise ValueError('Microsoft-Anmeldung abgelaufen. Konto unter Einstellungen neu verbinden.')
+            raise MailLoginError('Microsoft-Anmeldung abgelaufen. Konto unter Einstellungen neu verbinden.')
         if cache.has_state_changed:
             self.vault.set(self.secret_name(account_id),cache.serialize())
         return result['access_token']
@@ -327,7 +331,7 @@ class Importer:
         account=self.accounts.get(account_id)
         secret=self.accounts.vault.get(self.accounts.secret_name(account_id))
         if not secret:
-            raise ValueError('Für dieses Konto fehlt das Kennwort oder App-Passwort.')
+            raise MailLoginError('Für dieses Konto fehlt das Kennwort oder App-Passwort.')
         factory=client_factory or imaplib.IMAP4_SSL
         client=factory(account['host'],account['port'])
         username=account['email'] if account['provider']=='gmail' else account['username']
@@ -337,16 +341,16 @@ class Importer:
             stage='select'
             status,_=client.select(folder or 'INBOX',readonly=True)
             if status!='OK':
-                raise ValueError('E-Mail-Ordner wurde nicht gefunden.')
+                raise MailLoginError('E-Mail-Ordner wurde nicht gefunden.')
             return client,account
         except imaplib.IMAP4.error as error:
             try: client.logout()
             except Exception: pass
             if stage=='select':
-                raise ValueError('E-Mail-Ordner konnte nicht schreibgeschützt geöffnet werden.') from None
+                raise MailLoginError('E-Mail-Ordner konnte nicht schreibgeschützt geöffnet werden.') from None
             hint=(' Bei Gmail: Bestätigung in zwei Schritten aktivieren und ein App-Passwort aus 16 Buchstaben eintragen.'
                   if account['provider']=='gmail' else ' Zugangsdaten und IMAP-Freigabe prüfen.')
-            raise ValueError('IMAP-Anmeldung fehlgeschlagen: '+imap_refusal(error)+hint) from None
+            raise MailLoginError('IMAP-Anmeldung fehlgeschlagen: '+imap_refusal(error)+hint) from None
         except (OSError,TimeoutError):
             try: client.logout()
             except Exception: pass
@@ -388,6 +392,85 @@ class Importer:
             try: client.logout()
             except Exception: pass
         self._mark_imported(account_id,items,lambda item:self._imap_import_key(folder,item['id']))
+        return items
+
+    # --- mailbox sync (Release 2.0.1, step S3): only headers of new messages, never attachments ---
+    @staticmethod
+    def _uidvalidity(client):
+        _,data=client.response('UIDVALIDITY')
+        value=(data or [None])[0]
+        return int(value) if value else 0
+
+    def imap_watermark(self,account_id,folder='INBOX',client_factory=None):
+        """(UIDVALIDITY, highest UID) of a folder, read without any message content."""
+        client,_=self._imap_login(account_id,folder,client_factory)
+        try:
+            status,data=client.uid('search',None,'ALL')
+            if status!='OK':
+                raise ValueError('E-Mails konnten nicht aufgelistet werden.')
+            ids=data[0].split() if data and data[0] else []
+            return self._uidvalidity(client),max((int(uid) for uid in ids),default=0)
+        finally:
+            try: client.logout()
+            except Exception: pass
+
+    def new_imap_messages(self,account_id,folder,uidvalidity,after_uid,limit=200,client_factory=None):
+        """Messages above ``after_uid`` in UID order as [{'id','subject'}], subjects only."""
+        client,_=self._imap_login(account_id,folder,client_factory)
+        try:
+            if self._uidvalidity(client)!=uidvalidity:
+                raise MailLoginError('Der Server hat den Ordner neu nummeriert (UIDVALIDITY). '
+                                     'Synchronisation neu aktivieren.')
+            status,data=client.uid('search',None,'UID',f'{int(after_uid)+1}:*')
+            if status!='OK':
+                raise ValueError('E-Mails konnten nicht aufgelistet werden.')
+            ids=sorted({int(uid) for uid in (data[0].split() if data and data[0] else []) if int(uid)>after_uid})
+            items=[]
+            for uid in ids[:limit]:
+                subject='(Ohne Betreff)'
+                try:
+                    status,payload=client.uid('fetch',str(uid),'(BODY.PEEK[HEADER.FIELDS (SUBJECT)])')
+                    raw=next((value for key,value in mail_structure.fetch_items(payload).items()
+                              if key.startswith('BODY[HEADER')),None) if status=='OK' else None
+                    if isinstance(raw,bytes):
+                        subject=decoded(BytesParser(policy=policy.default).parsebytes(raw).get('Subject')) or subject
+                except Exception:
+                    pass
+                items.append({'id':str(uid),'subject':subject,'attachments':[]})
+        finally:
+            try: client.logout()
+            except Exception: pass
+        self._mark_imported(account_id,items,lambda item:self._imap_import_key(folder,item['id']))
+        return items
+
+    def microsoft_watermark(self,account_id,transport=None):
+        """Receive time of the newest inbox message ('' for an empty inbox)."""
+        token=self.accounts.microsoft_token(account_id)
+        get=transport or self._graph_get
+        url='https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?'+urllib.parse.urlencode(
+            {'$top':1,'$select':'id,receivedDateTime','$orderby':'receivedDateTime desc'})
+        values=[str(item.get('receivedDateTime') or '') for item in get(url,token).get('value',[])]
+        return max(values,default='')
+
+    def new_microsoft_messages(self,account_id,after,limit=200,transport=None):
+        """Inbox messages received after ``after`` (ISO time), oldest first, as [{'id','subject','date'}]."""
+        token=self.accounts.microsoft_token(account_id)
+        get=transport or self._graph_get
+        query={'$top':100,'$select':'id,subject,receivedDateTime','$orderby':'receivedDateTime asc'}
+        if after:
+            query['$filter']='receivedDateTime gt '+after
+        url='https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?'+urllib.parse.urlencode(query)
+        items=[]
+        while url and len(items)<limit*2:
+            page=get(url,token)
+            for item in page.get('value',[]):
+                received=str(item.get('receivedDateTime') or '')
+                if item.get('id') and (not after or received>after):
+                    items.append({'id':str(item['id']),'subject':item.get('subject') or '(Ohne Betreff)',
+                                  'date':received,'attachments':[]})
+            url=page.get('@odata.nextLink')
+        items=sorted(items,key=lambda item:item['date'])[:limit]
+        self._mark_imported(account_id,items,lambda item:self._microsoft_import_key(item['id']))
         return items
 
     def _mark_imported(self,account_id,items,key):

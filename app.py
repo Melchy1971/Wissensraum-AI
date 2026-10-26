@@ -15,6 +15,7 @@ from import_jobs import MAIL_KINDS, OUTCOME_LABELS, REASON_LABELS, ImportJobs
 import mail_cleanup
 import rules
 from rules_view import RulesPage
+from sync_view import SyncPanel
 from settings import Settings, SystemVault, PROVIDERS
 from database import DatabaseSettings, resolve_sqlite_path
 from diagnostics import DiagnosticResult, format_diagnostics, health_overview, run_diagnostics
@@ -1460,6 +1461,7 @@ class App(tk.Tk if tk is not None else object):
             if command==self.connect_microsoft: self.microsoft_connect_button=b
         self.mail_message=tk.StringVar()
         ttk.Label(frame,textvariable=self.mail_message,wraplength=950).pack(anchor='w',pady=(5,0))
+        self.sync_panel=SyncPanel(self,frame)
         self.refresh_mail_accounts()
 
     def refresh_mail_accounts(self,selected=None):
@@ -1479,6 +1481,7 @@ class App(tk.Tk if tk is not None else object):
         for value in self.mail_vars.values(): value.set('')
         self.mail_vars['provider'].set('gmail'); self.mail_vars['port'].set('993'); self.mail_vars['tenant'].set('common')
         self.apply_mail_provider(); self.mail_message.set('Neues Konto. Gmail benötigt in der Regel ein App-Passwort; Microsoft verwendet OAuth 2.0.')
+        self.sync_panel.load()
 
     def load_mail_account(self):
         selected=self.mail_tree.selection()
@@ -1488,6 +1491,7 @@ class App(tk.Tk if tk is not None else object):
             self.mail_vars[name].set(row[name])
         self.mail_vars['secret'].set(''); self.apply_mail_provider()
         self.mail_message.set(row['auth_status']+' · Bestehende Zugangsdaten bleiben verborgen.')
+        self.sync_panel.load()
 
     def apply_mail_provider(self):
         provider=self.mail_vars['provider'].get() or 'gmail'
