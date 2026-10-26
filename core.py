@@ -703,7 +703,7 @@ def preview_documents(documents, skipped=0, scan_errors=None):
             'errors': len(scan_errors or []), 'details': list(scan_errors or []), 'items': items}
 
 
-def import_documents(store, documents, skipped=0, scan_errors=None, job_source=None, progress_hook=None):
+def import_documents(store, documents, skipped=0, scan_errors=None, job_source=None, progress_hook=None, cancel_hook=None):
     """Import discovered documents and retain their relative source paths."""
     preview = preview_documents(documents, skipped, scan_errors)
     report = {'found': preview['found'], 'supported': preview['supported'], 'imported':0,
@@ -751,6 +751,7 @@ def import_documents(store, documents, skipped=0, scan_errors=None, job_source=N
         write_records(job_path, records)
         report['job_id'] = job_id
     try:
+        cancelled = False
         for path, stored_name in documents:
             try:
                 title, text, _, data = import_document(path)
@@ -761,8 +762,9 @@ def import_documents(store, documents, skipped=0, scan_errors=None, job_source=N
                 report['details'].append(f'{stored_name}: {error}')
             finally:
                 if job_path is not None and records:
+                    current = report['imported'] + report['duplicates'] + report['errors']
                     records[-1].update({
-                        'processed': report['imported'] + report['duplicates'] + report['errors'],
+                        'processed': current,
                         'found': report['found'], 'supported': report['supported'],
                         'imported': report['imported'], 'duplicates': report['duplicates'],
                         'skipped': report['skipped'], 'errors': report['errors'],
@@ -771,17 +773,22 @@ def import_documents(store, documents, skipped=0, scan_errors=None, job_source=N
                     write_records(job_path, records)
                     if progress_hook is not None:
                         progress_hook(dict(records[-1]))
+                if cancel_hook is not None and cancel_hook({**report, 'processed': report['imported'] + report['duplicates'] + report['errors']}):
+                    cancelled = True
+                    break
         if job_path is not None and records:
             records[-1].update({
                 'processed': report['imported'] + report['duplicates'] + report['errors'],
                 'found': report['found'], 'supported': report['supported'],
                 'imported': report['imported'], 'duplicates': report['duplicates'],
                 'skipped': report['skipped'], 'errors': report['errors'],
-                'status': 'done', 'completed_at': timestamp(),
+                'status': 'cancelled' if cancelled else 'done', 'completed_at': timestamp(),
             })
             write_records(job_path, records)
             if progress_hook is not None:
                 progress_hook(dict(records[-1]))
+        if cancelled:
+            report['cancelled'] = True
     except Exception:
         if job_path is not None and records:
             records[-1].update({'status': 'failed', 'completed_at': timestamp()})

@@ -204,6 +204,34 @@ class KnowledgeTests(unittest.TestCase):
         filenames = {self.store.get(row['id'])['filename'] for row in self.store.list()}
         self.assertEqual(filenames, {'Start.md', 'Projekte/Plan.txt'})
 
+    def test_folder_import_can_be_cancelled_and_records_partial_job(self):
+        folder=self.root/'Ablage'
+        nested=folder/'Projekte'
+        nested.mkdir(parents=True)
+        (folder/'Start.md').write_text('Übersicht des Wissensraums',encoding='utf-8')
+        (nested/'Plan.txt').write_text('Projektplan mit Meilensteinen',encoding='utf-8')
+        documents,skipped,errors=discover_documents(folder)
+        snapshots = []
+        def hook(report):
+            snapshots.append(dict(report))
+        def cancel(report):
+            return report['processed'] >= 1
+
+        report=import_documents(self.store,documents,skipped,errors,job_source=str(folder), progress_hook=hook, cancel_hook=cancel)
+
+        self.assertEqual(report['imported'], 1)
+        self.assertEqual(report['duplicates'], 0)
+        self.assertEqual(report['cancelled'], True)
+        self.assertTrue(snapshots)
+        self.assertEqual(snapshots[0]['processed'], 1)
+        self.assertEqual(snapshots[-1]['status'], 'cancelled')
+        jobs = json.loads((folder/'data'/'import-jobs.json').read_text(encoding='utf-8'))
+        self.assertEqual(jobs[0]['processed'], 1)
+        self.assertEqual(jobs[0]['imported'], 1)
+        self.assertEqual(jobs[0]['status'], 'cancelled')
+        filenames = {self.store.get(row['id'])['filename'] for row in self.store.list()}
+        self.assertEqual(filenames, {'Start.md'})
+
     def test_folder_import_updates_progress_during_job(self):
         folder=self.root/'Ablage'
         nested=folder/'Projekte'
