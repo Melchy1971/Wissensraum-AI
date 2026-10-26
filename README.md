@@ -1,12 +1,12 @@
 # Wissensraum AI – KI-gestütztes Wissensmanagement mit SQL
 
-Version 1.9 · freigegeben am 23.10.2026 · lokale Einzelplatzanwendung · Python 3.11 bis 3.13
+Version 2.0 · abgenommen am 26.10.2026 · lokale Einzelplatzanwendung · Python 3.11 bis 3.13
 
 Dokumente, Notizen, Originaldateien und KI-Verlauf werden wahlweise in einer lokalen SQLite- oder einer PostgreSQL-Datenbank gespeichert. Die Anwendung bietet eine deutschsprachige Desktop-Oberfläche und eine Kommandozeilenschnittstelle. Es wird kein Webserver benötigt.
 
 ## Masterplan und Roadmap
 
-Der verbindliche [Masterplan mit Release-Roadmap](masterplan.md) beschreibt freigegebene Stände und geplante Arbeiten. Release **1.9 – Stabilisierung und Betriebsfähigkeit** ist freigegeben: Startdiagnose, operative Logs, versionierte Schema-Migrationen bis Schema 5 mit Quellenmodell, Konfigurationstransfer, geführte SQLite-Wiederherstellung, dokumentierte PostgreSQL-Sicherung und Systemstatus. Nachweis: CI-Matrix aus sieben Jobs und das Release-Gate-Protokoll `release-gate-20261022-184843.md`.
+Der verbindliche [Masterplan mit Release-Roadmap](masterplan.md) beschreibt freigegebene Stände und geplante Arbeiten. Release **2.0 – Robuste Importplattform** ist abgenommen (26.10.2026): Importaufträge mit Abbruch, Fortsetzung, Quarantäne und CSV-Bericht, Dokumentversionen und Importvorschau, E-Mail-Anhänge nur nach Freigabe, E-Mail- und PST-Importe als Aufträge sowie optionale lokale Texterkennung (OCR) mit Tesseract; Schema 8. Nachweis: CI-Matrix aus sieben Jobs je Teilschritt und die Abnahme mit eigenen Daten im Masterplan. Davor freigegeben: Release **1.9 – Stabilisierung und Betriebsfähigkeit** (23.10.2026) mit Startdiagnose, operativen Logs, versionierten Schema-Migrationen, Konfigurationstransfer, geführter SQLite-Wiederherstellung, dokumentierter PostgreSQL-Sicherung und Systemstatus; Release-Gate-Protokoll `release-gate-20261022-184843.md`.
 
 ### Startdiagnose (Release 1.9)
 
