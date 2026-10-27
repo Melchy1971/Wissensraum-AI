@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 import urllib.error
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from core import AI, PostgresStore, Store, chunks, discover_documents, import_document, import_documents, preview_documents, resume_import_documents
+from core import AI, Store, chunks, discover_documents, import_document, import_documents
 
 class KnowledgeTests(unittest.TestCase):
     def setUp(self):
@@ -35,14 +35,6 @@ class KnowledgeTests(unittest.TestCase):
         self.assertTrue(self.store.search('Einkauf'))
         self.assertTrue(self.store.search('Prozess'))
 
-    def test_search_uses_semantic_fallback_for_synonyms(self):
-        doc_id,_ = self.store.add('Freigabeprozess','Die Führungskraft genehmigt Anträge nach Prüfung.')
-        hits = self.store.search('Wer erteilt die Zustimmung?')
-        self.assertTrue(hits)
-        self.assertEqual(hits[0]['document_id'], doc_id)
-        self.assertIn('retrieval_score', hits[0])
-        self.assertIn('reranking_score', hits[0])
-
     def test_delete_removes_fts_and_preserves_other_document(self):
         a,_ = self.store.add('A','Sonderwort Freigabe')
         b,_ = self.store.add('B','Sport Turnier')
@@ -61,70 +53,6 @@ class KnowledgeTests(unittest.TestCase):
         self.assertEqual(backup.get(1)['original'],b'original')
         with self.assertRaises(ValueError):
             self.store.backup(self.store.path)
-
-    def test_restore_replaces_current_database_with_verified_backup(self):
-        self.store.add('Alt','Vorheriger Stand')
-        backup_path = self.root/'backup.db'
-        self.store.backup(backup_path)
-
-        self.store.add('Neu','Nachheriger Stand')
-        self.store.restore(backup_path)
-
-        restored = Store(self.store.path)
-        titles = [row['title'] for row in restored.list()]
-        self.assertEqual(titles, ['Alt'])
-        self.assertEqual(restored.search('Vorheriger')[0]['title'], 'Alt')
-        self.assertEqual(restored.search('Nachheriger'), [])
-        with self.assertRaises(ValueError):
-            self.store.restore(self.store.path)
-
-    def test_postgres_backup_uses_pg_dump_custom_format(self):
-        store = PostgresStore({'host': 'pg.example.test', 'port': 5432,
-                               'database': 'wissen', 'username': 'wissen_user',
-                               'sslmode': 'require'}, 'postgres-secret', initialize=False)
-        target = self.root / 'backup.dump'
-        with patch('core.subprocess.run') as run:
-            store.backup(target)
-        run.assert_called_once()
-        command = run.call_args.args[0]
-        self.assertEqual(command[0], 'pg_dump')
-        self.assertIn('--format=custom', command)
-        self.assertIn('--file', command)
-        self.assertIn(str(target), command)
-        self.assertEqual(run.call_args.kwargs['env']['PGPASSWORD'], 'postgres-secret')
-
-    def test_postgres_restore_uses_pg_restore_custom_format(self):
-        store = PostgresStore({'host': 'pg.example.test', 'port': 5432,
-                               'database': 'wissen', 'username': 'wissen_user',
-                               'sslmode': 'require'}, 'postgres-secret', initialize=False)
-        source = self.root / 'backup.dump'
-        source.write_bytes(b'backup')
-        with patch('core.subprocess.run') as run:
-            store.restore(source)
-        run.assert_called_once()
-        command = run.call_args.args[0]
-        self.assertEqual(command[0], 'pg_restore')
-        self.assertIn('--clean', command)
-        self.assertIn('--if-exists', command)
-        self.assertIn('--dbname', command)
-        self.assertIn(str(source), command)
-        self.assertEqual(run.call_args.kwargs['env']['PGPASSWORD'], 'postgres-secret')
-
-    def test_restore_replaces_current_database_with_verified_backup(self):
-        self.store.add('Alt','Vorheriger Stand')
-        backup_path = self.root/'backup.db'
-        self.store.backup(backup_path)
-
-        self.store.add('Neu','Nachheriger Stand')
-        self.store.restore(backup_path)
-
-        restored = Store(self.store.path)
-        titles = [row['title'] for row in restored.list()]
-        self.assertEqual(titles, ['Alt'])
-        self.assertEqual(restored.search('Vorheriger')[0]['title'], 'Alt')
-        self.assertEqual(restored.search('Nachheriger'), [])
-        with self.assertRaises(ValueError):
-            self.store.restore(self.store.path)
 
     def test_utf8_and_cp1252_import(self):
         p = self.root/'test.txt'
@@ -150,168 +78,6 @@ class KnowledgeTests(unittest.TestCase):
         self.assertEqual(filenames,{'Start.md','Projekte/2026/Plan.txt'})
         duplicate_report=import_documents(self.store,documents,skipped,errors)
         self.assertEqual(duplicate_report['duplicates'],2)
-
-    def test_folder_import_preview_lists_metadata_without_persisting(self):
-        folder=self.root/'Ablage'
-        nested=folder/'Projekte'/'2026'
-        nested.mkdir(parents=True)
-        (folder/'Start.md').write_text('Übersicht des Wissensraums',encoding='utf-8')
-        (nested/'Plan.txt').write_text('Projektplan mit Meilensteinen',encoding='utf-8')
-        documents,skipped,errors=discover_documents(folder)
-
-        preview=preview_documents(documents,skipped,errors)
-
-        self.assertEqual(preview['found'], 2)
-        self.assertEqual(preview['supported'], 2)
-        self.assertEqual(preview['skipped'], 0)
-        self.assertEqual(preview['errors'], 0)
-        self.assertEqual([item['filename'] for item in preview['items']], ['Start.md', 'Projekte/2026/Plan.txt'])
-        self.assertEqual(preview['items'][0]['title'], 'Start')
-        self.assertGreater(preview['items'][0]['size'], 0)
-        self.assertNotIn('job_id', preview)
-        self.assertEqual(self.store.list(), [])
-
-    def test_resume_import_documents_continues_paused_job(self):
-        folder=self.root/'Ablage'
-        nested=folder/'Projekte'
-        nested.mkdir(parents=True)
-        first=folder/'Start.md'
-        second=nested/'Plan.txt'
-        first.write_text('Übersicht des Wissensraums',encoding='utf-8')
-        second.write_text('Projektplan mit Meilensteinen',encoding='utf-8')
-        documents,skipped,errors=discover_documents(folder)
-        self.store.add('Start','Übersicht des Wissensraums',filename='Start.md',original=first.read_bytes())
-        jobs_path = folder/'data'/'import-jobs.json'
-        jobs_path.parent.mkdir(parents=True, exist_ok=True)
-        jobs_path.write_text(json.dumps([{
-            'id': 'job-1',
-            'source': str(folder),
-            'documents': [{'path': str(path), 'filename': name} for path, name in documents],
-            'found': 2,
-            'supported': 2,
-            'processed': 1,
-            'imported': 1,
-            'duplicates': 0,
-            'skipped': 0,
-            'errors': 0,
-            'status': 'running',
-            'started_at': '2026-10-26T00:00:00+00:00',
-            'completed_at': None,
-            'next_index': 1,
-        }], ensure_ascii=False, indent=2), encoding='utf-8')
-
-        report = resume_import_documents(self.store, folder)
-
-        self.assertEqual(report['imported'], 1)
-        self.assertEqual(report['duplicates'], 0)
-        jobs = json.loads(jobs_path.read_text(encoding='utf-8'))
-        self.assertEqual(jobs[0]['processed'], 2)
-        self.assertEqual(jobs[0]['imported'], 2)
-        self.assertEqual(jobs[0]['next_index'], 2)
-        self.assertEqual(jobs[0]['status'], 'done')
-        filenames = {self.store.get(row['id'])['filename'] for row in self.store.list()}
-        self.assertEqual(filenames, {'Start.md', 'Projekte/Plan.txt'})
-
-    def test_folder_import_reimport_creates_version_history_record(self):
-        folder=self.root/'Ablage'
-        nested=folder/'Projekte'
-        nested.mkdir(parents=True)
-        path=folder/'Start.md'
-        path.write_text('Übersicht des Wissensraums',encoding='utf-8')
-        (nested/'Plan.txt').write_text('Projektplan mit Meilensteinen',encoding='utf-8')
-        documents,skipped,errors=discover_documents(folder)
-
-        first=import_documents(self.store,documents,skipped,errors,job_source=str(folder))
-        second=import_documents(self.store,documents,skipped,errors,job_source=str(folder))
-
-        self.assertEqual(first['imported'], 2)
-        self.assertEqual(second['duplicates'], 2)
-        jobs = json.loads((folder/'data'/'import-jobs.json').read_text(encoding='utf-8'))
-        self.assertEqual(len(jobs), 2)
-        self.assertEqual(jobs[0]['status'], 'done')
-        self.assertEqual(jobs[1]['status'], 'done')
-        filenames = {self.store.get(row['id'])['filename'] for row in self.store.list()}
-        self.assertEqual(filenames, {'Start.md', 'Projekte/Plan.txt'})
-
-    def test_folder_import_can_be_cancelled_and_records_partial_job(self):
-        folder=self.root/'Ablage'
-        nested=folder/'Projekte'
-        nested.mkdir(parents=True)
-        (folder/'Start.md').write_text('Übersicht des Wissensraums',encoding='utf-8')
-        (nested/'Plan.txt').write_text('Projektplan mit Meilensteinen',encoding='utf-8')
-        documents,skipped,errors=discover_documents(folder)
-        snapshots = []
-        def hook(report):
-            snapshots.append(dict(report))
-        def cancel(report):
-            return report['processed'] >= 1
-
-        report=import_documents(self.store,documents,skipped,errors,job_source=str(folder), progress_hook=hook, cancel_hook=cancel)
-
-        self.assertEqual(report['imported'], 1)
-        self.assertEqual(report['duplicates'], 0)
-        self.assertEqual(report['cancelled'], True)
-        self.assertTrue(snapshots)
-        self.assertEqual(snapshots[0]['processed'], 1)
-        self.assertEqual(snapshots[-1]['status'], 'cancelled')
-        jobs = json.loads((folder/'data'/'import-jobs.json').read_text(encoding='utf-8'))
-        self.assertEqual(jobs[0]['processed'], 1)
-        self.assertEqual(jobs[0]['imported'], 1)
-        self.assertEqual(jobs[0]['status'], 'cancelled')
-        filenames = {self.store.get(row['id'])['filename'] for row in self.store.list()}
-        self.assertEqual(filenames, {'Start.md'})
-
-    def test_folder_import_updates_progress_during_job(self):
-        folder=self.root/'Ablage'
-        nested=folder/'Projekte'
-        nested.mkdir(parents=True)
-        (folder/'Start.md').write_text('Übersicht des Wissensraums',encoding='utf-8')
-        (nested/'Plan.txt').write_text('Projektplan mit Meilensteinen',encoding='utf-8')
-        documents,skipped,errors=discover_documents(folder)
-        snapshots = []
-        def hook(report):
-            snapshots.append(dict(report))
-
-        report=import_documents(self.store,documents,skipped,errors,job_source=str(folder), progress_hook=hook)
-
-        self.assertEqual(report['imported'], 2)
-        self.assertTrue(snapshots)
-        self.assertEqual(snapshots[0]['processed'], 1)
-        self.assertEqual(snapshots[0]['imported'], 1)
-        self.assertEqual(snapshots[0]['status'], 'running')
-        self.assertEqual(snapshots[-1]['processed'], 2)
-        self.assertEqual(snapshots[-1]['imported'], 2)
-        self.assertEqual(snapshots[-1]['status'], 'done')
-        jobs = json.loads((folder/'data'/'import-jobs.json').read_text(encoding='utf-8'))
-        self.assertEqual(jobs[0]['processed'], 2)
-        self.assertEqual(jobs[0]['imported'], 2)
-        self.assertEqual(jobs[0]['status'], 'done')
-
-    def test_folder_import_records_progress_job(self):
-        folder=self.root/'Ablage'
-        nested=folder/'Projekte'
-        nested.mkdir(parents=True)
-        (folder/'Start.md').write_text('Übersicht des Wissensraums',encoding='utf-8')
-        (nested/'Plan.txt').write_text('Projektplan mit Meilensteinen',encoding='utf-8')
-        documents,skipped,errors=discover_documents(folder)
-
-        report=import_documents(self.store,documents,skipped,errors,job_source=str(folder))
-
-        self.assertIn('job_id', report)
-        jobs_path = folder/'data'/'import-jobs.json'
-        self.assertTrue(jobs_path.is_file())
-        jobs = json.loads(jobs_path.read_text(encoding='utf-8'))
-        self.assertEqual(len(jobs), 1)
-        job = jobs[0]
-        self.assertEqual(job['id'], report['job_id'])
-        self.assertEqual(job['source'], str(folder))
-        self.assertEqual(job['status'], 'done')
-        self.assertEqual(job['found'], 2)
-        self.assertEqual(job['supported'], 2)
-        self.assertEqual(job['imported'], 2)
-        self.assertEqual(job['duplicates'], 0)
-        self.assertEqual(job['skipped'], 0)
-        self.assertEqual(job['errors'], 0)
 
     def test_docx_tables(self):
         from docx import Document

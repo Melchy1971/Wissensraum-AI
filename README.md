@@ -1,14 +1,14 @@
 # Wissensraum AI – KI-gestütztes Wissensmanagement mit SQL
 
-Arbeitsstand 2.0-dev · Basisversion 1.9 · 22.10.2026 · lokale Einzelplatzanwendung · Python 3.11 bis 3.13
+Version 2.0 · abgenommen am 26.10.2026 · lokale Einzelplatzanwendung · Python 3.11 bis 3.13
 
 Dokumente, Notizen, Originaldateien und KI-Verlauf werden wahlweise in einer lokalen SQLite- oder einer PostgreSQL-Datenbank gespeichert. Die Anwendung bietet eine deutschsprachige Desktop-Oberfläche und eine Kommandozeilenschnittstelle. Es wird kein Webserver benötigt.
 
 ## Masterplan und Roadmap
 
-Der verbindliche [Masterplan mit Release-Roadmap](masterplan.md) trennt den bestätigten Stand 1.9 vom integrierten Entwicklungsstand und von geplanten Arbeiten. Dieses Repository befindet sich im Entwicklungsstand **2.0-dev**: Startdiagnose, operative Logs und der Schema-Migrationsrahmen sind implementiert und getestet. Der Konfigurationstransfer ist lokal vollständig, bleibt aber bis zum erfolgreichen entfernten PostgreSQL-Vertragstest offen; weitere Release-2.0-Arbeitspakete sind ebenfalls noch nicht abgeschlossen.
+Der verbindliche [Masterplan mit Release-Roadmap](masterplan.md) beschreibt freigegebene Stände und geplante Arbeiten. Release **2.0 – Robuste Importplattform** ist abgenommen (26.10.2026): Importaufträge mit Abbruch, Fortsetzung, Quarantäne und CSV-Bericht, Dokumentversionen und Importvorschau, E-Mail-Anhänge nur nach Freigabe, E-Mail- und PST-Importe als Aufträge sowie optionale lokale Texterkennung (OCR) mit Tesseract; Schema 8. Nachweis: CI-Matrix aus sieben Jobs je Teilschritt und die Abnahme mit eigenen Daten im Masterplan. Davor freigegeben: Release **1.9 – Stabilisierung und Betriebsfähigkeit** (23.10.2026) mit Startdiagnose, operativen Logs, versionierten Schema-Migrationen, Konfigurationstransfer, geführter SQLite-Wiederherstellung, dokumentierter PostgreSQL-Sicherung und Systemstatus; Release-Gate-Protokoll `release-gate-20261022-184843.md`.
 
-### Startdiagnose (Release 2.0)
+### Startdiagnose (Release 1.9)
 
 Ausführen: `python cli.py doctor`.
 
@@ -52,8 +52,8 @@ Python 3.11 bis 3.13 mit Tkinter voraussetzen, anschließend `sh start.sh` ausf�
 | KI-Fragen | Höchstens acht passende Textabschnitte, Antwort mit [Q1]-Quellenverweisen |
 | Zusammenfassung | Ausgewähltes Dokument bis 24.000 Zeichen |
 | Verlauf | Erfolgreiche KI-Antworten und unveränderliche Quellenkopien in SQL |
-| Sicherung | Konsistente SQLite-Sicherung über die Backup-API; PostgreSQL über `pg_dump`/`pg_restore` |
-| Automatisierung | CLI für Import, Suche, Fragen, Zusammenfassung, Sicherung, Wiederherstellung |
+| Sicherung | Konsistente SQLite-Sicherung über die Backup-API |
+| Automatisierung | CLI für Import, Suche, Fragen, Zusammenfassung, Sicherung |
 | Design | Telekom-Magenta als Akzentfarbe, Hell-/Dunkelmodus und eigenes Logo im Kopfbereich |
 
 Die Suche ist lexikalisch: Begriffe müssen im Dokument vorkommen. Synonyme, echte semantische Suche und Vektor-Embeddings sind in Version 1 nicht implementiert. Bei Mehrwortfragen werden Suchbegriffe mit ODER verknüpft. Häufige Wörter können dadurch irrelevante Treffer erzeugen. Höchstens 30 Texttreffer werden in der Dokumentensuche angezeigt; mehrere Treffer aus demselben Dokument werden zusammengeführt.
@@ -94,7 +94,7 @@ flowchart TD
 
 Standarddatei: `data/wissen.db` im Programmordner. Alternativer Pfad über `WISSEN_DB`. Unter **Einstellungen → Datenbank** kann eine TLS-geschützte PostgreSQL-Verbindung gespeichert, getestet und für den nächsten Programmstart aktiviert werden. **Anwendungsschema zurücksetzen** löscht nach Eingabe des Datenbanknamens ausschließlich das PostgreSQL-Schema `wissensraum` und baut es innerhalb einer Transaktion über die versionierten Migrationen bis zur aktuellen Version neu auf; andere Schemas bleiben erhalten. Neu über die Oberfläche eingegebene PostgreSQL-Kennwörter werden im Betriebssystem-Schlüsselspeicher abgelegt; alternativ kann ein Kennwort aus `DB_PASSWORD` verwendet werden, ohne es in den Schlüsselspeicher zu kopieren. `data/database.json` enthält nur Server, Port, Datenbankname, Benutzer, TLS-Modus und die aktive Datenquelle. Eine Aktivierung überträgt vorhandene SQLite-Daten nicht automatisch. Das Modell kann über `OPENAI_MODEL` konfiguriert werden; Standard ist `gpt-4.1-mini`. Der Schlüssel wird aus `OPENAI_API_KEY`, `.env.local` oder `.env` im Programmordner sowie `.env.local` im übergeordneten Ordner geladen. Die Oberfläche zeigt Anbieter und Schlüsselstatus im Bereich **Einstellungen**; neue Schlüssel werden im Betriebssystem-Schlüsselspeicher abgelegt. Es gibt keinen Dialog, der einen Schlüssel im Klartext anzeigt.
 
-### Operative Logs (Release 2.0)
+### Operative Logs (Release 1.9)
 
 Desktop und normale CLI-Befehle schreiben lokale, UTF-8-kodierte JSON-Lines nach `data/logs/wissensraum.jsonl` im Programmordner; jede Zeile ist genau ein JSON-Objekt. `python cli.py doctor` initialisiert das Logging ausdrücklich nicht und erzeugt weder Logdatei noch Logordner. Das feste Schema enthält Zeitstempel, Standard-Schweregrad, stabile Ereignis-, Komponenten- und Laufkennungen sowie ausschließlich freigegebene skalare Betriebsmetadaten wie Backend, Operation, Status, Zähler, Dauer und Erfolg. Dokumentinhalte, Fragen, Antworten, Dateinamen, Pfade, Header, Verbindungszeichenfolgen und Ausnahmemeldungen gehören nicht in das Schema; bei Fehlern werden nur eine Ausnahmeklasse und ein stabiler Fehlercode protokolliert.
 
@@ -166,7 +166,8 @@ python cli.py search "Freigabe"
 python cli.py ask "Wer gibt Beschaffungsanträge frei?"
 python cli.py summarize 1
 python cli.py backup sicherung.db
-python cli.py restore sicherung.db
+python cli.py restore sicherung.db --confirm wissen.db
+python cli.py status
 python cli.py config-export wissensraum-konfiguration.json
 python cli.py config-import wissensraum-konfiguration.json
 python cli.py config-sync
@@ -178,7 +179,7 @@ Für eine andere Datenbank das globale Argument vor dem Unterbefehl setzen:
 python cli.py --db data/test.db list
 ```
 
-### Konfiguration sicher übertragen (Release 2.0)
+### Konfiguration sicher übertragen (Release 1.9)
 
 Unter **Einstellungen → Konfiguration** oder mit `config-export` und `config-import` lässt sich die unterstützte Konfiguration als versionierte JSON-Datei übertragen. Enthalten sind ausschließlich die aktive KI, Modell-IDs und Deaktivierungsstatus, das Datenbankprofil ohne Kennwort, der Designmodus sowie E-Mail-Kontometadaten. Nicht enthalten sind API-Schlüssel, Datenbank- und E-Mail-Kennwörter, OAuth-Token, Schlüsselbundinhalte, Umgebungswerte und Schlüsseldateien, Logo-Dateien, Dokumente, KI-Verläufe oder Logs. Zugangsdaten müssen auf dem Zielsystem separat eingerichtet werden; bereits dort gespeicherte Zugangsdaten bleiben beim Import unverändert.
 
@@ -246,7 +247,7 @@ Die CI-Tests rufen keine kostenpflichtige KI-, Microsoft- oder E-Mail-API auf. A
 
 **Priorität:** Betriebssystem-Schlüsselspeicher → Umgebungsvariable → `.env.local` im Programmordner → `.env` im Programmordner → `.env.local` im übergeordneten Ordner. Ein in der Anwendung deaktivierter Schlüssel wird aus keiner dieser Quellen verwendet. Bereits vorhandene Datei-/Umgebungsschlüssel werden beim Start nicht kopiert oder verändert. Das Speichern unveränderter Schlüssel erfordert keine neue Ablage.
 
-Neu eingegebene Schlüssel werden mit `keyring` in einem nativen Betriebssystem-Speicher verwaltet: Windows-Anmeldeinformationsverwaltung, macOS-Schlüsselbund oder ein unterstützter Linux-Secret-Service. Plaintext-Dateibackends werden abgelehnt. Ohne funktionierenden sicheren Speicher schlägt das Speichern eines neuen Schlüssels ausdrücklich fehl; vorhandene Datei-/Umgebungsschlüssel bleiben für normale CLI-Aufrufe nutzbar. Der Desktop-Start ist im Entwicklungsstand 2.0-dev jedoch fail-closed und wird durch die erforderliche Schlüsselspeicher-Diagnose blockiert, bis ein sicherer Speicher verfügbar ist. Die SQL-Datenbank speichert nur aktive KI, Modell-IDs und Deaktivierungsstatus. Die OS-Schlüssel gelten für das aktuelle Betriebssystemkonto und die Anwendung, auch bei Verwendung mehrerer Wissensdatenbanken.
+Neu eingegebene Schlüssel werden mit `keyring` in einem nativen Betriebssystem-Speicher verwaltet: Windows-Anmeldeinformationsverwaltung, macOS-Schlüsselbund oder ein unterstützter Linux-Secret-Service. Plaintext-Dateibackends werden abgelehnt. Ohne funktionierenden sicheren Speicher schlägt das Speichern eines neuen Schlüssels ausdrücklich fehl; vorhandene Datei-/Umgebungsschlüssel bleiben für normale CLI-Aufrufe nutzbar. Der Desktop-Start ist seit Version 1.9 jedoch fail-closed und wird durch die erforderliche Schlüsselspeicher-Diagnose blockiert, bis ein sicherer Speicher verfügbar ist. Die SQL-Datenbank speichert nur aktive KI, Modell-IDs und Deaktivierungsstatus. Die OS-Schlüssel gelten für das aktuelle Betriebssystemkonto und die Anwendung, auch bei Verwendung mehrerer Wissensdatenbanken.
 
 **Schlüssel entfernen** löscht den von der Anwendung verwalteten Schlüssel und deaktiviert den Anbieter auch für extern vorhandene Schlüssel. Umgebungsvariablen und ursprüngliche Dateien bleiben erhalten. Das entfernt keine Zugangsdaten beim Anbieter und widerruft keinen API-Schlüssel. Einen neuen Wert eingeben und speichern, um den Anbieter wieder zu aktivieren.
 

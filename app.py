@@ -266,13 +266,7 @@ class App(tk.Tk if tk is not None else object):
         self.history = ScrolledText(self.history_tab,wrap='word',font=('Segoe UI',11),padx=14,pady=12)
         self.history.pack(fill='both',expand=True)
         source='PostgreSQL' if self.store.backend=='postgresql' else 'SQLite · Einzelplatz'
-        try:
-            with self.store.connect() as db:
-                accounts = db.execute('SELECT COUNT(*) AS count FROM email_accounts').fetchone()['count']
-        except Exception:
-            accounts = '?'
-        self.status_context = f'{source} · E-Mail-Konten: {accounts}'
-        self.status = tk.StringVar(value=f'Bereit · {self.status_context}')
+        self.status = tk.StringVar(value='Bereit · '+source)
         ttk.Label(self,textvariable=self.status,padding=(24,0,24,12)).pack(fill='x')
         self.build_import()
         self.build_settings()
@@ -428,9 +422,8 @@ class App(tk.Tk if tk is not None else object):
                 self.tree.insert('', 'end', iid=str(r['id']),values=(r['title'],r['category'],
                                                                      ', '.join(tags.get(r['id'],[]))))
             suffix = ' · maximal 30 Texttreffer' if query else ''
-            context = getattr(self, 'status_context', '')
-            banner = f'{len(rows)} Dokumente angezeigt{suffix}'
-            self.status.set(banner if not context else banner + ' · ' + context)
+            suffix += f' · Tag {tag}' if tag else ''
+            self.status.set(f'{len(rows)} Dokumente angezeigt{suffix}')
         except Exception as e:
             messagebox.showerror('Suche fehlgeschlagen',str(e),parent=self)
 

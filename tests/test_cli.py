@@ -11,7 +11,6 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import cli
-from core import discover_documents, import_documents
 from diagnostics import DiagnosticResult
 
 

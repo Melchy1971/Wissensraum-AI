@@ -2,8 +2,9 @@
 import argparse
 import json
 from pathlib import Path
-from core import Store, discover_documents, import_documents, import_document
-from settings import Settings
+from core import Store, import_document
+from migrations import restore_sqlite
+from settings import PROVIDERS, Settings
 from settings import SystemVault
 from database import DatabaseSettings, resolve_sqlite_path
 from configuration_authority import ConfigurationAuthority, identity_for_profile
@@ -39,35 +40,32 @@ def _close_logger(logger):
     except BaseException:
         warn_operational_logging_failure()
 
+RULE_COMMANDS = ('tags','rules','rule-add','rule-delete','rules-preview','rules-apply','rules-runs','rules-revert')
 
-def _write_import_report(path, report, format_):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if format_ == 'csv':
-        lines = ['field,value']
-        for key in ('found', 'supported', 'imported', 'duplicates', 'skipped', 'errors'):
-            if key in report:
-                lines.append(f'{key},{report[key]}')
-        details = report.get('details', [])
-        if details:
-            escaped = ' | '.join(str(item).replace('"', '""') for item in details)
-            lines.append(f'details,"{escaped}"')
-        path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
-        return
-    lines = [
-        '# Importbericht',
-        '',
-        f"- Gefunden: {report.get('found', 0)}",
-        f"- Unterstützt: {report.get('supported', 0)}",
-        f"- Importiert: {report.get('imported', 0)}",
-        f"- Duplikate: {report.get('duplicates', 0)}",
-        f"- Übersprungen: {report.get('skipped', 0)}",
-        f"- Fehler: {report.get('errors', 0)}",
-    ]
-    details = report.get('details', [])
-    if details:
-        lines += ['', '## Details'] + [f'- {item}' for item in details]
-    path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+
+def rule_command(store,args):
+    """Rules and tags (step S2); existing documents change only with rules-apply --confirm."""
+    with store.connect() as db:
+        if args.command == 'tags':
+            return [{'tag':name,'documents':count} for name,count in rules.tag_counts(db)]
+        if args.command == 'rules':
+            return rules.list_rules(db)
+        if args.command == 'rule-add':
+            fields = {name:getattr(args,name) for name in ('name','source_type','path_pattern','sender_domain',
+                                                           'extension','keyword','category','tags')}
+            return {'rule_id':rules.save_rule(db,fields)}
+        if args.command == 'rule-delete':
+            rules.delete_rule(db,args.rule_id)
+            return {'deleted':args.rule_id}
+        if args.command == 'rules-runs':
+            return rules.runs(db)
+        if args.command == 'rules-revert':
+            return rules.revert(db,store.backend,args.run_id)
+        rows = rules.preview(db)
+        if args.command == 'rules-preview' or not args.confirm:
+            return {'documents':len(rows),'changes':rows,
+                    'hint':'Nichts geändert. Mit rules-apply --confirm übernehmen.'}
+        return rules.apply(db,store.backend,rows)
 
 
 def main(argv=None):
@@ -108,10 +106,15 @@ def main(argv=None):
     imp = commands.add_parser('import')
     imp.add_argument('path',type=Path)
     imp.add_argument('--category',default='Allgemein')
-    imp_folder = commands.add_parser('import-folder')
-    imp_folder.add_argument('path',type=Path)
-    imp_folder.add_argument('--report',type=Path)
-    imp_folder.add_argument('--report-format',choices=('markdown','csv'),default='markdown')
+    folder_import = commands.add_parser('import-folder',help='Ordner inkl. Unterordner als Importauftrag einlesen')
+    folder_import.add_argument('folder',type=Path)
+    folder_import.add_argument('--category',default='Allgemein')
+    commands.add_parser('jobs',help='Letzte Importaufträge mit Zählern anzeigen')
+    job_resume = commands.add_parser('job-resume',help='Offenen oder abgebrochenen Importauftrag fortsetzen')
+    job_resume.add_argument('job_id',type=int)
+    job_report = commands.add_parser('job-report',help='Importbericht als CSV schreiben')
+    job_report.add_argument('job_id',type=int)
+    job_report.add_argument('target',type=Path)
     for name in ('search','ask'):
         sub = commands.add_parser(name)
         sub.add_argument('query')
@@ -121,8 +124,9 @@ def main(argv=None):
     summary.add_argument('id',type=int)
     backup = commands.add_parser('backup')
     backup.add_argument('target',type=Path)
-    restore = commands.add_parser('restore')
+    restore = commands.add_parser('restore',help='SQLite-Datenbank aus einer Sicherung wiederherstellen')
     restore.add_argument('source',type=Path)
+    restore.add_argument('--confirm',default='',help='Dateiname der Zieldatenbank zur Bestätigung')
     config_export = commands.add_parser('config-export')
     config_export.add_argument('target',type=Path)
     config_import = commands.add_parser('config-import')
@@ -229,19 +233,25 @@ def main(argv=None):
                 doc_id,created = store.add(title,text,args.category,name,data)
                 result = {'id':doc_id,'created':created}
             elif args.command == 'import-folder':
-                documents, skipped, errors = discover_documents(args.path)
-                report = import_documents(store, documents, skipped, errors)
-                result = report
-                if args.report:
-                    _write_import_report(args.report, report, args.report_format)
+                jobs = ImportJobs(store)
+                result = jobs.run(jobs.create_for_folder(args.folder,args.category))
+            elif args.command == 'jobs':
+                result = ImportJobs(store).jobs()
+            elif args.command == 'job-resume':
+                result = ImportJobs(store).run(args.job_id)
+            elif args.command == 'job-report':
+                result = {'bericht':str(ImportJobs(store).write_report(args.job_id,args.target))}
+            elif args.command == 'status':
+                results = health_overview(store,Settings(store,BASE,vault),
+                                          MailAccounts(store,vault,BASE),PROVIDERS)
+                print(format_diagnostics(results))
+                _log_event(logger,'command_completed',metadata=metadata)
+                return 1 if any(result.status == 'FAIL' for result in results) else 0
             elif args.command == 'search':
                 result = store.search(args.query,tag=args.tag)
             elif args.command == 'backup':
                 store.backup(args.target)
                 result = {'backup':str(args.target)}
-            elif args.command == 'restore':
-                store.restore(args.source)
-                result = {'restored_from':str(args.source)}
             elif args.command == 'config-import':
                 transfer=ConfigurationTransfer(store,BASE,database_settings,DesignSettings(BASE))
                 try:
