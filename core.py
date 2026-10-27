@@ -7,6 +7,7 @@ import json
 import os
 import re
 import sqlite3
+import subprocess
 import urllib.error
 import urllib.request
 from contextlib import closing, contextmanager
@@ -26,23 +27,30 @@ SCHEMA = ('PRAGMA foreign_keys = ON;\n' + '\n'.join(
     ', content TEXT NOT NULL,\n            UNIQUE(document_id, ordinal)',
     ', content TEXT NOT NULL, UNIQUE(document_id, ordinal)')
 
-SUPPORTED_DOCUMENT_SUFFIXES = frozenset({'.txt', '.md', '.pdf', '.docx', '.html', '.htm', '.rtf', '.xlsx', '.pptx',
-                                         '.eml'})
-SUPPORTED_FORMATS_TEXT = 'TXT, Markdown, PDF, DOCX, HTML, RTF, XLSX, PPTX und EML'
-SOURCE_TYPES = frozenset({'note', 'file', 'pst', 'imap', 'graph', 'attachment'})
-# Image files have no text layer; they wait in quarantine for OCR (step 6.4).
-IMAGE_SUFFIXES = frozenset({'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tif', '.tiff', '.webp', '.heic'})
-
-
-def source_row(filename=None, source=None):
-    """Return (source_type, account_id, locator); notes and files are derived."""
-    if source is None:
-        source = ('note', '', '') if filename is None else ('file', '', filename)
-    source_type, account_id, locator = source
-    if (source_type not in SOURCE_TYPES or type(account_id) is not str
-            or type(locator) is not str):
-        raise ValueError('Ungültige Quellenangabe.')
-    return source_type, account_id, locator
+SUPPORTED_DOCUMENT_SUFFIXES = frozenset({'.txt', '.md', '.pdf', '.docx'})
+SEMANTIC_STOPWORDS = frozenset({
+    'und', 'oder', 'die', 'der', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einer', 'eines',
+    'mit', 'nach', 'für', 'auf', 'im', 'in', 'am', 'an', 'zu', 'von', 'wer', 'was', 'wie', 'wo',
+    'ist', 'sind', 'war', 'sowie', 'auch', 'nur', 'nicht', 'kein', 'keine'
+})
+SEMANTIC_SYNONYMS = {
+    'zustimmung': {'freigabe', 'genehmigung', 'genehmigt', 'zustimmen', 'freigegeben'},
+    'genehmigung': {'freigabe', 'genehmigt', 'zustimmung', 'zustimmen', 'freigegeben'},
+    'genehmigt': {'freigabe', 'genehmigung', 'zustimmung', 'freigegeben'},
+    'genehmigen': {'freigabe', 'genehmigung', 'zustimmung', 'freigegeben'},
+    'freigabe': {'genehmigung', 'zustimmung', 'genehmigt', 'freigegeben'},
+    'freigeben': {'genehmigung', 'zustimmung', 'genehmigt', 'freigegeben'},
+    'erteilt': {'gibt', 'gibt', 'genehmigt', 'freigibt', 'freigabe'},
+    'erteilen': {'gibt', 'genehmigt', 'freigibt', 'freigabe'},
+    'gibt': {'erteilt', 'genehmigt', 'freigibt', 'freigabe'},
+    'verantwortlich': {'führungskraft', 'verantwortlicher', 'genehmiger'},
+    'verantwortlicher': {'führungskraft', 'verantwortlich', 'genehmiger'},
+    'führungskraft': {'verantwortlicher', 'verantwortlich', 'leiter'},
+    'antrag': {'anträge', 'beantragung', 'ticket'},
+    'anträge': {'antrag', 'beantragung', 'ticket'},
+    'prüfung': {'prüfen', 'kontrolle', 'check'},
+    'prüfen': {'prüfung', 'kontrolle', 'check'},
+}
 
 
 def chunks(text: str, size: int = 1800, overlap: int = 200):
@@ -52,94 +60,36 @@ def chunks(text: str, size: int = 1800, overlap: int = 200):
             break
 
 
-# A document is current unless a newer version exists in its lineage.
-CURRENT_VERSION_FILTER = ('NOT EXISTS (SELECT 1 FROM document_versions mine JOIN document_versions newer '
-                          'ON newer.lineage_id=mine.lineage_id AND newer.version>mine.version '
-                          'WHERE mine.document_id=d.id)')
+def _semantic_terms(text):
+    return [term.casefold() for term in re.findall(r'\w+', text, re.UNICODE) if len(term) > 2]
 
 
-def _version_lineage(db, source):
-    """Lineage of earlier documents from the same place, or None."""
-    if not source[2]:
-        return None
-    row = db.execute('SELECT v.lineage_id FROM sources s JOIN document_versions v ON v.document_id=s.document_id '
-                     'WHERE s.source_type=? AND s.account_id=? AND s.locator=? '
-                     'ORDER BY v.version DESC LIMIT 1', source).fetchone()
-    return None if row is None else row['lineage_id']
-
-
-def _current_of_lineage(db, lineage):
-    return db.execute('SELECT d.id,d.title,v.version FROM document_versions v JOIN documents d ON d.id=v.document_id '
-                      'WHERE v.lineage_id=? ORDER BY v.version DESC LIMIT 1', (lineage,)).fetchone()
-
-
-def _record_version(db, doc_id, lineage):
-    if lineage is None:
-        lineage, version = doc_id, 1
-    else:
-        version = _current_of_lineage(db, lineage)['version'] + 1
-    db.execute('INSERT INTO document_versions(document_id,lineage_id,version) VALUES(?,?,?)',
-               (doc_id, lineage, version))
-
-
-def _match(db, content, source, versioned):
-    """Read-only answer to: what would add() do with this content?"""
-    digest = hashlib.sha256(content.strip().encode()).hexdigest()
-    row = db.execute('SELECT id,title FROM documents WHERE sha256=?', (digest,)).fetchone()
-    if row:
-        return {'outcome':'duplicate', 'document_id':row['id'], 'title':row['title']}
-    lineage = _version_lineage(db, source) if versioned else None
-    if lineage is not None:
-        current = _current_of_lineage(db, lineage)
-        return {'outcome':'version', 'document_id':current['id'], 'title':current['title'],
-                'version':current['version']+1}
-    return {'outcome':'new'}
-
-
-def _versions(db, doc_id):
-    return [dict(row) for row in db.execute(
-        'SELECT d.id,d.title,d.category,d.created_at,v.version FROM document_versions v '
-        'JOIN documents d ON d.id=v.document_id '
-        'WHERE v.lineage_id=(SELECT lineage_id FROM document_versions WHERE document_id=?) '
-        'ORDER BY v.version DESC', (doc_id,))]
-
-
-# Documents carrying a tag (normalized name as parameter); used by list and search filters.
-TAG_FILTER = ('d.id IN (SELECT dt.document_id FROM document_tags dt JOIN tags t ON t.id=dt.tag_id '
-              'WHERE t.normalized=?)')
-
-
-def _list(db, all_versions, tag=None):
-    import rules
-    conditions = ([] if all_versions else [CURRENT_VERSION_FILTER]) + ([TAG_FILTER] if tag else [])
-    where = ' WHERE '+' AND '.join(conditions) if conditions else ''
-    rows = [dict(row) for row in db.execute(
-        'SELECT d.id,d.title,d.category,d.created_at,COALESCE(v.version,1) AS version FROM documents d '
-        'LEFT JOIN document_versions v ON v.document_id=d.id'+where+' ORDER BY d.id DESC',
-        (tag.casefold(),) if tag else ())]
-    tags = rules.tags_by_document(db)
+def _semantic_rank_rows(rows, query, limit):
+    query_terms = [term for term in _semantic_terms(query) if term not in SEMANTIC_STOPWORDS]
+    if not query_terms:
+        query_terms = _semantic_terms(query)
+    if not query_terms:
+        return []
+    expanded = set(query_terms)
+    for term in query_terms:
+        expanded.update(SEMANTIC_SYNONYMS.get(term, ()))
+    ranked = []
     for row in rows:
-        row['tags'] = tags.get(row['id'], [])
-    return rows
-
-
-def _insert_document(db, title, content, category, filename, original, digest, source, returning):
-    """Insert a new document whose area and tags may come from the rules (step S2)."""
-    import rules
-    ruled_category, ruled_tags = rules.decide_for_import(db, title, content, filename, source)
-    category = ruled_category or category.strip() or 'Allgemein'
-    query = 'INSERT INTO documents(title,category,filename,original,content,sha256) VALUES(?,?,?,?,?,?)'
-    if returning:
-        doc_id = db.execute(query+' RETURNING id', (title, category, filename, original, content, digest)
-                            ).fetchone()['id']
-    else:
-        doc_id = db.execute(query, (title, category, filename, original, content, digest)).lastrowid
-    db.executemany('INSERT INTO chunks(document_id,ordinal,content) VALUES(?,?,?)',
-                   ((doc_id, i+1, part) for i, part in enumerate(chunks(content))))
-    db.execute('INSERT INTO sources(document_id,source_type,account_id,locator) VALUES(?,?,?,?)',
-               (doc_id, *source))
-    rules.add_tags(db, doc_id, ruled_tags)
-    return doc_id
+        row = dict(row)
+        corpus_terms = set(_semantic_terms(f"{row.get('title', '')} {row.get('category', '')} {row.get('content', '')}"))
+        title_terms = set(_semantic_terms(row.get('title', '')))
+        exact = len(set(query_terms) & corpus_terms)
+        semantic = len(expanded & corpus_terms)
+        title_match = len(set(query_terms) & title_terms) + len(expanded & title_terms) * 0.5
+        retrieval_score = round(exact + semantic * 0.6 + title_match * 0.8, 4)
+        reranking_score = round(exact * 2 + semantic * 0.8 + title_match * 1.5, 4)
+        if retrieval_score <= 0 and reranking_score <= 0:
+            continue
+        row['retrieval_score'] = retrieval_score
+        row['reranking_score'] = reranking_score
+        ranked.append(row)
+    ranked.sort(key=lambda row: (-row['reranking_score'], -row['retrieval_score'], row.get('document_id', 0), row.get('chunk_id', 0)))
+    return ranked[:limit]
 
 
 class Store:
@@ -442,12 +392,10 @@ class Store:
             rows = db.execute('''SELECT c.id AS chunk_id,d.id AS document_id,d.title,d.category,
                   c.ordinal,c.content,bm25(search_index,4,2,1) AS rank
                   FROM search_index JOIN chunks c ON c.id=search_index.rowid
-                  JOIN documents d ON d.id=c.document_id WHERE search_index MATCH ?'''
-                  + ('' if all_versions else ' AND '+CURRENT_VERSION_FILTER)
-                  + (' AND '+TAG_FILTER if tag else '') + '''
-                  ORDER BY rank,c.id LIMIT ?''',
-                  (fts, *((tag.casefold(),) if tag else ()), max(1, min(limit, 30)))).fetchall()
-            return [dict(r) for r in rows]
+                  JOIN documents d ON d.id=c.document_id WHERE search_index MATCH ?
+                  ORDER BY rank,c.id LIMIT ?''', (fts, max(1, min(limit, 30)))).fetchall()
+        ranked = _semantic_rank_rows(rows, query, limit)
+        return ranked if ranked else [dict(r) for r in rows]
 
     def log(self, kind, question, answer, sources, model):
         with self.connect() as db:
@@ -465,6 +413,26 @@ class Store:
         with self.connect() as source, closing(sqlite3.connect(target)) as dest:
             with dest:
                 source.backup(dest)
+
+    def restore(self, source):
+        source = Path(source)
+        if source.resolve() == self.path.resolve():
+            raise ValueError('Die Wiederherstellung muss aus einer anderen Datei erfolgen.')
+        if not source.is_file():
+            raise ValueError('Die Sicherungsdatei wurde nicht gefunden.')
+        temporary = self.path.with_name(self.path.name + '.restore-' + uuid.uuid4().hex)
+        try:
+            with closing(sqlite3.connect(source)) as backup, closing(sqlite3.connect(temporary)) as target:
+                with target:
+                    backup.backup(target)
+            if self.path.exists():
+                self.path.unlink()
+            os.replace(temporary, self.path)
+        finally:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
 
 
 class _PostgresConnection:
@@ -846,8 +814,46 @@ class PostgresStore:
         with self.connect() as db:
             return [dict(row) for row in db.execute('SELECT * FROM ai_runs ORDER BY id DESC LIMIT 100')]
 
-    def backup(self,target):
-        raise ValueError('PostgreSQL-Sicherungen werden auf dem VPS mit pg_dump erstellt; die lokale SQLite-Sicherung ist hierfür nicht anwendbar.')
+    def backup(self, target):
+        target = Path(target)
+        env = os.environ.copy()
+        env['PGPASSWORD'] = self.password
+        command = [
+            'pg_dump',
+            '--format=custom',
+            '--file', str(target),
+            '--host', str(self.profile['host']),
+            '--port', str(self.profile['port']),
+            '--username', str(self.profile['username']),
+            '--dbname', str(self.profile['database']),
+        ]
+        try:
+            subprocess.run(command, check=True, env=env)
+        except FileNotFoundError:
+            raise ValueError('PostgreSQL-Sicherungen werden auf dem VPS mit pg_dump erstellt; die lokale SQLite-Sicherung ist hierfür nicht anwendbar.') from None
+        except Exception:
+            raise ValueError('PostgreSQL-Sicherungen konnten nicht erstellt werden.') from None
+
+    def restore(self, source):
+        source = Path(source)
+        env = os.environ.copy()
+        env['PGPASSWORD'] = self.password
+        command = [
+            'pg_restore',
+            '--clean',
+            '--if-exists',
+            '--dbname', str(self.profile['database']),
+            '--host', str(self.profile['host']),
+            '--port', str(self.profile['port']),
+            '--username', str(self.profile['username']),
+            str(source),
+        ]
+        try:
+            subprocess.run(command, check=True, env=env)
+        except FileNotFoundError:
+            raise ValueError('PostgreSQL-Wiederherstellungen werden auf dem VPS mit pg_restore erstellt; die lokale SQLite-Wiederherstellung ist hierfür nicht anwendbar.') from None
+        except Exception:
+            raise ValueError('PostgreSQL-Wiederherstellungen konnten nicht ausgeführt werden.') from None
 
 
 MAX_DOCUMENT_BYTES = 20*1024*1024
@@ -1022,20 +1028,151 @@ def discover_documents(folder, include_unsupported=False):
     return documents, skipped, errors
 
 
-def import_documents(store, documents, skipped=0, scan_errors=None):
-    """Import discovered documents and retain their relative source paths."""
-    report = {'found':len(documents)+skipped, 'supported':len(documents), 'imported':0,
-              'duplicates':0, 'skipped':skipped, 'errors':len(scan_errors or []),
-              'details':list(scan_errors or [])}
+def preview_documents(documents, skipped=0, scan_errors=None):
+    items = []
     for path, stored_name in documents:
+        title, text, _, data = import_document(path)
+        items.append({'filename': stored_name, 'title': title, 'size': len(data), 'preview': text[:240]})
+    return {'found': len(documents) + skipped, 'supported': len(documents), 'skipped': skipped,
+            'errors': len(scan_errors or []), 'details': list(scan_errors or []), 'items': items}
+
+
+def import_documents(store, documents, skipped=0, scan_errors=None, job_source=None, progress_hook=None, cancel_hook=None):
+    """Import discovered documents and retain their relative source paths."""
+    preview = preview_documents(documents, skipped, scan_errors)
+    report = {'found': preview['found'], 'supported': preview['supported'], 'imported':0,
+              'duplicates':0, 'skipped':preview['skipped'], 'errors':preview['errors'],
+              'details':list(preview['details'])}
+    def job_path_for(source):
+        if source is None:
+            return None
+        return Path(source) / 'data' / 'import-jobs.json'
+    def timestamp():
+        from datetime import datetime, timezone
+        return datetime.now(timezone.utc).isoformat(timespec='seconds')
+    def load_records(path):
+        if path is None or not path.exists():
+            return []
         try:
-            title, text, _, data = import_document(path)
-            _, created = store.add(title, text, filename=stored_name, original=data)
-            report['imported' if created else 'duplicates'] += 1
-        except Exception as error:
-            report['errors'] += 1
-            report['details'].append(f'{stored_name}: {error}')
+            return json.loads(path.read_text(encoding='utf-8'))
+        except Exception:
+            return []
+    def write_records(path, records):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + '.tmp-' + uuid.uuid4().hex)
+        tmp.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding='utf-8')
+        os.replace(tmp, path)
+
+    job_path = job_path_for(job_source)
+    records = load_records(job_path)
+    if job_path is not None:
+        job_id = uuid.uuid4().hex
+        records.append({
+            'id': job_id,
+            'source': str(job_source),
+            'documents': [{'path': str(path), 'filename': name} for path, name in documents],
+            'found': report['found'],
+            'supported': report['supported'],
+            'processed': 0,
+            'imported': 0,
+            'duplicates': 0,
+            'skipped': report['skipped'],
+            'errors': report['errors'],
+            'status': 'running',
+            'started_at': timestamp(),
+            'completed_at': None,
+        })
+        write_records(job_path, records)
+        report['job_id'] = job_id
+    try:
+        cancelled = False
+        for path, stored_name in documents:
+            try:
+                title, text, _, data = import_document(path)
+                _, created = store.add(title, text, filename=stored_name, original=data)
+                report['imported' if created else 'duplicates'] += 1
+            except Exception as error:
+                report['errors'] += 1
+                report['details'].append(f'{stored_name}: {error}')
+            finally:
+                if job_path is not None and records:
+                    current = report['imported'] + report['duplicates'] + report['errors']
+                    records[-1].update({
+                        'processed': current,
+                        'found': report['found'], 'supported': report['supported'],
+                        'imported': report['imported'], 'duplicates': report['duplicates'],
+                        'skipped': report['skipped'], 'errors': report['errors'],
+                        'status': 'running', 'completed_at': None,
+                    })
+                    write_records(job_path, records)
+                    if progress_hook is not None:
+                        progress_hook(dict(records[-1]))
+                if cancel_hook is not None and cancel_hook({**report, 'processed': report['imported'] + report['duplicates'] + report['errors']}):
+                    cancelled = True
+                    break
+        if job_path is not None and records:
+            records[-1].update({
+                'processed': report['imported'] + report['duplicates'] + report['errors'],
+                'found': report['found'], 'supported': report['supported'],
+                'imported': report['imported'], 'duplicates': report['duplicates'],
+                'skipped': report['skipped'], 'errors': report['errors'],
+                'status': 'cancelled' if cancelled else 'done', 'completed_at': timestamp(),
+            })
+            write_records(job_path, records)
+            if progress_hook is not None:
+                progress_hook(dict(records[-1]))
+        if cancelled:
+            report['cancelled'] = True
+    except Exception:
+        if job_path is not None and records:
+            records[-1].update({'status': 'failed', 'completed_at': timestamp()})
+            write_records(job_path, records)
+        raise
     return report
+
+
+def resume_import_documents(store, job_source, job_id=None, progress_hook=None):
+    from datetime import datetime, timezone
+    def timestamp():
+        return datetime.now(timezone.utc).isoformat(timespec='seconds')
+    job_path = Path(job_source) / 'data' / 'import-jobs.json'
+    if not job_path.exists():
+        raise FileNotFoundError(job_path)
+    records = json.loads(job_path.read_text(encoding='utf-8'))
+    if not records:
+        raise ValueError('Keine Importaufträge vorhanden.')
+    if job_id is None:
+        for record in reversed(records):
+            if record.get('status') in {'running', 'failed', 'paused'}:
+                job = record
+                break
+        else:
+            job = records[-1]
+    else:
+        for record in records:
+            if record.get('id') == job_id:
+                job = record
+                break
+        else:
+            raise ValueError('Importauftrag nicht gefunden.')
+    documents = job.get('documents')
+    if not documents:
+        raise ValueError('Importauftrag enthält keine Dokumente.')
+    start_index = int(job.get('next_index', job.get('processed', 0)))
+    remaining = [(Path(item['path']), item['filename']) for item in documents[start_index:]]
+    report = import_documents(store, remaining, skipped=0, scan_errors=[], job_source=job_source, progress_hook=progress_hook)
+    job['processed'] = start_index + report['imported'] + report['duplicates'] + report['errors']
+    job['imported'] = job.get('imported', 0) + report['imported']
+    job['duplicates'] = job.get('duplicates', 0) + report['duplicates']
+    job['errors'] = job.get('errors', 0) + report['errors']
+    job['status'] = 'done'
+    job['completed_at'] = timestamp()
+    job['next_index'] = len(documents)
+    records[records.index(job)] = job
+    job_path.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding='utf-8')
+    return report
+
+
 
 
 def load_key(base):

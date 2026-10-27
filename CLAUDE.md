@@ -27,21 +27,22 @@ Statusangaben im Masterplan dürfen nur aufgrund nachprüfbarer Ergebnisse geän
 
 ## 4. Aktueller Arbeitsschwerpunkt
 
-Der aktuelle Freigabeblocker steht in **Phase 4 – Versionierte Datenbankmigrationen** des Masterplans.
+Der aktuelle Freigabeblocker steht in **Phase 5 – Release 2.0 Betriebsfähigkeit** des Masterplans.
 
 Der Hermes-Stand enthält bereits:
 
 - geordnete SQLite- und PostgreSQL-Migrationen 1 bis 4
 - SQLite-Sicherung vor einer Versionsmigration
+- SQLite- und PostgreSQL-Wiederherstellung nach Prüfsicherung
 - Sperren gegen parallele Migrationen
 - PostgreSQL-Advisory-Lock und `schema_migrations`
 - strikte Schema- und Historienprüfung
 - atomaren PostgreSQL-Schema-Reset
 - Schutz destruktiver PostgreSQL-Tests
 
-Diese Funktionen sind implementiert, aber noch nicht freigegeben. Der dokumentierte Prüfstand umfasst 89 Tests; 3 lokale Fehler und ein vollständig roter CI-Lauf blockieren die Abnahme. Die im Masterplan aufgeführten Fehler zuerst reproduzieren und an ihrer Ursache beheben. Phase 4 darf erst auf ✅ gesetzt werden, wenn ihr vollständiges Gate erfüllt ist.
+Diese Funktionen sind implementiert, aber noch nicht freigegeben. Der dokumentierte Prüfstand umfasst 321 Tests; 9 Übersprünge und ein vollständig grüner CI-Lauf blockieren die Abnahme nicht, aber die offenen 2.0-Freigaben bleiben als Prozess offen.
 
-Ohne ausdrückliche Anweisung keine Arbeit aus Phase 5 oder später beginnen, solange Phase 4 rot ist.
+Ohne ausdrückliche Anweisung keine Arbeit aus Phase 6 oder später beginnen, solange Phase 5 offen ist.
 
 ## 5. Architektur und Zuständigkeiten
 
@@ -51,6 +52,7 @@ Ohne ausdrückliche Anweisung keine Arbeit aus Phase 5 oder später beginnen, so
 | `core.py` | Dokumente, Chunks, Suche, KI-Abläufe und zentrale Fachlogik |
 | `database.py` | Datenbankprofile, SQLite-/PostgreSQL-Auswahl und Verbindungen |
 | `migrations.py` | versionierte Migrationen, Sperren, Sicherung und Schema-Prüfung |
+| `core.py` | SQLite-/PostgreSQL-Backup und -Restore |
 | `importer.py` | Datei-, Ordner-, PST-, IMAP- und Microsoft-Graph-Import |
 | `settings.py` | KI-Anbieter, Modelle, Schlüsselquellen und sichere Ablage |
 | `design.py` | Hell-/Dunkelmodus, Branding und Logo-Normalisierung |
@@ -85,6 +87,7 @@ Architekturregeln:
 - Beim Schema-Reset ausschließlich das Schema `wissensraum` verändern und den exakten Datenbanknamen bestätigen lassen.
 - Ein Wechsel zwischen SQLite und PostgreSQL darf niemals still Daten übertragen.
 - Vor Migrationen vorhandene Benutzerdaten sichern und die Sicherung verifizieren.
+- Backup- und Restore-Operationen immer über die passenden Backend-Werkzeuge ausführen und anschließend testen.
 
 ### E-Mail und externe Dienste
 
@@ -111,6 +114,7 @@ Jede Schemaänderung benötigt eine neue, geordnete Migration und passende Tests
 - Fehler müssen vollständig zurückrollen und dürfen weder Teilschema noch falschen Versionsstempel hinterlassen.
 - Parallele Starts dürfen eine Migration genau einmal ausführen.
 - SQLite benötigt vor einem Versionswechsel eine geprüfte Sicherung.
+- PostgreSQL verwendet `pg_dump` und `pg_restore` statt lokaler Dateioperationen.
 - PostgreSQL benötigt Advisory Lock, lückenlose Historie und einen begrenzten Lock-Timeout.
 - Unbekannte neuere Schemaversionen und manipulierte Schemas ohne Änderung ablehnen.
 - Legacy-Schemas nur übernehmen, wenn sie exakt der erwarteten Struktur entsprechen.
