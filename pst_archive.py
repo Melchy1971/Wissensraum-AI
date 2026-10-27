@@ -8,12 +8,49 @@ a context manager. Attachment content is read only by the import job, never here
 """
 from __future__ import annotations
 
-import mimetypes
+import re
 from collections import deque, namedtuple
 from pathlib import Path
 
+from content_types import UNKNOWN, content_type_for
+
 AttachmentMetadata = namedtuple('AttachmentMetadata', 'name mime_type size')
 DROPPED_HEADERS = {'content-type', 'content-transfer-encoding', 'mime-version'}
+PR_ATTACH_MIME_TAG = 0x370E  # MAPI property with the MIME type Outlook stored for the attachment
+STRING_VALUE_TYPES = (0x001F, 0x001E)  # PT_UNICODE, PT_STRING8
+_MIME_TYPE = re.compile(r'^[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*$')
+
+
+def stored_content_type(attachment):
+    """MIME type from the attachment's own MAPI property, or '' when absent or not a valid type.
+
+    Only the entry type and value type of each property are inspected, and only the value of
+    PR_ATTACH_MIME_TAG is read; the attachment data property is never touched.
+    """
+    try:
+        record_sets = list(attachment.record_sets)
+    except (AttributeError, OSError):
+        return ''
+    for record_set in record_sets:
+        try:
+            entries = list(record_set.entries)
+        except OSError:
+            continue
+        for entry in entries:
+            try:
+                if entry.entry_type != PR_ATTACH_MIME_TAG or entry.value_type not in STRING_VALUE_TYPES:
+                    continue
+                value = (entry.get_data_as_string() or '').strip().lower()
+            except (OSError, ValueError, UnicodeError):
+                continue
+            if _MIME_TYPE.match(value) and value != UNKNOWN:  # the generic type says nothing
+                return value
+    return ''
+
+
+def attachment_content_type(attachment, name):
+    """Stored MIME type first, then the fixed extension table, else ``application/octet-stream``."""
+    return stored_content_type(attachment) or content_type_for(name)
 
 
 def attachment_name(attachment):
@@ -138,10 +175,10 @@ class PstArchive:
 
     @staticmethod
     def get_attachment_metadata(message):
-        """Name, guessed type and size of each named attachment; the content is not read."""
+        """Name, MIME type and size of each named attachment; the content is not read."""
         result = []
         for attachment in message.attachments:
             name = attachment_name(attachment)
             if name:
-                result.append(AttachmentMetadata(name, mimetypes.guess_type(name, strict=False)[0], attachment.size))
+                result.append(AttachmentMetadata(name, attachment_content_type(attachment, name), attachment.size))
         return result

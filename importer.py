@@ -17,7 +17,7 @@ import uuid
 from contextlib import contextmanager
 from core import MAX_DOCUMENT_BYTES, ImportRejected, extract_document
 import mail_structure
-from pst_archive import attachment_name
+from pst_archive import attachment_content_type, attachment_name
 from configuration_authority import (CONFIGURATION_OPERATION_BUSY, ConfigurationAuthority,
                                      configuration_operation_lock, store_identity)
 
@@ -760,11 +760,10 @@ class Importer:
     @staticmethod
     def _pst_attachment_list(message):
         """Name and size from the attachment records; the content is not read."""
-        import mimetypes
         items=[]
         for index,attachment in enumerate(getattr(message,'attachments',None) or ()):
             name=attachment_name(attachment) or f'Anhang-{index+1}'
-            items.append({'id':str(index),'name':name,'content_type':mimetypes.guess_type(name)[0] or '',
+            items.append({'id':str(index),'name':name,'content_type':attachment_content_type(attachment,name),
                           'size':int(getattr(attachment,'size',0) or 0)})
         return items
 
@@ -930,8 +929,7 @@ class Importer:
                         raise ImportRejected('too_large','Anhang überschreitet das Limit von 20 MB.')
                     data=attachment.read_buffer(size) if size else b''
                     email_document_id=self._pst_email_document(key)
-                    import mimetypes
-                    return self._job_attachment(name,bytes(data),mimetypes.guess_type(name)[0] or '','',
+                    return self._job_attachment(name,bytes(data),attachment_content_type(attachment,name),'',
                                                 key+'#'+index,email_document_id,label,recovering)
                 yield handle
         else:

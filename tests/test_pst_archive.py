@@ -129,6 +129,54 @@ class PstArchiveTests(unittest.TestCase):
                          [('rechnung.pdf', 'application/pdf', 1200),
                           ('alt.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 7)])
 
+    def test_stored_mime_type_first_then_extension_without_reading_content(self):
+        def unreadable(*_):
+            raise AssertionError('content must not be read')
+
+        class Entry:
+            def __init__(self, entry_type, value_type, value):
+                self.entry_type, self.value_type, self.value = entry_type, value_type, value
+
+            def get_data_as_string(self):
+                if self.entry_type == 0x3701:  # PR_ATTACH_DATA_BIN: the attachment content itself
+                    raise AssertionError('attachment data must not be read')
+                return self.value
+
+            data = property(lambda self: unreadable())
+
+        def part(name, *entries):
+            return SimpleNamespace(long_filename=name, size=10, read_buffer=unreadable,
+                                   record_sets=[SimpleNamespace(entries=[Entry(0x3701, 0x0102, b''), *entries])])
+        parts = [part('scan.bin', Entry(0x370E, 0x001F, 'Image/PNG')),               # stored type wins
+                 part('bericht.pdf', Entry(0x370E, 0x001F, 'application/octet-stream')),  # generic: use extension
+                 part('liste.xlsx', Entry(0x370E, 0x001F, 'kein typ')),               # invalid: use extension
+                 part('notiz.xyz', Entry(0x370E, 0x0003, 'text/plain')),               # not a string property
+                 part('ohne')]                                                         # nothing known
+        self.assertEqual([item.mime_type for item in PstArchive.get_attachment_metadata(message(1, attachments=parts))],
+                         ['image/png', 'application/pdf',
+                          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                          'application/octet-stream', 'application/octet-stream'])
+
+
+class ContentTypeTableTests(unittest.TestCase):
+    """The same answer on every system: Python's mimetypes (registry, /etc/mime.types) is not used."""
+
+    def test_extensions(self):
+        from unittest.mock import patch
+        import content_types
+        expected = {'a.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                    'a.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    'a.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                    'a.pdf': 'application/pdf', 'A.PNG': 'image/png', 'a.jpg': 'image/jpeg', 'a.jpeg': 'image/jpeg',
+                    'a.xyz': 'application/octet-stream', 'ohne_endung': 'application/octet-stream',
+                    '': 'application/octet-stream'}
+        with patch('mimetypes.guess_type', side_effect=AssertionError('mimetypes is platform dependent')), \
+                patch('mimetypes.guess_extension', side_effect=AssertionError('mimetypes is platform dependent')):
+            self.assertEqual({name: content_types.content_type_for(name) for name in expected}, expected)
+            self.assertEqual([content_types.extension_for(t) for t in ('application/pdf', 'IMAGE/JPEG; x=1',
+                                                                       'message/rfc822', 'application/x-unbekannt')],
+                             ['.pdf', '.jpg', '.eml', ''])
+
 
 if __name__ == '__main__':
     unittest.main()

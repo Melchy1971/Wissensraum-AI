@@ -191,8 +191,8 @@ def is_multipart(structure):
 def attachment_name(part):
     if part['name']:
         return part['name']
-    import mimetypes
-    extension = mimetypes.guess_extension(part['content_type']) or ''
+    from content_types import extension_for
+    extension = extension_for(part['content_type'])
     if part['content_type'] == 'message/rfc822':
         extension = '.eml'
     return f'Anhang-{part["section"]}{extension}'
