@@ -17,6 +17,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parent))  # test_settings, also f
 from core import PostgresStore, _PostgresConnection
 from configuration_authority import configuration_operation_lock
 from database import DatabaseSettings, resolve_sqlite_path
+from migrations import CURRENT_SCHEMA_VERSION
 from test_settings import FakeVault
 
 
@@ -57,12 +58,14 @@ class FakeResetConnection:
         if query.startswith('DROP SCHEMA'):
             self.schema=None
         if 'FROM information_schema.tables' in query:
-            tables=['ai_runs','chunks','documents','email_accounts','email_imports',
-                    'schema_migrations','settings'] if self.schema == 'new' else []
+            tables=['ai_runs','chunks','document_tags','document_versions','documents','email_accounts',
+                    'email_attachments','email_imports','import_item_errors','import_items','import_jobs',
+                    'rule_run_changes','rule_runs','rules','schema_migrations','settings','sources',
+                    'tags'] if self.schema == 'new' else []
             rows=[(name,) for name in tables] if self.tuple_rows else [{'table_name':name} for name in tables]
             return type('Result',(),{'fetchall':lambda _:rows})()
         if 'SELECT MAX(version)' in query:
-            version=4 if self.schema == 'new' else None
+            version=CURRENT_SCHEMA_VERSION if self.schema == 'new' else None
             row=(version,) if self.tuple_rows else {'version':version}
             return type('Result',(),{'fetchone':lambda _:row})()
         return type('Result',(),{'fetchall':lambda _:[]})()
@@ -253,6 +256,25 @@ class DatabaseSettingsTests(unittest.TestCase):
                 self.assertIs(caught.exception,failure)
                 self.assertFalse(temporary.exists())
                 self.assertEqual(self.settings.path.read_bytes(),b'previous')
+
+    def test_deeply_nested_profile_is_rejected_with_fixed_message(self):
+        self.settings.path.parent.mkdir(parents=True,exist_ok=True)
+        data=b'['*100000+b']'*100000
+        self.settings.path.write_bytes(data)
+        for read in (self.settings.profile,self.settings.persisted_profile):
+            with self.subTest(read.__name__):
+                with self.assertRaisesRegex(ValueError,'^Datenbankkonfiguration ist nicht lesbar'):
+                    read()
+        self.assertEqual(self.settings.path.read_bytes(),data)
+
+    def test_interrupted_profile_write_before_replace_keeps_previous_profile(self):
+        self.settings.path.parent.mkdir(parents=True,exist_ok=True)
+        self.settings.path.write_bytes(b'{"backend":"sqlite"}')
+        with patch('database.os.fsync',side_effect=OSError(28,'voll')):
+            with self.assertRaises(OSError):
+                self.settings._write({'backend':'postgresql'})
+        self.assertEqual(self.settings.path.read_bytes(),b'{"backend":"sqlite"}')
+        self.assertFalse(any(self.settings.path.parent.glob('database.json.tmp-*')))
 
     def test_profile_write_fails_closed_while_configuration_operation_is_owned(self):
         lock=configuration_operation_lock(self.base)
@@ -453,8 +475,10 @@ class DatabaseSettingsTests(unittest.TestCase):
         self.assertEqual(sum('pg_advisory_xact_lock' in q for q in queries),1)
         self.assertLess(next(i for i,q in enumerate(queries) if q.startswith('SET LOCAL lock_timeout')),
                         next(i for i,q in enumerate(queries) if 'pg_advisory_xact_lock' in q))
-        self.assertEqual(result['tables'],['ai_runs','chunks','documents','email_accounts',
-                                           'email_imports','schema_migrations','settings'])
+        self.assertEqual(result['tables'],['ai_runs','chunks','document_tags','document_versions','documents',
+                                           'email_accounts','email_attachments','email_imports',
+                                           'import_item_errors','import_items','import_jobs','rule_run_changes',
+                                           'rule_runs','rules','schema_migrations','settings','sources','tags'])
         self.assertTrue(connection.closed)
 
     def test_failed_reset_rolls_back_and_preserves_previous_schema(self):
@@ -476,7 +500,11 @@ class DatabaseSettingsTests(unittest.TestCase):
         calls=[]
         fake=type('Connection',(),{'execute':lambda _,query,parameters:calls.append((query,parameters))})()
         _PostgresConnection(fake).execute('SELECT * FROM settings WHERE name=?',('active_provider',))
-        self.assertEqual(calls,[('SELECT * FROM settings WHERE name=%s',('active_provider',))])
+        _PostgresConnection(fake).execute('SELECT 1 WHERE name LIKE ?',('probe_%',))
+        self.assertEqual(calls,[
+            ('SELECT * FROM settings WHERE name=%s',('active_provider',)),
+            ('SELECT 1 WHERE name LIKE %s',('probe_%',)),
+        ])
 
     def _contract_connection(self,denied_fragment=None,sequence_rows=None):
         class FakeResult:

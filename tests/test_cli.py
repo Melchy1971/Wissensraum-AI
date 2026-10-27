@@ -193,5 +193,148 @@ class CliConfigurationExportTests(unittest.TestCase):
             self.assertIn('Konfigurationswiederherstellung ist unvollständig', error.getvalue())
 
 
+class CliRestoreTests(unittest.TestCase):
+    def test_restore_requires_exact_target_name_and_restores_sqlite(self):
+        from core import Store
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            path = base / 'ziel.db'
+            backup = base / 'sicherung.db'
+            store = Store(path)
+            store.add('Gesichert', 'Inhalt A')
+            store.backup(backup)
+            store.add('Später', 'Inhalt B')
+            with patch.object(cli, 'BASE', base):
+                for confirm in ([], ['--confirm', 'falsch.db']):
+                    error = io.StringIO()
+                    with self.subTest(confirm=confirm), patch('sys.stderr', error), \
+                            self.assertRaises(SystemExit) as raised:
+                        cli.main(['--db', str(path), 'restore', str(backup), *confirm])
+                    self.assertEqual(raised.exception.code, 1)
+                    self.assertIn('--confirm ziel.db', error.getvalue())
+                self.assertEqual(len(store.list()), 2)
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    self.assertEqual(cli.main(['--db', str(path), 'restore', str(backup),
+                                               '--confirm', 'ziel.db']), 0)
+            self.assertEqual(json.loads(output.getvalue())['documents'], 1)
+            self.assertEqual([doc['title'] for doc in store.list()], ['Gesichert'])
+
+    def test_status_reports_health_and_fails_only_on_failures(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            vault = Mock()
+            vault.get.return_value = None
+            output = io.StringIO()
+            with patch.object(cli, 'BASE', base), patch.object(cli, 'SystemVault', return_value=vault), \
+                    patch.dict(os.environ, {}, clear=True), redirect_stdout(output):
+                self.assertEqual(cli.main(['--db', str(base / 'wissen.db'), 'status']), 0)
+            text = output.getvalue()
+            self.assertIn('[PASS] database', text)
+            self.assertIn('[WARN] ai_provider', text)
+            self.assertIn('[PASS] mail_accounts: Kein E-Mail-Konto eingerichtet.', text)
+
+    def test_import_folder_jobs_and_report_commands(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            source = base / 'quelle'
+            source.mkdir()
+            (source / 'a.txt').write_text('CLI Auftrag', encoding='utf-8')
+            (source / 'b.exe').write_bytes(b'MZ')
+            vault = Mock()
+            vault.get.return_value = None
+            database = base / 'wissen.db'
+            def run(*argv):
+                output = io.StringIO()
+                with patch.object(cli, 'BASE', base), patch.object(cli, 'SystemVault', return_value=vault), \
+                        redirect_stdout(output):
+                    self.assertEqual(cli.main(['--db', str(database), *argv]), 0)
+                return json.loads(output.getvalue())
+            summary = run('import-folder', str(source))
+            self.assertEqual((summary['imported'], summary['quarantined'], summary['status']), (1, 1, 'completed'))
+            self.assertEqual([job['job_id'] for job in run('jobs')], [summary['job_id']])
+            self.assertFalse(run('job-resume', str(summary['job_id']))['resumable'])
+            report = base / 'bericht.csv'
+            run('job-report', str(summary['job_id']), str(report))
+            self.assertIn('Dateityp nicht unterstützt', report.read_text(encoding='utf-8-sig'))
+            (source / 'a.txt').write_text('CLI Auftrag geändert', encoding='utf-8')
+            preview = {row['locator']: row for row in run('preview', str(source))}
+            self.assertEqual((preview['a.txt']['outcome'], preview['a.txt']['version']), ('version', 2))
+            self.assertEqual(len(run('list')), 1)  # preview stored nothing
+            self.assertEqual(run('import-folder', str(source))['versioned'], 1)
+            current = run('list')
+            self.assertEqual([row['version'] for row in current], [2])
+            self.assertEqual(len(run('list', '--all-versions')), 2)
+            self.assertEqual([row['version'] for row in run('versions', str(current[0]['id']))], [2, 1])
+            single = run('preview', str(source / 'a.txt'))
+            self.assertEqual((single[0]['outcome'], single[0]['title']), ('duplicate', 'a'))
+
+    def test_restore_rejects_configured_postgresql(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            (base / 'data').mkdir()
+            (base / 'data' / 'database.json').write_text('{"backend":"postgresql"}', encoding='utf-8')
+            error = io.StringIO()
+            with patch.object(cli, 'BASE', base), patch('sys.stderr', error), \
+                    self.assertRaises(SystemExit):
+                cli.main(['restore', str(base / 'x.db'), '--confirm', 'wissen.db'])
+            self.assertIn('nur für SQLite', error.getvalue())
+
+
+class CorruptedConfigurationCliTests(unittest.TestCase):
+    CORRUPT = {'leer': b'', 'binaer': b'\xff\xfe\x00', 'abgeschnitten': b'{"format": "wiss',
+               'liste': b'[]', 'null': b'null', 'tief': b'[' * 100000 + b']' * 100000}
+    INTERNALS = ('Error', 'Expecting', 'recursion', 'Traceback', 'object has no', 'line ')
+
+    def run_cli(self, base, vault, argv):
+        error = io.StringIO()
+        with patch.object(cli, 'BASE', base), patch.object(cli, 'SystemVault', return_value=vault), \
+                patch.dict(os.environ, {}, clear=True), redirect_stdout(io.StringIO()), \
+                patch('sys.stderr', error):
+            try:
+                code = cli.main(argv)
+            except SystemExit as exit_:
+                code = exit_.code
+        return code, error.getvalue()
+
+    def prepared_base(self):
+        base = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (base / 'data').mkdir()
+        vault = Mock()
+        vault.get.return_value = None
+        self.assertEqual(self.run_cli(base, vault, ['config-sync'])[0], 0)
+        return base, vault
+
+    def test_corrupted_configuration_files_fail_with_fixed_messages_and_stay_unchanged(self):
+        cases = (('database.json', ['list']),
+                 ('configuration-authority.json', ['config-export', 'export.json']),
+                 ('configuration-store-identity.json', ['config-export', 'export.json']),
+                 ('authority-resync-pending.json', ['list']),
+                 ('configuration-import-journal.json', ['list']))
+        for name, argv in cases:
+            for label, data in self.CORRUPT.items():
+                with self.subTest(file=name, content=label):
+                    base, vault = self.prepared_base()
+                    target = base / 'data' / name
+                    target.write_bytes(data)
+                    argv = [str(base / arg) if arg.endswith('.json') else arg for arg in argv]
+                    code, error = self.run_cli(base, vault, argv)
+                    self.assertEqual(code, 1)
+                    self.assertTrue(error.startswith('Fehler: '), error)
+                    self.assertFalse(any(text in error for text in self.INTERNALS), error)
+                    self.assertEqual(target.read_bytes(), data)
+                    self.assertFalse((base / 'export.json').exists())
+
+    def test_interrupted_authority_write_keeps_previous_authority(self):
+        base, vault = self.prepared_base()
+        authority = base / 'data' / 'configuration-authority.json'
+        before = authority.read_bytes()
+        with patch('configuration_authority.os.replace', side_effect=OSError(28, 'voll')):
+            code, error = self.run_cli(base, vault, ['config-sync'])
+        self.assertEqual(code, 1)
+        self.assertEqual(authority.read_bytes(), before)
+        self.assertEqual([p.name for p in (base / 'data').iterdir() if '.tmp-' in p.name], [])
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -1,4 +1,4 @@
--- SQLite / FTS5 schema snapshot · Release 1.9 · Version 4
+-- SQLite / FTS5 schema snapshot · Release 2.0 · Version 8
 -- Runtime upgrades are defined as ordered migrations in migrations.py.
 
 PRAGMA foreign_keys = ON;
@@ -43,4 +43,66 @@ CREATE TABLE IF NOT EXISTS email_imports (
  imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
  PRIMARY KEY(account_id,remote_id)
 );
-PRAGMA user_version = 4;
+CREATE TABLE IF NOT EXISTS sources (
+ document_id INTEGER PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+ source_type TEXT NOT NULL, account_id TEXT NOT NULL DEFAULT '',
+ locator TEXT NOT NULL DEFAULT '',
+ recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS import_jobs (
+ id INTEGER PRIMARY KEY, kind TEXT NOT NULL, root TEXT NOT NULL DEFAULT '',
+ category TEXT NOT NULL DEFAULT 'Allgemein', status TEXT NOT NULL,
+ created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS import_items (
+ id INTEGER PRIMARY KEY, job_id INTEGER NOT NULL REFERENCES import_jobs(id) ON DELETE CASCADE,
+ ordinal INTEGER NOT NULL, path TEXT NOT NULL, locator TEXT NOT NULL,
+ status TEXT NOT NULL DEFAULT 'pending', reason TEXT NOT NULL DEFAULT '',
+ size INTEGER, sha256 TEXT NOT NULL DEFAULT '',
+ document_id INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+ attempts INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ UNIQUE(job_id, ordinal)
+);
+CREATE TABLE IF NOT EXISTS import_item_errors (
+ id INTEGER PRIMARY KEY, item_id INTEGER NOT NULL REFERENCES import_items(id) ON DELETE CASCADE,
+ attempt INTEGER NOT NULL, reason TEXT NOT NULL, message TEXT NOT NULL,
+ created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS document_versions (
+ document_id INTEGER PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+ lineage_id INTEGER NOT NULL, version INTEGER NOT NULL,
+ UNIQUE(lineage_id, version)
+);
+CREATE TABLE IF NOT EXISTS email_attachments (
+ document_id INTEGER PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+ email_document_id INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+ name TEXT NOT NULL, content_type TEXT NOT NULL DEFAULT '', size INTEGER
+);
+CREATE TABLE IF NOT EXISTS tags (
+ id INTEGER PRIMARY KEY, name TEXT NOT NULL, normalized TEXT NOT NULL UNIQUE
+);
+CREATE TABLE IF NOT EXISTS document_tags (
+ document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+ tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+ PRIMARY KEY(document_id, tag_id)
+);
+CREATE TABLE IF NOT EXISTS rules (
+ id INTEGER PRIMARY KEY, position INTEGER NOT NULL, name TEXT NOT NULL,
+ enabled INTEGER NOT NULL DEFAULT 1, source_type TEXT NOT NULL DEFAULT '',
+ path_pattern TEXT NOT NULL DEFAULT '', sender_domain TEXT NOT NULL DEFAULT '',
+ extension TEXT NOT NULL DEFAULT '', keyword TEXT NOT NULL DEFAULT '',
+ category TEXT NOT NULL DEFAULT '', tags TEXT NOT NULL DEFAULT '',
+ created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS rule_runs (
+ id INTEGER PRIMARY KEY, status TEXT NOT NULL DEFAULT 'applied',
+ created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, reverted_at TEXT
+);
+CREATE TABLE IF NOT EXISTS rule_run_changes (
+ run_id INTEGER NOT NULL REFERENCES rule_runs(id) ON DELETE CASCADE,
+ document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+ previous_category TEXT NOT NULL, new_category TEXT NOT NULL,
+ added_tags TEXT NOT NULL DEFAULT '',
+ PRIMARY KEY(run_id, document_id)
+);
+PRAGMA user_version = 9;

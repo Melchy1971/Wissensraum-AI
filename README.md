@@ -17,6 +17,8 @@ Ausführen: `python cli.py doctor`.
 - **Keine Datenänderung:** Die Datenbankprüfung kontrolliert Tabellen, Spalten sowie Primär- und Fremdschlüssel, Eindeutigkeits- und Volltextobjekte. Eine Schreibprobe wird zurückgerollt; die Diagnose initialisiert und migriert kein Schema, spielt keine ausstehende Konfigurationswiederherstellung ein und ändert keine Benutzerdaten. Ein vorhandenes Wiederherstellungsjournal wird als redigierter erforderlicher Fehler gemeldet. Eine fehlende, am exakten Ziel anlegbare SQLite-Datei bleibt beim ersten Start eine Warnung; ein unbrauchbarer Zielpfad ist ein erforderlicher Fehler. Details zu Schema-Migrationen stehen unter **Einstellungen: KI auswählen und Schlüssel verwalten**.
 - **Desktop-Start:** Zuerst laufen Startdiagnose und GUI-Verfügbarkeitsprüfung. Nur nach erfolgreicher Diagnose wird eine ausstehende Konfigurationswiederherstellung verarbeitet; erst danach öffnet und migriert die Anwendung den normalen aktiven Store. Bei einem erforderlichen Fehler wird keine Import-/Bearbeitungsoberfläche erstellt. Stattdessen erscheint ein redigierter, handlungsorientierter Dialog oder, wenn Tk beziehungsweise eine grafische Anzeige fehlt, eine Konsolenausgabe mit Exit-Code ungleich null. Es gibt keinen flüchtigen Ersatzspeicher.
 
+**Systemstatus im laufenden Betrieb:** Die Schaltfläche „Systemstatus prüfen“ unter **Einstellungen → Datenbank** beziehungsweise `python cli.py status` zeigt, ob die aktive Datenbank antwortet (mit Dokumentanzahl), welche KI aktiv ist und woher ihr Schlüssel stammt, und welche E-Mail-Konten keine gespeicherten Zugangsdaten haben. Geprüft wird nur der lokale Zustand. Es wird keine Verbindung zu KI-Anbietern oder Postfächern aufgebaut und kein Schlüssel angezeigt. Die tatsächliche Erreichbarkeit eines Anbieters prüft weiterhin „Verbindung testen“. Anders als `doctor` öffnet `status` den Store wie jeder normale Befehl.
+
 ## Start unter Windows
 
 1. ZIP vollständig in einen beschreibbaren Ordner entpacken, beispielsweise `H:\Wissensraum`. Nicht direkt aus der ZIP starten und nicht unter `Programme` ablegen.
@@ -39,10 +41,11 @@ Python 3.11 bis 3.13 mit Tkinter voraussetzen, anschließend `sh start.sh` ausf�
 | Bereich | Implementiert |
 |---|---|
 | Datenbank | Lokales SQLite oder aktivierbares PostgreSQL auf einem VPS; Fremdschlüssel, Transaktionen und Volltextsuche |
-| Dokumente | TXT, Markdown, textbasierte PDF, DOCX einschließlich Tabellen; Einzeldateien oder rekursiver Ordnerimport |
+| Dokumente | TXT, Markdown, textbasierte PDF, DOCX einschließlich Tabellen, HTML, RTF, XLSX (alle Tabellenblätter), PPTX (Folien, Tabellen, Notizen) und gespeicherte E-Mails (EML); mit optionaler lokaler Texterkennung auch Bilder und gescannte PDFs; Einzeldateien oder rekursiver Ordnerimport |
 | E-Mail | Gmail und sonstige IMAP-Konten im Nur-Lesen-Modus; Microsoft 365/Outlook über OAuth 2.0 und Microsoft Graph |
 | Outlook-Archive | Lokaler PST-Import über die optionale `libratom`-Erweiterung |
 | Originale | Binärdateien als BLOB in SQL; Export über die Oberfläche |
+| Herkunft | Tabelle `sources` mit genau einer Quelle je Dokument: Quelltyp (`note`, `file`, `pst`, `imap`, `graph`), Konto-ID bei IMAP/Graph und Fundort (relativer Pfad, PST-Name, `imap:<Ordner>:<UID>`, `graph:<ID>`). Bei Dubletten bleibt die erste Quelle erhalten. |
 | Notizen | Titel, frei wählbarer Bereich, Inhalt |
 | Dubletten | SHA-256 über den extrahierten, außen getrimmten Text; identischer Text wird einmal gespeichert |
 | Suche | Volltext über Titel, Bereich und Abschnitte; SQLite mit BM25-Rangfolge, PostgreSQL mit `ts_rank_cd` |
@@ -57,7 +60,7 @@ Die Suche ist lexikalisch: Begriffe müssen im Dokument vorkommen. Synonyme, ech
 
 Die KI erhält die acht bestbewerteten Abschnitte, keine vollständige Gesamtauswertung des Bestands. Ein relevanter Abschnitt kann außerhalb dieser Auswahl liegen. Quellenverweise werden auf gültige Nummern geprüft; das prüft nicht, ob die Aussage tatsächlich aus der Quelle folgt. Antworten ohne Quellenmarkierung erhalten einen ausdrücklichen Prüfhinweis. Aussagen müssen anhand der angezeigten Textstellen geprüft werden.
 
-Grenzen: 20 MB lokale Originaldatei, 25 MB je abgerufener IMAP-Nachricht, 2 Millionen extrahierte Zeichen pro Dokument, 4.000 Zeichen pro Frage, 24.000 Zeichen für eine Zusammenfassung. OCR für Scans, E-Mail-Anhänge, Audio, Web-Crawling, Benutzerverwaltung, Rechtevergabe, Wissensgraph und Mehrbenutzerbetrieb sind nicht enthalten. PostgreSQL ist als aktivierbare Alternative zu SQLite enthalten, setzt aber einen separat betriebenen PostgreSQL-Server voraus. Ein Importlauf verarbeitet maximal 2.000 IMAP-, 1.000 Microsoft- oder 10.000 PST-Nachrichten. Importierte Dokumente sind unveränderlich; korrigierte Inhalte werden als neues Dokument importiert. Beim Löschen eines Dokuments bleiben Quellenkopien im KI-Verlauf erhalten und können weiter sensible Inhalte enthalten.
+Grenzen: 20 MB lokale Originaldatei, Dateiinhalt passend zur Endung, DOCX, XLSX und PPTX höchstens 10.000 Archiveinträge, 200 MB entpackt und Entpackverhältnis 100, XLSX höchstens 1 Million Zellen, PPTX höchstens 2.000 Folien, kennwortgeschützte Office-Dateien in Quarantäne als „verschlüsselt“, PDF höchstens 2.000 Seiten, 25 MB je abgerufener IMAP-Nachricht, 2 Millionen extrahierte Zeichen pro Dokument, 4.000 Zeichen pro Frage, 24.000 Zeichen für eine Zusammenfassung; mit OCR höchstens 200 Seiten, 2 Minuten je Seite und 60 Millionen Bildpunkte je Seite. Audio, Web-Crawling, Benutzerverwaltung, Rechtevergabe, Wissensgraph und Mehrbenutzerbetrieb sind nicht enthalten. PostgreSQL ist als aktivierbare Alternative zu SQLite enthalten, setzt aber einen separat betriebenen PostgreSQL-Server voraus. Ein Importlauf verarbeitet maximal 2.000 IMAP-, 1.000 Microsoft- oder 10.000 PST-Nachrichten. Importierte Dokumente sind unveränderlich. Eine geänderte Datei am selben Ort wird beim erneuten Import als neue Version gespeichert; die älteren Versionen bleiben erhalten. Beim Löschen eines Dokuments bleiben Quellenkopien im KI-Verlauf erhalten und können weiter sensible Inhalte enthalten.
 
 ## Datenmodell
 
@@ -70,6 +73,9 @@ Grenzen: 20 MB lokale Originaldatei, 25 MB je abgerufener IMAP-Nachricht, 2 Mill
 | `settings` | Nicht geheime Anwendungseinstellungen |
 | `email_accounts` | Kontoname, Anbieter, Adresse, Serverparameter und OAuth-Anwendungskennung; keine Kennwörter oder Token |
 | `email_imports` | Dauerhafte Zuordnung importierter Nachrichten zu Konto, Postfachordner und Dokument |
+| `tags`, `document_tags` | Tags und ihre Zuordnung zu Dokumenten; Groß- und Kleinschreibung zählt beim Vergleich nicht (Schema 9) |
+| `rules` | Regeln für Bereich und Tags in fester Reihenfolge (Schema 9) |
+| `rule_runs`, `rule_run_changes` | Bestätigte Anwendungen auf vorhandene Dokumente mit vorherigem Bereich und hinzugefügten Tags, für die Rücknahme (Schema 9) |
 
 `schema.sql` dokumentiert das SQLite-Schema. Die ausführbare Schema-Historie liegt in den geordneten, versionierten SQLite- und PostgreSQL-Migrationen in `migrations.py`. SQLite speichert die Version in `PRAGMA user_version`, PostgreSQL in `wissensraum.schema_migrations`. Beide Backends haben denselben fachlichen Speicherumfang, verwenden aber unterschiedliche Volltexttechnik. SQL-Werte werden parametrisiert gebunden. KI-Ausgaben werden niemals als SQL oder Programmcode ausgeführt.
 
@@ -104,7 +110,30 @@ Dokumentimport und Suche benötigen keine API. Bei Fragen werden Frage und ausge
 
 Die SQLite-Datei ist nicht durch die Anwendung verschlüsselt. Sie enthält auch importierte E-Mail-Texte und die jeweiligen Originalnachrichten. Betriebssystemkonto und Laufwerksverschlüsselung schützen lokale Daten. PostgreSQL verwendet das getrennte Schema `wissensraum`. Für entfernte PostgreSQL-Verbindungen erzwingt die Anwendung TLS; nur lokale Verbindungen zu `localhost` oder `127.0.0.1` dürfen ausdrücklich mit `sslmode=disable` betrieben werden. Die Anwendung bleibt eine Einzelplatzanwendung und enthält keine Benutzer- oder Mandantentrennung.
 
-**Sicherung:** Bei SQLite erstellt „Datenbank sichern“ eine vollständige Datenbankkopie einschließlich Originalen und KI-Verlauf. **Wiederherstellung:** Anwendung beenden, bestehende `data/wissen.db` samt eventuell vorhandenen `wissen.db-wal` und `wissen.db-shm` gemeinsam in einen anderen Ordner verschieben, Sicherungsdatei als `data/wissen.db` einsetzen, Anwendung starten. Bei aktivem PostgreSQL öffnet die lokale Sicherungsschaltfläche derzeit noch den Dateidialog und meldet anschließend, dass diese Sicherungsart nicht unterstützt wird; PostgreSQL muss außerhalb der Anwendung mit `pg_dump` von einem erreichbaren Client gesichert werden. Schlüsseldatei separat sichern. Im Betriebssystem-Schlüsselspeicher verwaltete Schlüssel sind nicht in der SQL-Sicherung enthalten und müssen auf einem anderen Rechner erneut eingerichtet werden.
+**Sicherung:** Bei SQLite erstellt „Datenbank sichern“ eine vollständige Datenbankkopie einschließlich Originalen und KI-Verlauf. **Wiederherstellung (SQLite):** „Sicherung wiederherstellen“ unter **Einstellungen → Datenbank** wählt eine Sicherungsdatei und verlangt zur Bestätigung den exakten Dateinamen der aktiven Datenbank. Die Sicherung wird nur gelesen. Ihre Kopie wird vorab auf Integrität, unterstützte Schemaversion (1 bis 5) und exakte Schemastruktur geprüft. Danach legt die Anwendung den aktuellen Stand als geprüfte Datei `wissen.db.pre-restore-<Zeitstempel>-<Kennung>.bak` ab und spielt die Sicherung unter der Migrationssperre über die SQLite-Backup-API ein. Anschließend werden Integrität, Schema und alle Dokument-Prüfsummen mit der Sicherung verglichen. Bei einer Abweichung wird der vorherige Stand automatisch zurückgespielt. Ältere Schemaversionen werden danach regulär auf Schema 5 migriert. Ist die aktuelle Datenbank selbst nicht lesbar, wird sie nicht überschrieben: Datei samt `-wal`/`-shm` umbenennen und die Wiederherstellung erneut ausführen. Gleiches über die CLI: `python cli.py restore sicherung.db --confirm wissen.db`. Bei aktivem PostgreSQL öffnet die lokale Sicherungsschaltfläche derzeit noch den Dateidialog und meldet anschließend, dass diese Sicherungsart nicht unterstützt wird. PostgreSQL wird außerhalb der Anwendung gesichert, siehe **PostgreSQL-Sicherung und -Wiederherstellung**. Schlüsseldatei separat sichern.
+
+### PostgreSQL-Sicherung und -Wiederherstellung
+
+Gesichert wird nur das Anwendungsschema `wissensraum`. Voraussetzung sind `pg_dump`, `pg_restore` und `psql` in mindestens der Hauptversion des Servers. Das Kennwort fragen die Werkzeuge interaktiv ab; es gehört nicht in die Befehlszeile. Für den VPS vorher `PGSSLMODE=verify-full` setzen (Windows: `set PGSSLMODE=verify-full`). Platzhalter in spitzen Klammern ersetzen.
+
+Sichern und Sicherung prüfen:
+
+```bash
+pg_dump --host <server> --port 5432 --username <benutzer> --dbname <datenbank> --schema=wissensraum --format=custom --file wissensraum-JJJJ-MM-TT.dump
+pg_restore --list wissensraum-JJJJ-MM-TT.dump
+```
+
+Die Liste muss unter anderem `TABLE DATA wissensraum documents` und `TABLE DATA wissensraum sources` enthalten.
+
+Wiederherstellen:
+
+1. Wissensraum auf allen Rechnern beenden, die diese Datenbank nutzen.
+2. Den aktuellen Stand mit `pg_dump` wie oben in eine eigene Datei sichern.
+3. Das Anwendungsschema entfernen: `psql --host <server> --port 5432 --username <benutzer> --dbname <datenbank> -c "DROP SCHEMA wissensraum CASCADE"`. Das löscht alle Wissensraum-Daten dieser Datenbank, nichts außerhalb des Schemas.
+4. Einspielen: `pg_restore --host <server> --port 5432 --username <benutzer> --dbname <datenbank> --single-transaction --exit-on-error --no-owner wissensraum-JJJJ-MM-TT.dump`. Bei einem Fehler wird nichts eingespielt.
+5. Wissensraum starten. Die Anwendung prüft Schema und Migrationshistorie; ältere Sicherungen werden regulär auf das aktuelle Schema migriert.
+
+Der Test `test_documented_pg_dump_restore_round_trip_preserves_knowledge_base` führt genau diese Befehle gegen die Wegwerf-Testdatenbank aus und vergleicht Dokument-Prüfsummen, Originale, Abschnitte, Quellen, KI-Verlauf, Einstellungen und Migrationshistorie vor und nach der Wiederherstellung. Im Betriebssystem-Schlüsselspeicher verwaltete Schlüssel sind nicht in der SQL-Sicherung enthalten und müssen auf einem anderen Rechner erneut eingerichtet werden.
 
 ## CLI
 
@@ -112,7 +141,27 @@ Im Programmordner, nach Installation der Abhängigkeiten:
 
 ```bash
 python cli.py import beispiele/Freigabeprozess.md --category Prozesse
+python cli.py import-folder Dokumente --category Prozesse
+python cli.py jobs
+python cli.py job-resume 3
+python cli.py job-report 3 importbericht.csv
+python cli.py preview Dokumente
 python cli.py list
+python cli.py list --all-versions
+python cli.py list --tag Rechnung
+python cli.py search "Freigabe" --tag Rechnung
+python cli.py tags
+python cli.py rules
+python cli.py rule-add "Rechnungen" --extension pdf --path-pattern Rechnungen --category Finanzen --tags "Rechnung, Steuer"
+python cli.py rule-delete 2
+python cli.py rules-preview
+python cli.py rules-apply --confirm
+python cli.py rules-runs
+python cli.py rules-revert 1
+python cli.py strip-mail-attachments --dry-run
+python cli.py ocr-status
+python cli.py retry-no-text
+python cli.py versions 12
 python cli.py search "Freigabe"
 python cli.py ask "Wer gibt Beschaffungsanträge frei?"
 python cli.py summarize 1
@@ -139,10 +188,10 @@ Der Import akzeptiert nur Format `wissensraum-configuration`, Version `1` und di
 
 ## Prüfung dieser Auslieferung
 
-- 321 automatisierte Tests prüfen Speicherung, BLOB-Erhalt, Dubletten, Suche, Sicherung, Dokumentextraktion, rekursiven Ordnerimport, Designpersistenz, Logo-Normalisierung, Hell-/Dunkelmodus, KI-Adapter, Schlüsselspeicherung, geordnete SQLite-/PostgreSQL-Schema-Migrationen einschließlich Sperren, Sicherung, Validierung und Rollback, Datenbankprofile, sicheren Konfigurationstransfer, Startdiagnose, strukturiertes Logging einschließlich Rotation, Zielbesitz und Geheimnisfilterung, atomaren PostgreSQL-Reset, TLS-Verbindungskonfiguration, E-Mail-Auswahlfreigabe, Anwendungsende, IMAP-Nur-Lesen-Import, PST-Import und Microsoft-Graph-Import. Der aktuelle lokale Windows-Gesamtlauf ist mit 321 Tests erfolgreich; neun Tests werden übersprungen: drei plattformspezifische Logging-Dateisystemfälle und sechs Live-Vertragstests für den lokal nicht konfigurierten PostgreSQL-Dienst. Ein echter PostgreSQL-18-Dienst ist in der CI-Konfiguration verdrahtet; der erfolgreiche entfernte CI-Lauf von `test_configuration_transfer_contract_on_real_postgresql` ist noch nicht nachgewiesen und bleibt das externe Abschluss-Gate für den Konfigurationstransfer.
+- 478 automatisierte Tests prüfen Speicherung, BLOB-Erhalt, Dubletten, Suche, Sicherung, Dokumentextraktion, rekursiven Ordnerimport, Designpersistenz, Logo-Normalisierung, Hell-/Dunkelmodus, KI-Adapter, Schlüsselspeicherung, geordnete SQLite-/PostgreSQL-Schema-Migrationen einschließlich Sperren, Sicherung, Validierung und Rollback, Datenbankprofile, sicheren Konfigurationstransfer, Startdiagnose, strukturiertes Logging einschließlich Rotation, Zielbesitz und Geheimnisfilterung, atomaren PostgreSQL-Reset, TLS-Verbindungskonfiguration, E-Mail-Auswahlfreigabe, Anwendungsende, IMAP-Nur-Lesen-Import, PST-Import und Microsoft-Graph-Import sowie beschädigte Konfigurationsdateien und abgebrochene Schreibvorgänge. Dazu kommen Importaufträge (Abbruch, Fortsetzung, Absturz zwischen Dokument und Statuseintrag, Quarantänegründe, Importbericht) ein Referenzbestand aus 1.000 gemischten Dateien sowie Dokumentversionen, Importvorschau und die Freigabe von E-Mail-Anhängen mit aufgezeichneten IMAP-, Graph- und PST-Abrufen, E-Mail- und PST-Aufträge die Bereinigung alter IMAP-Originale sowie die Texterkennung mit echtem Tesseract, weitere Formate und Regeln für Bereich und Tags mit Vorschau, Lauf und Rücknahme sowie die Postfachsynchronisation. Stand 26.10.2026 (Schritt S3): 478 Tests. Linux mit Python 3.11, 3.12 und 3.13, lokalem PostgreSQL 16, Tesseract 4.1 mit Deutsch und Englisch und virtuellem Bildschirm: je 476 bestanden, zwei übersprungen (Windows-Pfadfälle). Windows mit Python 3.12 ohne OCR-Pakete: 409 bestanden, 28 übersprungen; die OCR-Tests liefen zusätzlich unter Windows mit Python 3.13 und Tesseract 5.5 erfolgreich (PostgreSQL ohne Testdienst, POSIX-Logging, `start.sh` ohne `sh`). Windows mit Python 3.11 und 3.13 auf dem Entwicklungsrechner: ebenso, bis auf zwei bis zehn umgebungsbedingte Fehler beim Löschen von Temp-Ordnern nach bestandenem Test (WinError 145), jedes Mal in anderen Tests; in der CI tritt das nicht auf. Ein echter PostgreSQL-18-Dienst ist in der CI-Konfiguration verdrahtet; der erfolgreiche entfernte CI-Lauf von `test_configuration_transfer_contract_on_real_postgresql` ist noch nicht nachgewiesen und bleibt das externe Abschluss-Gate für den Konfigurationstransfer.
 - KI-Vertrag mit simulierten API-Antworten geprüft. Live-Test mit synthetischen Testdaten durchgeführt; die API antwortete mit HTTP 429. Live-Antwortqualität ist deshalb nicht bestätigt.
 - Die Desktop-Oberfläche wird unter Linux mit virtuellem Bildschirm gestartet und automatisiert geprüft. GitHub Actions erzeugt zusätzlich Vorschauen der Einstellungen und des Importbereichs. Die Windows-Matrix kompiliert die Python-Dateien und prüft den Inhalt von `start_windows.bat` automatisiert auf die unterstützte Versionslogik; die Batchdatei selbst wird in CI nicht ausgeführt oder kompiliert.
-- GitHub Actions prüft Python 3.11 und 3.13 auf Windows und Linux, einschließlich grafischer Oberflächentests. Der aktuelle Status ist im Actions-Tab sichtbar.
+- GitHub Actions prüft Python 3.11, 3.12 und 3.13 auf Windows und Linux, einschließlich grafischer Oberflächentests, und führt die PostgreSQL-Verträge gegen PostgreSQL 18 aus. Der aktuelle Status ist im Actions-Tab sichtbar.
 
 Tests ausführen:
 
@@ -150,13 +199,22 @@ Tests ausführen:
 python -m unittest discover -s tests -v
 ```
 
+Release-Gate-Protokoll für die manuellen Migrations- und Wiederherstellungsschritte aus `masterplan.md`:
+
+```bash
+python tests/release_gate.py
+python tests/release_gate.py --sqlite C:\Pfad\zu\einer\Kopie\wissen.db
+```
+
+Das Skript migriert Testdatenbanken der Schemaversionen 1 bis 4, bricht eine Migration absichtlich ab, startet zwei Prozesse gleichzeitig, prüft die geführte SQLite-Wiederherstellung und, mit gesetzten `PGTEST_*`-Variablen, die PostgreSQL-Verträge gegen eine `*_test`-Datenbank. Alles läuft an Kopien in einem temporären Ordner; `data/wissen.db` wird nie geöffnet und eine mit `--sqlite` angegebene Datei nur gelesen. Ergebnis ist `release-gate-<Zeitstempel>.md` mit Nachweisen je Schritt und einer Checkliste der Prüfungen, die nur ein Mensch durchführen kann (Neuinstallation, Oberfläche in Hell- und Dunkelmodus, CI-Lauf). Exit-Code 1 bei einem Fehlschlag; SKIP gilt nicht als bestanden.
+
 ## Fehlerbehandlung
 
 **HTTP 429:** API-Guthaben, Abrechnung und Projektlimits prüfen. Der Test dieser Auslieferung ist daran gescheitert. Die Anwendung stellt API-Limits nicht selbst um und wiederholt kostenpflichtige Anfragen nicht automatisch.
 
 **Keine Treffer:** Konkrete Begriffe aus dem Dokument verwenden. Diese Version enthält keine semantische Suche.
 
-**PDF ohne Text:** OCR ist erforderlich und nicht Bestandteil dieser Version.
+**PDF ohne Text oder Bild:** Dafür ist die optionale Texterkennung nötig (siehe „Texterkennung (OCR)“). Ohne sie landet die Datei als „kein lesbarer Text“ in Quarantäne.
 
 **Startfehler `PIL._imaging uses unknown slot ID`:** Eine vorhandene virtuelle Umgebung enthält inkompatible Pillow-Dateien. Der aktuelle Windows-Starter erkennt diesen Zustand, löscht ausschließlich den lokalen Ordner `.venv`, installiert alle Abhängigkeiten neu und startet danach die Anwendung. Anwendungsdaten unter `data` bleiben erhalten.
 
@@ -166,7 +224,7 @@ python -m unittest discover -s tests -v
 
 ## Entwicklung
 
-Die CI-Tests rufen keine kostenpflichtige KI-, Microsoft- oder E-Mail-API auf. API-Verträge werden mit kontrollierten Testantworten geprüft. Änderungen an Datenmodellen benötigen eine neue geordnete Vorwärtsmigration in `migrations.py`. SQLite und PostgreSQL werden über denselben versionierten Migrationsrahmen bis Schema 4 aufgebaut beziehungsweise aktualisiert; neuere unbekannte Versionen und strukturell unvereinbare Bestandsdatenbanken werden abgelehnt. Migrationen laufen unter backendgerechten Sperren, prüfen das resultierende Schema und rollen bei Fehlern zurück. SQLite erzeugt vor einem Upgrade zusätzlich eine validierte Sicherung. Der PostgreSQL-Schema-Reset verwendet ebenfalls den Migrationsrahmen und ist atomar.
+Die CI-Tests rufen keine kostenpflichtige KI-, Microsoft- oder E-Mail-API auf. API-Verträge werden mit kontrollierten Testantworten geprüft. Änderungen an Datenmodellen benötigen eine neue geordnete Vorwärtsmigration in `migrations.py`. SQLite und PostgreSQL werden über denselben versionierten Migrationsrahmen bis Schema 8 aufgebaut beziehungsweise aktualisiert; neuere unbekannte Versionen und strukturell unvereinbare Bestandsdatenbanken werden abgelehnt. Migrationen laufen unter backendgerechten Sperren, prüfen das resultierende Schema und rollen bei Fehlern zurück. SQLite erzeugt vor einem Upgrade zusätzlich eine validierte Sicherung. Der PostgreSQL-Schema-Reset verwendet ebenfalls den Migrationsrahmen und ist atomar.
 
 
 ## Einstellungen: KI auswählen und Schlüssel verwalten
@@ -192,20 +250,79 @@ Neu eingegebene Schlüssel werden mit `keyring` in einem nativen Betriebssystem-
 
 **Schlüssel entfernen** löscht den von der Anwendung verwalteten Schlüssel und deaktiviert den Anbieter auch für extern vorhandene Schlüssel. Umgebungsvariablen und ursprüngliche Dateien bleiben erhalten. Das entfernt keine Zugangsdaten beim Anbieter und widerruft keinen API-Schlüssel. Einen neuen Wert eingeben und speichern, um den Anbieter wieder zu aktivieren.
 
-SQLite- und PostgreSQL-Schemata 1 bis 3 werden beim Öffnen über geordnete Migrationen auf Schema 4 erweitert; vorhandene Dokumente, Suchindex und KI-Verlauf bleiben erhalten. Ein kompatibles älteres PostgreSQL-Bestandsschema ohne Versionsmetadaten wird erst nach vollständiger Strukturprüfung als Version 4 übernommen. Alte Programmversionen können eine auf Version 4 aktualisierte Datenbank möglicherweise nicht mehr öffnen. Vor einem SQLite-Downgrade die validierte Vor-Migrationssicherung verwenden; für PostgreSQL ist weiterhin ein externer, geprüfter Backup-/Restore-Prozess erforderlich.
+SQLite- und PostgreSQL-Schemata 1 bis 7 werden beim Öffnen über geordnete Migrationen auf Schema 8 erweitert; vorhandene Dokumente, Suchindex und KI-Verlauf bleiben erhalten. Ein kompatibles älteres PostgreSQL-Bestandsschema ohne Versionsmetadaten wird erst nach vollständiger Strukturprüfung als Version 4 übernommen und danach auf 8 migriert. Alte Programmversionen können eine auf Version 5 bis 8 aktualisierte Datenbank nicht mehr öffnen. Migration 5 legt `sources` an und leitet die Herkunft vorhandener Dokumente ab: ohne Dateinamen `note`, mit Eintrag in `email_imports` `imap` bzw. `graph` (bei mehreren Einträgen der früheste), Bereich „E-Mail · PST · …“ `pst`, übrige E-Mails nach Endung `.json` `graph`, sonst `imap` (dann ohne Konto und Fundort), alles andere `file` mit dem gespeicherten Dateinamen. Migration 6 legt die leeren Tabellen `import_jobs`, `import_items` und `import_item_errors` an; vorhandene Daten werden nicht verändert. Migration 7 legt `document_versions` an und trägt jedes vorhandene Dokument als Version 1 einer eigenen Versionskette ein. Migration 8 legt die leere Tabelle `email_attachments` an. Vor einem SQLite-Downgrade die validierte Vor-Migrationssicherung verwenden; für PostgreSQL ist weiterhin ein externer, geprüfter Backup-/Restore-Prozess erforderlich.
 
 Die Anbieteradapter werden mit kontrollierten API-Antworten getestet. Claude, Gemini und Ollama wurden in dieser Entwicklungsumgebung nicht mit echten Zugängen bzw. einem lokalen Modell live geprüft. Der vorherige OpenAI-Live-Test erhielt HTTP 429. Modellvorschläge sind konfigurierbare Vorgaben und keine Zusicherung der Verfügbarkeit.
 
 ## Import und E-Mail-Konten
 
-Der Reiter **Import** trennt drei Quellen: lokale Dokumente, Outlook-PST-Dateien und E-Mail-Postfächer. **Postfach importieren** lädt zunächst nur Datum, Absender und Betreff in eine Auswahlliste. Alle neuen Nachrichten sind standardmäßig deaktiviert. Bereits importierte E-Mails tragen dauerhaft den grünen Status **✓ Importiert** und können nicht erneut aktiviert werden. Erst **Aktivierte E-Mails importieren** autorisiert das Laden und Speichern der ausgewählten vollständigen Nachrichten. Der Import liest das Postfach ohne Nachrichten zu löschen oder als gelesen zu markieren. E-Mails werden mit Betreff, Absender, Empfänger, Datum, Nachrichten-ID und Nachrichtentext gespeichert. Anhänge werden noch nicht extrahiert. Identischer extrahierter Inhalt wird nicht doppelt gespeichert. Wird das zugehörige Dokument gelöscht, wird auch die Importkennzeichnung entfernt.
+Der Reiter **Import** trennt drei Quellen: lokale Dokumente, Outlook-PST-Dateien und E-Mail-Postfächer. **Postfach importieren** lädt zunächst nur Datum, Absender und Betreff in eine Auswahlliste. Alle neuen Nachrichten sind standardmäßig deaktiviert. Bereits importierte E-Mails tragen dauerhaft den grünen Status **✓ Importiert** und können nicht erneut aktiviert werden. Erst **Aktivierte E-Mails importieren** autorisiert das Laden und Speichern der ausgewählten vollständigen Nachrichten. Der Import liest das Postfach ohne Nachrichten zu löschen oder als gelesen zu markieren. E-Mails werden mit Betreff, Absender, Empfänger, Datum, Nachrichten-ID, Nachrichtentext und den Namen ihrer Anhänge gespeichert. Anhangsinhalte werden nur nach ausdrücklicher Freigabe geladen (siehe unten). Identischer extrahierter Inhalt wird nicht doppelt gespeichert. Wird das zugehörige Dokument gelöscht, wird auch die Importkennzeichnung entfernt.
+
+### Importaufträge für lokale Dokumente (Release 2.0, Schritt 6.1)
+
+**Dokumente auswählen** und **Ordner inkl. Unterordner** legen einen dauerhaften Importauftrag an. Jede gefundene Datei wird eine Einheit mit Fundort, Größe, SHA-256-Prüfsumme der Originaldatei, Status, Versuchszahl und Fehlerhistorie. Beim Ordnerimport werden auch nicht unterstützte Dateien aufgeführt, damit sie im Bericht erscheinen. Der Fortschritt steht im Importbereich; **Import abbrechen** hält nach der aktuellen Datei an, **Auftrag fortsetzen** setzt den jüngsten offenen Auftrag fort. Bereits angelegte Dokumente werden dabei nicht ein zweites Mal gespeichert, auch nicht nach einem Absturz zwischen Speichern und Statuseintrag.
+
+| Status | Bedeutung | Bei Fortsetzung |
+|---|---|---|
+| importiert | neues Dokument angelegt | fertig |
+| bereits vorhanden | gleicher Inhalt war schon gespeichert | fertig |
+| Quarantäne | Inhaltsproblem, Grund im Bericht | fertig, kein erneuter Versuch |
+| fehlgeschlagen | vorübergehendes Problem, etwa gesperrte Datei | wird erneut versucht |
+
+Quarantänegründe: Dateityp nicht unterstützt, Datei zu groß, Inhalt passt nicht zur Dateiendung, Entpack- oder Seitengrenze überschritten, verschlüsselt, beschädigt, kein lesbarer Text (zum Beispiel ein Scan ohne Textebene), Datei oder Ordner nicht lesbar. Quarantäne ist nur ein Status: Die Originaldatei bleibt unverändert an ihrem Ort und wird nicht kopiert. **Bericht speichern** schreibt den jüngsten Auftrag als CSV-Datei (Semikolon, UTF-8 mit BOM, direkt in Excel lesbar). PST- und E-Mail-Importe laufen noch nicht über Aufträge; das folgt mit Schritt 6.3.
+
+### Vorschau und Versionen (Release 2.0, Schritt 6.2)
+
+Vor jedem Import aus **Dokumente auswählen** oder **Ordner inkl. Unterordner** liest die Anwendung die Dateien und zeigt eine **Importvorschau**: Datei, Typ, Größe, erkannter Titel, erwartetes Ergebnis (neu, neue Version, bereits vorhanden, Quarantäne mit Grund) und den Textanfang der markierten Datei. Scans und Bilder erkennt die Vorschau nicht selbst, sie zeigt „wird beim Import per OCR gelesen“ mit der Seitenzahl. Die Texterkennung läuft einmal, beim Import. Ob ein Scan schon vorhanden ist oder keinen Text enthält, zeigt deshalb erst der Importbericht. Zu Beginn sind alle Dateien ausgewählt. Doppelklick, **Markierte umschalten**, **Alle auswählen** und **Keine auswählen** ändern die Auswahl. Die Vorschau schreibt nichts in die Datenbank. Erst **Importieren** legt den Auftrag für die ausgewählten Dateien an. **Import abbrechen** beendet auch eine laufende Vorschau. Liegt eine Datei am selben Ort (gleicher absoluter Pfad) und hat sich ihr Inhalt geändert, wird sie als nächste Version derselben Kette gespeichert. Unveränderter Inhalt bleibt „bereits vorhanden“. Dokumentliste, Suche und Fragen verwenden nur die jeweils aktuelle Version. Im Bibliotheksbereich zeigt die Detailansicht „Version n von m“, **Versionen** öffnet alle Fassungen mit ihrem Text. Wird die aktuelle Version gelöscht, gilt wieder die vorherige.
+
+Grenzen: Der Ort ist der absolute Pfad. Wird ein Ordner verschoben oder umbenannt, beginnen dort neue Ketten. Einzelimporte über `python cli.py import` und Dokumente aus Version 1.9 und älter (gespeichert nur mit Dateinamen) werden nicht zu Versionen verbunden. Kehrt eine Datei zu einem früher gespeicherten Inhalt zurück, meldet der Import „bereits vorhanden“, die Kette behält die neuere Version als aktuelle.
+
+### E-Mail-Anhänge (Release 2.0, Schritt 6.3a)
+
+Die E-Mail-Auswahl zeigt unter jeder Nachricht ihre Anhänge mit Name, Typ und Größe. Diese Angaben stammen aus der Nachrichtenstruktur (IMAP `BODYSTRUCTURE`) beziehungsweise aus den Anhangsmetadaten (Microsoft Graph). Der Inhalt wird dafür nicht geladen. Jeder Anhang ist zunächst nicht freigegeben. **Alle aktivieren** wählt nur E-Mails, nie Anhänge. Ein Anhang wird nur geladen und gespeichert, wenn du ihn einzeln markierst und umschaltest. Die zugehörige E-Mail wird dabei mit ausgewählt. Anhänge bereits importierter E-Mails lassen sich später nachholen. Ein freigegebener Anhang wird ein eigenes Dokument im Bereich „E-Mail · Konto · Anhang“ mit Verweis auf seine E-Mail. Es gelten dieselben Grenzen und Quarantänegründe wie für lokale Dateien. Bilder werden mit der optionalen Texterkennung gelesen, ohne sie landen sie als „kein lesbarer Text“ in Quarantäne, weitergeleitete Nachrichten (Microsoft „Element“-Anhänge) als „nicht unterstützt“. Wird die E-Mail gelöscht, bleibt der Anhang erhalten. Der Verweis wird geleert.
+
+IMAP lädt eine Nachricht nicht mehr vollständig. Es werden nur Kopfzeilen und Textteile abgerufen. Das gespeicherte Original enthält deshalb keine Anhänge, die Kopfzeile `X-Wissensraum-Anhaenge-nicht-gespeichert` nennt deren Anzahl. **PST-Datei importieren** zeigt jetzt ebenfalls zuerst eine Auswahl mit Nachrichten und Anhängen (Name, Typ, Größe aus den Archivmetadaten). Nachrichten werden aktiviert, Anhänge einzeln freigegeben. Erst dann liest die Anwendung den Inhalt eines Anhangs aus dem Archiv. Microsoft zeigt Anhänge nur bei Nachrichten mit gesetztem `hasAttachments`. Rein eingebettete Bilder, etwa in Signaturen, erscheinen dort nicht.
+
+Hinweis zu älteren IMAP-Importen: Bis einschließlich Schritt 6.2 lud der IMAP-Import die vollständige Nachricht und speicherte sie als Original. Bereits importierte IMAP-E-Mails können deshalb Anhangsinhalte im gespeicherten Original enthalten. **Einstellungen → Datenbank → Anhänge aus alten E-Mails entfernen** (oder `python cli.py strip-mail-attachments`, mit `--dry-run` nur zählen) zeigt zuerst, wie viele E-Mails betroffen sind, und entfernt die Anhänge erst nach Bestätigung. Nachrichtentext, Suche und Prüfsumme bleiben unverändert. Eine E-Mail, deren Text sich dabei ändern würde, wird übersprungen. Unter SQLite wird vorher eine geprüfte Sicherung `wissen.db.vor-anhangsbereinigung-<Zeitpunkt>.bak` neben der Datenbank abgelegt. Diese Sicherung enthält die Anhänge weiterhin. Lösche sie, sobald du sie nicht mehr brauchst. Danach wird die Datenbank verdichtet, damit die entfernten Bytes auch aus der Datei verschwinden. Unter PostgreSQL ist vorher eine pg_dump-Sicherung zu erstellen und zu bestätigen (`--backup-confirmed`). Die alten Zeilenversionen entfernt dort der automatische VACUUM-Lauf des Servers.
+
+### E-Mail- und PST-Importe als Aufträge (Release 2.0, Schritt 6.3b)
+
+**Aktivierte E-Mails importieren** legt einen Importauftrag an, für Postfächer wie für PST-Dateien. Jede Nachricht und jeder freigegebene Anhang ist ein Eintrag mit Status, Quarantänegrund, Prüfsumme und Fehlerverlauf. Fortschritt, **Import abbrechen**, **Auftrag fortsetzen** und **Bericht speichern** funktionieren wie beim Dateiimport. Nach einem Absturz zwischen Speichern und Statuseintrag entsteht beim Fortsetzen kein zweites Dokument. Schlägt die Anmeldung am Postfach fehl, bleibt der Auftrag offen und lässt sich später fortsetzen. Eine E-Mail ohne Text und ohne Anhänge landet als „kein lesbarer Text“ in Quarantäne.
+
+### Weitere Formate (Release 2.0.1, Schritt S1)
+
+HTML-Seiten werden ohne Skripte und Formatangaben gelesen, der Seitentitel wird Dokumenttitel. RTF wird mit `striprtf` gelesen. XLSX liefert je Tabellenblatt einen Abschnitt `[Tabelle Name]` mit den Zellwerten (bei Formeln der zuletzt gespeicherte Wert), PPTX je Folie einen Abschnitt `[Folie n]` mit Texten, Tabellen und Sprechernotizen. Eine gespeicherte E-Mail (EML) wird wie eine E-Mail aus dem Postfach gelesen: Betreff als Titel, Kopfzeilen, Text und die Namen der Anhänge. Der Inhalt ihrer Anhänge wird nicht übernommen, das gespeicherte Original enthält ihn nicht. Neue Pakete: `openpyxl` (MIT), `python-pptx` (MIT), `striprtf` (BSD-3-Clause); `start_windows.bat` installiert sie beim nächsten Start.
+
+### Regeln für Bereich und Tags (Release 2.0.1, Schritt S2)
+
+Unter Einstellungen > Regeln legst du Regeln an. Bedingungen: Quellentyp (Datei, IMAP, Microsoft 365, PST, E-Mail-Anhang), Ordner- oder Dateimuster, Absenderdomäne, Dateiendung, Stichwort in Titel oder Text. Alle Bedingungen einer Regel müssen zutreffen. Aktionen: Bereich setzen, Tags setzen. Die Regeln gelten in ihrer Reihenfolge: Den Bereich setzt die erste passende Regel, Tags kommen von allen passenden Regeln. Ein Muster ohne `*` oder `?` trifft jeden Pfad, der den Text enthält, mit Platzhaltern gilt das ganze Muster (`*/Rechnungen/*.pdf`). Die Absenderdomäne kommt aus der Zeile „Von:“ und umfasst ihre Unterdomänen. Regeln dürfen auch den Bereich von E-Mails ändern, die Herkunft bleibt in der Quellentabelle erhalten. Notizen ändern Regeln nie.
+
+Regeln wirken beim Import. Vorhandene Dokumente ändern sich nur über „Vorschau für vorhandene Dokumente“ und „Änderungen übernehmen“ (CLI: `rules-apply --confirm`). Jede Übernahme ist ein Lauf. „Ausgewählten Lauf zurücknehmen“ setzt Bereiche und Tags auf den Stand davor. Hat jemand den Bereich eines Dokuments nach dem Lauf erneut geändert, bleibt dieser neuere Bereich und die Rücknahme meldet ihn als Konflikt. In „Dokumente & Suche“ zeigt eine Spalte die Tags. Das Feld „Tag“ filtert Liste und Suche.
+
+### Postfachsynchronisation (Release 2.0.1, Schritt S3)
+
+Unter Einstellungen > E-Mail-Konten aktivierst du die Synchronisation je Konto: Intervall 15, 30 oder 60 Minuten oder 4 Stunden, bei IMAP ein Ordner (Standard `INBOX`), bei Microsoft 365 der Posteingang. Die Aktivierung merkt sich den Stand des Postfachs. Abgerufen werden nur Nachrichten, die danach eingehen, als normaler Importauftrag, den du unter Import siehst. Ältere Nachrichten holst du wie bisher über die Vorschau. Anhänge werden nie automatisch geholt, ihre Namen stehen im E-Mail-Text, den Inhalt gibst du einzeln über die Vorschau frei. Das Postfach wird nur gelesen.
+
+Die Synchronisation läuft nur, solange die Anwendung geöffnet ist. Es gibt keinen Hintergrunddienst. Schlägt die Anmeldung fehl (Kennwort geändert, App-Passwort widerrufen, Microsoft-Anmeldung abgelaufen, Ordner fehlt) oder hat der Server den Ordner neu nummeriert, stoppt die Synchronisation für dieses Konto mit dem Grund. Nach der Korrektur aktivierst du sie erneut. Ist der Server nur nicht erreichbar, folgt der nächste Versuch beim nächsten Intervall. „Jetzt abrufen“ startet einen Lauf sofort.
+
+### Texterkennung (OCR, Release 2.0, Schritt 6.4)
+
+Die Texterkennung ist optional und läuft vollständig auf diesem Computer mit Tesseract. Es wird kein Bild an einen Dienst im Netz geschickt. Ist sie eingerichtet, liest der Import PNG, JPG, TIFF (auch mehrseitig), BMP, GIF und WebP sowie PDFs ohne Textebene, etwa Scans. Das gilt für Dateien, Ordner und freigegebene E-Mail-Anhänge. Erkannter Text beginnt mit `[OCR · Tesseract]`, mehrseitige Dokumente sind in `[Seite n]` gegliedert. Leere Scans bleiben als „kein lesbarer Text“ in Quarantäne. Grenzen: höchstens 200 Seiten, 2 Minuten je Seite, 60 Millionen Bildpunkte je Seite. Größere Bilder werden vor dem Dekodieren abgewiesen.
+
+Einrichtung unter Windows: `install-ocr-support.bat` ausführen. Das Skript installiert die Python-Pakete (`requirements-ocr.txt`) und prüft das Tesseract-Programm. Fehlt es, zeigt das Skript den Befehl `winget install --id UB-Mannheim.TesseractOCR`. Im Tesseract-Installer unter „Additional language data“ Deutsch auswählen. Ein anderer Installationsort lässt sich mit der Umgebungsvariable `WISSENSRAUM_TESSERACT` angeben, `WISSENSRAUM_OCR=0` schaltet die Texterkennung ab. Unter Linux: `sudo apt install tesseract-ocr tesseract-ocr-deu` und `pip install -r requirements-ocr.txt`.
+
+**Einstellungen → Systemstatus prüfen** und `python cli.py ocr-status` zeigen, ob OCR verfügbar ist, mit Tesseract-Version und Sprachen. Fehlt Deutsch oder Englisch, erscheint eine Warnung. Dateien, die vor der Einrichtung in Quarantäne gelandet sind, holt **Import → Quarantäne erneut verarbeiten** (oder `python cli.py retry-no-text`) nach. Jede Datei und jeder Anhang wird dabei einmal erneut versucht. Bereits erfolgreich nachgeholte Einträge werden nicht wieder angefasst.
+
+Qualität: Der Testbestand aus sauberen, erzeugten Seiten in 300 dpi mit deutschem und englischem Text wird ohne Zeichenfehler erkannt. Echte Scans mit Schräglage, Flecken, kleiner Schrift oder Handschrift erreichen das nicht. Erkannte Texte sind deshalb vor einer Verwendung zu prüfen.
 
 ### Gmail
 
 1. Google-Konto mit Bestätigung in zwei Schritten absichern und ein App-Passwort für Wissensraum erzeugen.
 2. **Einstellungen → E-Mail-Konten → Neues Konto** öffnen und **Gmail** wählen.
-3. Kontoname, E-Mail-Adresse und Benutzername eintragen. Server `imap.gmail.com` und Port `993` werden automatisch gesetzt.
-4. Das App-Passwort unter **Kennwort / App-Passwort** eintragen und speichern.
+3. Kontoname und E-Mail-Adresse eintragen. Benutzername ist bei Gmail immer die E-Mail-Adresse und wird automatisch übernommen. Server `imap.gmail.com` und Port `993` werden automatisch gesetzt.
+4. Das App-Passwort unter **Kennwort / App-Passwort** eintragen und speichern. Ein Google-App-Passwort besteht aus 16 Kleinbuchstaben. Leerzeichen aus der Anzeige bei Google dürfen mitkopiert werden. Das normale Google-Passwort lehnt die Anwendung beim Speichern ab, weil Gmail es für IMAP nicht annimmt.
+
+Lehnt der Server die Anmeldung ab, nennt die Fehlermeldung den Grund (Zugangsdaten abgelehnt, App-Passwort verlangt, Anmeldung im Browser verlangt, Server vorübergehend nicht verfügbar), ohne Benutzername, Passwort oder den Wortlaut der Serverantwort zu wiederholen.
 
 ### Microsoft 365 und Outlook.com
 

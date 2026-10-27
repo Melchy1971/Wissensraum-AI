@@ -119,24 +119,90 @@ class Store:
         'email_imports': {
             'account_id':('TEXT',1,None,1), 'remote_id':('TEXT',1,None,2),
             'document_id':('INTEGER',1,None,0), 'imported_at':('TEXT',1,'current_timestamp',0)},
+        'sources': {
+            'document_id':('INTEGER',0,None,1), 'source_type':('TEXT',1,None,0),
+            'account_id':('TEXT',1,"''",0), 'locator':('TEXT',1,"''",0),
+            'recorded_at':('TEXT',1,'current_timestamp',0)},
+        'import_jobs': {
+            'id':('INTEGER',0,None,1), 'kind':('TEXT',1,None,0), 'root':('TEXT',1,"''",0),
+            'category':('TEXT',1,"'allgemein'",0), 'status':('TEXT',1,None,0),
+            'created_at':('TEXT',1,'current_timestamp',0), 'updated_at':('TEXT',1,'current_timestamp',0)},
+        'import_items': {
+            'id':('INTEGER',0,None,1), 'job_id':('INTEGER',1,None,0), 'ordinal':('INTEGER',1,None,0),
+            'path':('TEXT',1,None,0), 'locator':('TEXT',1,None,0), 'status':('TEXT',1,"'pending'",0),
+            'reason':('TEXT',1,"''",0), 'size':('INTEGER',0,None,0), 'sha256':('TEXT',1,"''",0),
+            'document_id':('INTEGER',0,None,0), 'attempts':('INTEGER',1,'0',0),
+            'updated_at':('TEXT',1,'current_timestamp',0)},
+        'import_item_errors': {
+            'id':('INTEGER',0,None,1), 'item_id':('INTEGER',1,None,0), 'attempt':('INTEGER',1,None,0),
+            'reason':('TEXT',1,None,0), 'message':('TEXT',1,None,0),
+            'created_at':('TEXT',1,'current_timestamp',0)},
+        'document_versions': {
+            'document_id':('INTEGER',0,None,1), 'lineage_id':('INTEGER',1,None,0),
+            'version':('INTEGER',1,None,0)},
+        'email_attachments': {
+            'document_id':('INTEGER',0,None,1), 'email_document_id':('INTEGER',0,None,0),
+            'name':('TEXT',1,None,0), 'content_type':('TEXT',1,"''",0), 'size':('INTEGER',0,None,0)},
+        'tags': {'id':('INTEGER',0,None,1), 'name':('TEXT',1,None,0), 'normalized':('TEXT',1,None,0)},
+        'document_tags': {'document_id':('INTEGER',1,None,1), 'tag_id':('INTEGER',1,None,2)},
+        'rules': {
+            'id':('INTEGER',0,None,1), 'position':('INTEGER',1,None,0), 'name':('TEXT',1,None,0),
+            'enabled':('INTEGER',1,'1',0), 'source_type':('TEXT',1,"''",0), 'path_pattern':('TEXT',1,"''",0),
+            'sender_domain':('TEXT',1,"''",0), 'extension':('TEXT',1,"''",0), 'keyword':('TEXT',1,"''",0),
+            'category':('TEXT',1,"''",0), 'tags':('TEXT',1,"''",0),
+            'created_at':('TEXT',1,'current_timestamp',0)},
+        'rule_runs': {
+            'id':('INTEGER',0,None,1), 'status':('TEXT',1,"'applied'",0),
+            'created_at':('TEXT',1,'current_timestamp',0), 'reverted_at':('TEXT',0,None,0)},
+        'rule_run_changes': {
+            'run_id':('INTEGER',1,None,1), 'document_id':('INTEGER',1,None,2),
+            'previous_category':('TEXT',1,None,0), 'new_category':('TEXT',1,None,0),
+            'added_tags':('TEXT',1,"''",0)},
     }
     schema_contract = {table:frozenset(columns) for table,columns in column_contract.items()}
     version_tables = {
         1: frozenset({'documents','chunks','search_index','ai_runs'}),
         2: frozenset({'documents','chunks','search_index','ai_runs','settings'}),
         3: frozenset({'documents','chunks','search_index','ai_runs','settings','email_accounts'}),
+        4: frozenset({'documents','chunks','search_index','ai_runs','settings','email_accounts',
+                      'email_imports'}),
+        5: frozenset({'documents','chunks','search_index','ai_runs','settings','email_accounts',
+                      'email_imports','sources'}),
+        6: frozenset({'documents','chunks','search_index','ai_runs','settings','email_accounts',
+                      'email_imports','sources','import_jobs','import_items','import_item_errors'}),
+        7: frozenset({'documents','chunks','search_index','ai_runs','settings','email_accounts',
+                      'email_imports','sources','import_jobs','import_items','import_item_errors',
+                      'document_versions'}),
+        8: frozenset({'documents','chunks','search_index','ai_runs','settings','email_accounts',
+                      'email_imports','sources','import_jobs','import_items','import_item_errors',
+                      'document_versions','email_attachments'}),
         CURRENT_SCHEMA_VERSION: frozenset(schema_contract),
     }
     primary_keys = {
         'documents': ('id',), 'chunks': ('id',), 'ai_runs': ('id',),
         'settings': ('name',), 'email_accounts': ('id',),
-        'email_imports': ('account_id','remote_id'),
+        'email_imports': ('account_id','remote_id'), 'sources': ('document_id',),
+        'import_jobs': ('id',), 'import_items': ('id',), 'import_item_errors': ('id',),
+        'document_versions': ('document_id',), 'email_attachments': ('document_id',),
+        'tags': ('id',), 'document_tags': ('document_id','tag_id'), 'rules': ('id',), 'rule_runs': ('id',),
+        'rule_run_changes': ('run_id','document_id'),
     }
-    unique_keys = {'documents': {('sha256',)}, 'chunks': {('document_id','ordinal')}}
+    unique_keys = {'documents': {('sha256',)}, 'chunks': {('document_id','ordinal')},
+                   'import_items': {('job_id','ordinal')}, 'document_versions': {('lineage_id','version')},
+                   'tags': {('normalized',)}}
     foreign_keys = {
         'chunks': {('document_id','documents','id','CASCADE')},
         'email_imports': {('account_id','email_accounts','id','CASCADE'),
                           ('document_id','documents','id','CASCADE')},
+        'sources': {('document_id','documents','id','CASCADE')},
+        'import_items': {('job_id','import_jobs','id','CASCADE'),
+                         ('document_id','documents','id','SET NULL')},
+        'import_item_errors': {('item_id','import_items','id','CASCADE')},
+        'document_versions': {('document_id','documents','id','CASCADE')},
+        'email_attachments': {('document_id','documents','id','CASCADE'),
+                              ('email_document_id','documents','id','SET NULL')},
+        'document_tags': {('document_id','documents','id','CASCADE'), ('tag_id','tags','id','CASCADE')},
+        'rule_run_changes': {('run_id','rule_runs','id','CASCADE'), ('document_id','documents','id','CASCADE')},
     }
     sql_fragments = {
         ('view','chunks_search'): ('select c.id, d.title, d.category, c.content','join documents d'),
@@ -186,6 +252,8 @@ class Store:
                 if actual != expected:
                     raise ValueError('SQLite-Anwendungsschema ist unvollständig.')
             for table,expected in self.unique_keys.items():
+                if table not in present_tables:
+                    continue
                 actual=set()
                 for index in connection.execute(f'PRAGMA index_list("{table}")'):
                     if index[2]:
@@ -270,7 +338,10 @@ class Store:
         finally:
             db.close()
 
-    def add(self, title, content, category='Allgemein', filename=None, original=None):
+    def add(self, title, content, category='Allgemein', filename=None, original=None, source=None,
+            versioned=False):
+        """Store a document; with ``versioned`` a changed file at a known place becomes a new version."""
+        source = source_row(filename, source)
         title, content = title.strip(), content.strip()
         if not title or not content:
             raise ValueError('Titel und lesbarer Inhalt sind erforderlich.')
@@ -281,16 +352,23 @@ class Store:
             existing = db.execute('SELECT id FROM documents WHERE sha256=?', (digest,)).fetchone()
             if existing:
                 return existing['id'], False
-            cur = db.execute('INSERT INTO documents(title,category,filename,original,content,sha256) VALUES(?,?,?,?,?,?)',
-                             (title, category.strip() or 'Allgemein', filename, original, content, digest))
-            doc_id = cur.lastrowid
-            db.executemany('INSERT INTO chunks(document_id,ordinal,content) VALUES(?,?,?)',
-                           ((doc_id, i+1, part) for i, part in enumerate(chunks(content))))
+            lineage = _version_lineage(db, source) if versioned else None
+            doc_id = _insert_document(db, title, content, category, filename, original, digest, source, False)
+            _record_version(db, doc_id, lineage)
             return doc_id, True
 
-    def list(self):
+    def list(self, all_versions=False, tag=None):
         with self.connect() as db:
-            return [dict(r) for r in db.execute('SELECT id,title,category,created_at FROM documents ORDER BY id DESC')]
+            return _list(db, all_versions, tag)
+
+    def versions(self, doc_id):
+        """All versions of the document's lineage, newest first."""
+        with self.connect() as db:
+            return _versions(db, doc_id)
+
+    def match(self, content, source=None, versioned=False):
+        with self.connect() as db:
+            return _match(db, content, source_row(None, source) if source else ('note', '', ''), versioned)
 
     def get(self, doc_id):
         with self.connect() as db:
@@ -305,7 +383,7 @@ class Store:
             db.execute('DELETE FROM chunks WHERE document_id=?', (doc_id,))
             db.execute('DELETE FROM documents WHERE id=?', (doc_id,))
 
-    def search(self, query, limit=8):
+    def search(self, query, limit=8, all_versions=False, tag=None):
         words = list(dict.fromkeys(re.findall(r'\w+', query, re.UNICODE)))[:30]
         if not words:
             return []
@@ -405,6 +483,57 @@ class PostgresStore:
             'account_id':('text','text','NO',None,'NO'), 'remote_id':('text','text','NO',None,'NO'),
             'document_id':('bigint','int8','NO',None,'NO'),
             'imported_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO')},
+        'sources': {
+            'document_id':('bigint','int8','NO',None,'NO'), 'source_type':('text','text','NO',None,'NO'),
+            'account_id':('text','text','NO',"''",'NO'), 'locator':('text','text','NO',"''",'NO'),
+            'recorded_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO')},
+        'import_jobs': {
+            'id':('bigint','int8','NO',None,'YES'), 'kind':('text','text','NO',None,'NO'),
+            'root':('text','text','NO',"''",'NO'), 'category':('text','text','NO',"'allgemein'",'NO'),
+            'status':('text','text','NO',None,'NO'),
+            'created_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO'),
+            'updated_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO')},
+        'import_items': {
+            'id':('bigint','int8','NO',None,'YES'), 'job_id':('bigint','int8','NO',None,'NO'),
+            'ordinal':('integer','int4','NO',None,'NO'), 'path':('text','text','NO',None,'NO'),
+            'locator':('text','text','NO',None,'NO'), 'status':('text','text','NO',"'pending'",'NO'),
+            'reason':('text','text','NO',"''",'NO'), 'size':('bigint','int8','YES',None,'NO'),
+            'sha256':('text','text','NO',"''",'NO'), 'document_id':('bigint','int8','YES',None,'NO'),
+            'attempts':('integer','int4','NO','0','NO'),
+            'updated_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO')},
+        'import_item_errors': {
+            'id':('bigint','int8','NO',None,'YES'), 'item_id':('bigint','int8','NO',None,'NO'),
+            'attempt':('integer','int4','NO',None,'NO'), 'reason':('text','text','NO',None,'NO'),
+            'message':('text','text','NO',None,'NO'),
+            'created_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO')},
+        'document_versions': {
+            'document_id':('bigint','int8','NO',None,'NO'), 'lineage_id':('bigint','int8','NO',None,'NO'),
+            'version':('integer','int4','NO',None,'NO')},
+        'email_attachments': {
+            'document_id':('bigint','int8','NO',None,'NO'), 'email_document_id':('bigint','int8','YES',None,'NO'),
+            'name':('text','text','NO',None,'NO'), 'content_type':('text','text','NO',"''",'NO'),
+            'size':('bigint','int8','YES',None,'NO')},
+        'tags': {
+            'id':('bigint','int8','NO',None,'YES'), 'name':('text','text','NO',None,'NO'),
+            'normalized':('text','text','NO',None,'NO')},
+        'document_tags': {
+            'document_id':('bigint','int8','NO',None,'NO'), 'tag_id':('bigint','int8','NO',None,'NO')},
+        'rules': {
+            'id':('bigint','int8','NO',None,'YES'), 'position':('integer','int4','NO',None,'NO'),
+            'name':('text','text','NO',None,'NO'), 'enabled':('integer','int4','NO','1','NO'),
+            'source_type':('text','text','NO',"''",'NO'), 'path_pattern':('text','text','NO',"''",'NO'),
+            'sender_domain':('text','text','NO',"''",'NO'), 'extension':('text','text','NO',"''",'NO'),
+            'keyword':('text','text','NO',"''",'NO'), 'category':('text','text','NO',"''",'NO'),
+            'tags':('text','text','NO',"''",'NO'),
+            'created_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO')},
+        'rule_runs': {
+            'id':('bigint','int8','NO',None,'YES'), 'status':('text','text','NO',"'applied'",'NO'),
+            'created_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO'),
+            'reverted_at':('timestamp with time zone','timestamptz','YES',None,'NO')},
+        'rule_run_changes': {
+            'run_id':('bigint','int8','NO',None,'NO'), 'document_id':('bigint','int8','NO',None,'NO'),
+            'previous_category':('text','text','NO',None,'NO'), 'new_category':('text','text','NO',None,'NO'),
+            'added_tags':('text','text','NO',"''",'NO')},
     }
     schema_contract = {table:frozenset(columns) for table,columns in column_contract.items()}
     required_constraints = {
@@ -419,6 +548,31 @@ class PostgresStore:
         'email_imports_pkey': ('email_imports','p',('account_id','remote_id'),None,(),None),
         'email_imports_account_id_fkey': ('email_imports','f',('account_id',),'email_accounts',('id',),'c'),
         'email_imports_document_id_fkey': ('email_imports','f',('document_id',),'documents',('id',),'c'),
+        'sources_pkey': ('sources','p',('document_id',),None,(),None),
+        'sources_document_id_fkey': ('sources','f',('document_id',),'documents',('id',),'c'),
+        'import_jobs_pkey': ('import_jobs','p',('id',),None,(),None),
+        'import_items_pkey': ('import_items','p',('id',),None,(),None),
+        'import_items_job_id_ordinal_key': ('import_items','u',('job_id','ordinal'),None,(),None),
+        'import_items_job_id_fkey': ('import_items','f',('job_id',),'import_jobs',('id',),'c'),
+        'import_items_document_id_fkey': ('import_items','f',('document_id',),'documents',('id',),'n'),
+        'import_item_errors_pkey': ('import_item_errors','p',('id',),None,(),None),
+        'import_item_errors_item_id_fkey': ('import_item_errors','f',('item_id',),'import_items',('id',),'c'),
+        'document_versions_pkey': ('document_versions','p',('document_id',),None,(),None),
+        'document_versions_lineage_id_version_key': ('document_versions','u',('lineage_id','version'),None,(),None),
+        'document_versions_document_id_fkey': ('document_versions','f',('document_id',),'documents',('id',),'c'),
+        'email_attachments_pkey': ('email_attachments','p',('document_id',),None,(),None),
+        'email_attachments_document_id_fkey': ('email_attachments','f',('document_id',),'documents',('id',),'c'),
+        'email_attachments_email_document_id_fkey': ('email_attachments','f',('email_document_id',),'documents',('id',),'n'),
+        'tags_pkey': ('tags','p',('id',),None,(),None),
+        'tags_normalized_key': ('tags','u',('normalized',),None,(),None),
+        'document_tags_pkey': ('document_tags','p',('document_id','tag_id'),None,(),None),
+        'document_tags_document_id_fkey': ('document_tags','f',('document_id',),'documents',('id',),'c'),
+        'document_tags_tag_id_fkey': ('document_tags','f',('tag_id',),'tags',('id',),'c'),
+        'rules_pkey': ('rules','p',('id',),None,(),None),
+        'rule_runs_pkey': ('rule_runs','p',('id',),None,(),None),
+        'rule_run_changes_pkey': ('rule_run_changes','p',('run_id','document_id'),None,(),None),
+        'rule_run_changes_run_id_fkey': ('rule_run_changes','f',('run_id',),'rule_runs',('id',),'c'),
+        'rule_run_changes_document_id_fkey': ('rule_run_changes','f',('document_id',),'documents',('id',),'c'),
     }
     required_indexes = {
         'chunks_document_id_idx': ('chunks','(document_id)'),
@@ -593,7 +747,8 @@ class PostgresStore:
         finally:
             connection.close()
 
-    def add(self,title,content,category='Allgemein',filename=None,original=None):
+    def add(self,title,content,category='Allgemein',filename=None,original=None,source=None,versioned=False):
+        source=source_row(filename,source)
         title,content=title.strip(),content.strip()
         if not title or not content:
             raise ValueError('Titel und lesbarer Inhalt sind erforderlich.')
@@ -604,17 +759,22 @@ class PostgresStore:
             existing=db.execute('SELECT id FROM documents WHERE sha256=?',(digest,)).fetchone()
             if existing:
                 return existing['id'],False
-            row=db.execute('''INSERT INTO documents(title,category,filename,original,content,sha256)
-                              VALUES(?,?,?,?,?,?) RETURNING id''',
-                           (title,category.strip() or 'Allgemein',filename,original,content,digest)).fetchone()
-            doc_id=row['id']
-            db.executemany('INSERT INTO chunks(document_id,ordinal,content) VALUES(?,?,?)',
-                           ((doc_id,index+1,part) for index,part in enumerate(chunks(content))))
+            lineage=_version_lineage(db,source) if versioned else None
+            doc_id=_insert_document(db,title,content,category,filename,original,digest,source,True)
+            _record_version(db,doc_id,lineage)
             return doc_id,True
 
-    def list(self):
+    def list(self,all_versions=False,tag=None):
         with self.connect() as db:
-            return [dict(row) for row in db.execute('SELECT id,title,category,created_at FROM documents ORDER BY id DESC')]
+            return _list(db,all_versions,tag)
+
+    def versions(self,doc_id):
+        with self.connect() as db:
+            return _versions(db,doc_id)
+
+    def match(self,content,source=None,versioned=False):
+        with self.connect() as db:
+            return _match(db,content,source_row(None,source) if source else ('note','',''),versioned)
 
     def get(self,doc_id):
         with self.connect() as db:
@@ -627,7 +787,7 @@ class PostgresStore:
         with self.connect() as db:
             db.execute('DELETE FROM documents WHERE id=?',(doc_id,))
 
-    def search(self,query,limit=8):
+    def search(self,query,limit=8,all_versions=False,tag=None):
         words=list(dict.fromkeys(re.findall(r'\w+',query,re.UNICODE)))[:30]
         if not words:
             return []
@@ -637,9 +797,12 @@ class PostgresStore:
                   -ts_rank_cd(to_tsvector('simple',d.title || ' ' || d.category || ' ' || c.content),
                               websearch_to_tsquery('simple',?)) AS rank
                   FROM chunks c JOIN documents d ON d.id=c.document_id
-                  WHERE to_tsvector('simple',c.content) @@ websearch_to_tsquery('simple',?)
-                     OR to_tsvector('simple',d.title || ' ' || d.category) @@ websearch_to_tsquery('simple',?)
-                  ORDER BY rank,c.id LIMIT ?''',(expression,expression,expression,max(1,min(limit,30)))).fetchall()
+                  WHERE (to_tsvector('simple',c.content) @@ websearch_to_tsquery('simple',?)
+                     OR to_tsvector('simple',d.title || ' ' || d.category) @@ websearch_to_tsquery('simple',?))'''
+                  + ('' if all_versions else ' AND '+CURRENT_VERSION_FILTER)
+                  + (' AND '+TAG_FILTER if tag else '') + '''
+                  ORDER BY rank,c.id LIMIT ?''',(expression,expression,expression,
+                                                 *((tag.casefold(),) if tag else ()),max(1,min(limit,30)))).fetchall()
         return [dict(row) for row in rows]
 
     def log(self,kind,question,answer,sources,model):
@@ -693,38 +856,151 @@ class PostgresStore:
             raise ValueError('PostgreSQL-Wiederherstellungen konnten nicht ausgeführt werden.') from None
 
 
-def import_document(path):
+MAX_DOCUMENT_BYTES = 20*1024*1024
+MAX_DOCUMENT_CHARACTERS = 2_000_000
+MAX_PDF_PAGES = 2000
+MAX_DOCX_ENTRIES = 10_000
+MAX_DOCX_UNCOMPRESSED_BYTES = 200*1024*1024
+MAX_DOCX_COMPRESSION_RATIO = 100
+# Content problems that re-trying cannot fix; import jobs quarantine these.
+QUARANTINE_REASONS = {
+    'unsupported': 'Dateityp nicht unterstützt',
+    'too_large': 'Datei oder Text zu groß',
+    'signature': 'Inhalt passt nicht zur Dateiendung',
+    'limits': 'Entpack- oder Seitengrenze überschritten',
+    'encrypted': 'Verschlüsselt',
+    'damaged': 'Beschädigt oder nicht lesbar',
+    'no_text': 'Kein lesbarer Text',
+    'unreadable': 'Ordner oder Datei nicht lesbar',
+}
+
+
+class ImportRejected(ValueError):
+    """A file whose content cannot be imported; `reason` is a QUARANTINE_REASONS key."""
+
+    def __init__(self, reason, message):
+        super().__init__(message)
+        self.reason = reason
+
+
+def _zip_within_limits(data, label='DOCX'):
+    """Entry count, unpacked size and compression ratio of an Office Open XML container."""
+    import zipfile
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            entries = archive.infolist()
+    except zipfile.BadZipFile:
+        raise ImportRejected('damaged', f'{label}-Datei ist beschädigt.') from None
+    uncompressed = sum(entry.file_size for entry in entries)
+    compressed = max(1, sum(entry.compress_size for entry in entries))
+    if (len(entries) > MAX_DOCX_ENTRIES or uncompressed > MAX_DOCX_UNCOMPRESSED_BYTES
+            or uncompressed / compressed > MAX_DOCX_COMPRESSION_RATIO):
+        raise ImportRejected('limits', f'{label}-Datei überschreitet die Entpackgrenzen.')
+
+
+def _docx_within_limits(data):
+    _zip_within_limits(data, 'DOCX')
+
+
+class OcrDeferred(Exception):
+    """Raised instead of running OCR when the caller (the preview) only wants to know that OCR is needed."""
+
+    def __init__(self, pages):
+        super().__init__('Text wird beim Import per OCR erkannt.')
+        self.pages = pages
+
+
+def import_document(path, allow_ocr=True):
     path = Path(path)
-    if path.stat().st_size > 20*1024*1024:
-        raise ValueError('Datei überschreitet das Limit von 20 MB.')
-    data = path.read_bytes()
-    suffix = path.suffix.lower()
+    if path.stat().st_size > MAX_DOCUMENT_BYTES:
+        raise ImportRejected('too_large', 'Datei überschreitet das Limit von 20 MB.')
+    if path.suffix.lower() not in SUPPORTED_DOCUMENT_SUFFIXES | IMAGE_SUFFIXES:
+        extract_document(path.name, b'')  # raises the matching quarantine reason
+    return extract_document(path.name, path.read_bytes(), allow_ocr)
+
+
+def extract_document(name, data, allow_ocr=True):
+    """Extract text from file bytes; return (title, text, name, data) or raise ImportRejected."""
+    name = Path(str(name)).name or 'Dokument'
+    suffix = Path(name).suffix.lower()
+    import ocr
+    if suffix in IMAGE_SUFFIXES:
+        if suffix not in ocr.OCR_SUFFIXES or not ocr.available():
+            raise ImportRejected('no_text', 'Bild enthält keinen lesbaren Text; dafür ist die optionale '
+                                            'Texterkennung (OCR) nötig.')
+        if len(data) > MAX_DOCUMENT_BYTES:
+            raise ImportRejected('too_large', 'Datei überschreitet das Limit von 20 MB.')
+        if not allow_ocr:
+            raise OcrDeferred(ocr.image_pages(data))
+        text = ocr.image_text(data)
+        if len(text.strip()) > MAX_DOCUMENT_CHARACTERS:
+            raise ImportRejected('too_large', 'Maximal 2 Millionen Textzeichen pro Dokument.')
+        return Path(name).stem or name, text, name, data
+    if suffix not in SUPPORTED_DOCUMENT_SUFFIXES:
+        raise ImportRejected('unsupported', f'Unterstützt werden {SUPPORTED_FORMATS_TEXT}.')
+    if len(data) > MAX_DOCUMENT_BYTES:
+        raise ImportRejected('too_large', 'Datei überschreitet das Limit von 20 MB.')
+    import formats
+    title = Path(name).stem or name
     if suffix in ('.txt', '.md'):
-        try:
-            text = data.decode('utf-8-sig')
-        except UnicodeDecodeError:
-            text = data.decode('cp1252')
+        text = formats.decode_text(data)
+    elif suffix in ('.html', '.htm'):
+        page_title, text = formats.html_document(data)
+        title = page_title or title
+    elif suffix == '.rtf':
+        text = formats.rtf_document(data)
+    elif suffix == '.xlsx':
+        text = formats.xlsx_document(data)
+    elif suffix == '.pptx':
+        text = formats.pptx_document(data)
+    elif suffix == '.eml':
+        subject, text, data = formats.eml_document(data)  # stored original without attachment content
+        title = subject or title
     elif suffix == '.pdf':
+        if b'%PDF-' not in data[:1024]:
+            raise ImportRejected('signature', 'Datei ist kein PDF.')
         from pypdf import PdfReader
-        reader = PdfReader(io.BytesIO(data))
-        if reader.is_encrypted:
-            raise ValueError('Verschlüsselte PDFs werden nicht unterstützt.')
-        text = '\n\n'.join(f'[Seite {i+1}]\n{p.extract_text() or ""}' for i,p in enumerate(reader.pages))
+        try:
+            reader = PdfReader(io.BytesIO(data))
+            if reader.is_encrypted:
+                raise ImportRejected('encrypted', 'Verschlüsselte PDFs werden nicht unterstützt.')
+            if len(reader.pages) > MAX_PDF_PAGES:
+                raise ImportRejected('limits', f'PDF hat mehr als {MAX_PDF_PAGES} Seiten.')
+            text = '\n\n'.join(f'[Seite {i+1}]\n{p.extract_text() or ""}' for i, p in enumerate(reader.pages))
+        except ImportRejected:
+            raise
+        except Exception:
+            raise ImportRejected('damaged', 'PDF ist beschädigt oder nicht lesbar.') from None
         if not re.sub(r'\[Seite \d+\]', '', text).strip():
-            raise ValueError('PDF enthält keinen lesbaren Text. OCR ist in Version 1 nicht enthalten.')
-    elif suffix == '.docx':
+            if not ocr.available():
+                raise ImportRejected('no_text', 'PDF enthält keinen lesbaren Text; dafür ist die optionale '
+                                                'Texterkennung (OCR) nötig.')
+            if not allow_ocr:
+                raise OcrDeferred(len(reader.pages))
+            text = ocr.pdf_text(data)  # scanned PDF: recognize the rendered pages
+    else:  # .docx
+        formats.office_container(data, '.docx')
         from docx import Document
-        doc = Document(io.BytesIO(data))
-        text = '\n'.join(p.text for p in doc.paragraphs)
-        for table in doc.tables:
-            text += '\n'+'\n'.join(' | '.join(c.text for c in r.cells) for r in table.rows)
-    else:
-        raise ValueError('Unterstützt werden TXT, Markdown, PDF und DOCX.')
-    return path.stem, text, path.name, data
+        try:
+            doc = Document(io.BytesIO(data))
+            text = '\n'.join(p.text for p in doc.paragraphs)
+            for table in doc.tables:
+                text += '\n'+'\n'.join(' | '.join(c.text for c in r.cells) for r in table.rows)
+        except Exception:
+            raise ImportRejected('damaged', 'DOCX-Datei ist beschädigt oder nicht lesbar.') from None
+    if not text.strip():
+        raise ImportRejected('no_text', 'Datei enthält keinen lesbaren Text.')
+    if len(text.strip()) > MAX_DOCUMENT_CHARACTERS:
+        raise ImportRejected('too_large', 'Maximal 2 Millionen Textzeichen pro Dokument.')
+    return title, text, name, data
 
 
-def discover_documents(folder):
-    """Find supported documents recursively without leaving the selected tree via links."""
+def discover_documents(folder, include_unsupported=False):
+    """Find supported documents recursively without leaving the selected tree via links.
+
+    With include_unsupported, regular files of other types are returned as documents too,
+    so that import jobs can quarantine them individually instead of only counting them.
+    """
     root = Path(folder)
     if not root.is_dir():
         raise ValueError('Der ausgewählte Ordner ist nicht verfügbar.')
@@ -744,7 +1020,8 @@ def discover_documents(folder):
         directories[:] = kept_directories
         for name in sorted(filenames, key=str.casefold):
             path = current_path/name
-            if path.is_symlink() or not path.is_file() or path.suffix.lower() not in SUPPORTED_DOCUMENT_SUFFIXES:
+            if path.is_symlink() or not path.is_file() or (
+                    not include_unsupported and path.suffix.lower() not in SUPPORTED_DOCUMENT_SUFFIXES):
                 skipped += 1
                 continue
             documents.append((path, path.relative_to(root).as_posix()))

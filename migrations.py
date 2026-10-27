@@ -3,12 +3,17 @@ from __future__ import annotations
 
 import sqlite3
 import os
+import shutil
 import time
 import uuid
 from contextlib import closing, contextmanager
 from pathlib import Path
 
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 9
+# Unversioned PostgreSQL schemas predate schema_migrations and match version 4.
+POSTGRES_LEGACY_SCHEMA_VERSION = 4
+# ponytail: source_type is validated in application code (core.SOURCE_TYPES), not by a
+# CHECK constraint, because the SQLite contract check cannot read CHECK clauses.
 POSTGRES_MIGRATION_LOCK_ID = 87031904
 POSTGRES_LOCK_TIMEOUT_SECONDS = 20.0
 WINDOWS_SQLITE_MIGRATION_LOCK_OFFSET = 0x7FFFFFFFFFFFFFFE
@@ -70,6 +75,105 @@ SQLITE_MIGRATIONS = (
             PRIMARY KEY(account_id,remote_id)
         )""",
     )),
+    (5, (
+        """CREATE TABLE IF NOT EXISTS sources (
+            document_id INTEGER PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+            source_type TEXT NOT NULL, account_id TEXT NOT NULL DEFAULT '',
+            locator TEXT NOT NULL DEFAULT '',
+            recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """INSERT INTO sources(document_id, source_type, account_id, locator)
+            SELECT id,
+                CASE WHEN filename IS NULL THEN 'note'
+                     WHEN remote_id IS NOT NULL AND substr(remote_id, 1, 6) = 'graph:' THEN 'graph'
+                     WHEN remote_id IS NOT NULL THEN 'imap'
+                     WHEN substr(category, 1, 15) = 'E-Mail · PST · ' THEN 'pst'
+                     WHEN substr(category, 1, 9) = 'E-Mail · '
+                          AND substr(filename, length(filename) - 4) = '.json' THEN 'graph'
+                     WHEN substr(category, 1, 9) = 'E-Mail · ' THEN 'imap'
+                     ELSE 'file' END,
+                COALESCE(account_id, ''),
+                CASE WHEN filename IS NULL THEN ''
+                     WHEN remote_id IS NOT NULL THEN remote_id
+                     WHEN substr(category, 1, 15) = 'E-Mail · PST · ' THEN substr(category, 16)
+                     WHEN substr(category, 1, 9) = 'E-Mail · ' THEN ''
+                     ELSE filename END
+            FROM (SELECT d.id, d.filename, d.category,
+                    (SELECT e.remote_id FROM email_imports e WHERE e.document_id = d.id
+                     ORDER BY e.imported_at, e.account_id, e.remote_id LIMIT 1) AS remote_id,
+                    (SELECT e.account_id FROM email_imports e WHERE e.document_id = d.id
+                     ORDER BY e.imported_at, e.account_id, e.remote_id LIMIT 1) AS account_id
+                  FROM documents d) AS origin""",
+    )),
+    (6, (
+        """CREATE TABLE IF NOT EXISTS import_jobs (
+            id INTEGER PRIMARY KEY, kind TEXT NOT NULL, root TEXT NOT NULL DEFAULT '',
+            category TEXT NOT NULL DEFAULT 'Allgemein', status TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE IF NOT EXISTS import_items (
+            id INTEGER PRIMARY KEY,
+            job_id INTEGER NOT NULL REFERENCES import_jobs(id) ON DELETE CASCADE,
+            ordinal INTEGER NOT NULL, path TEXT NOT NULL, locator TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending', reason TEXT NOT NULL DEFAULT '',
+            size INTEGER, sha256 TEXT NOT NULL DEFAULT '',
+            document_id INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(job_id, ordinal)
+        )""",
+        """CREATE TABLE IF NOT EXISTS import_item_errors (
+            id INTEGER PRIMARY KEY,
+            item_id INTEGER NOT NULL REFERENCES import_items(id) ON DELETE CASCADE,
+            attempt INTEGER NOT NULL, reason TEXT NOT NULL, message TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+    )),
+    (7, (
+        """CREATE TABLE IF NOT EXISTS document_versions (
+            document_id INTEGER PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+            lineage_id INTEGER NOT NULL, version INTEGER NOT NULL,
+            UNIQUE(lineage_id, version)
+        )""",
+        "INSERT INTO document_versions(document_id, lineage_id, version) SELECT id, id, 1 FROM documents",
+    )),
+    (8, (
+        """CREATE TABLE IF NOT EXISTS email_attachments (
+            document_id INTEGER PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+            email_document_id INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+            name TEXT NOT NULL, content_type TEXT NOT NULL DEFAULT '', size INTEGER
+        )""",
+    )),
+    (9, (
+        """CREATE TABLE IF NOT EXISTS tags (
+            id INTEGER PRIMARY KEY, name TEXT NOT NULL, normalized TEXT NOT NULL UNIQUE
+        )""",
+        """CREATE TABLE IF NOT EXISTS document_tags (
+            document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+            PRIMARY KEY(document_id, tag_id)
+        )""",
+        """CREATE TABLE IF NOT EXISTS rules (
+            id INTEGER PRIMARY KEY, position INTEGER NOT NULL, name TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1, source_type TEXT NOT NULL DEFAULT '',
+            path_pattern TEXT NOT NULL DEFAULT '', sender_domain TEXT NOT NULL DEFAULT '',
+            extension TEXT NOT NULL DEFAULT '', keyword TEXT NOT NULL DEFAULT '',
+            category TEXT NOT NULL DEFAULT '', tags TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE IF NOT EXISTS rule_runs (
+            id INTEGER PRIMARY KEY, status TEXT NOT NULL DEFAULT 'applied',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, reverted_at TEXT
+        )""",
+        """CREATE TABLE IF NOT EXISTS rule_run_changes (
+            run_id INTEGER NOT NULL REFERENCES rule_runs(id) ON DELETE CASCADE,
+            document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            previous_category TEXT NOT NULL, new_category TEXT NOT NULL,
+            added_tags TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY(run_id, document_id)
+        )""",
+    )),
 )
 
 
@@ -118,6 +222,106 @@ POSTGRES_MIGRATIONS = (
             PRIMARY KEY(account_id,remote_id)
         )""",
     )),
+    (5, (
+        """CREATE TABLE IF NOT EXISTS sources (
+            document_id BIGINT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+            source_type TEXT NOT NULL, account_id TEXT NOT NULL DEFAULT '',
+            locator TEXT NOT NULL DEFAULT '',
+            recorded_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """INSERT INTO sources(document_id, source_type, account_id, locator)
+            SELECT id,
+                CASE WHEN filename IS NULL THEN 'note'
+                     WHEN remote_id IS NOT NULL AND substr(remote_id, 1, 6) = 'graph:' THEN 'graph'
+                     WHEN remote_id IS NOT NULL THEN 'imap'
+                     WHEN substr(category, 1, 15) = 'E-Mail · PST · ' THEN 'pst'
+                     WHEN substr(category, 1, 9) = 'E-Mail · '
+                          AND substr(filename, length(filename) - 4) = '.json' THEN 'graph'
+                     WHEN substr(category, 1, 9) = 'E-Mail · ' THEN 'imap'
+                     ELSE 'file' END,
+                COALESCE(account_id, ''),
+                CASE WHEN filename IS NULL THEN ''
+                     WHEN remote_id IS NOT NULL THEN remote_id
+                     WHEN substr(category, 1, 15) = 'E-Mail · PST · ' THEN substr(category, 16)
+                     WHEN substr(category, 1, 9) = 'E-Mail · ' THEN ''
+                     ELSE filename END
+            FROM (SELECT d.id, d.filename, d.category,
+                    (SELECT e.remote_id FROM email_imports e WHERE e.document_id = d.id
+                     ORDER BY e.imported_at, e.account_id, e.remote_id LIMIT 1) AS remote_id,
+                    (SELECT e.account_id FROM email_imports e WHERE e.document_id = d.id
+                     ORDER BY e.imported_at, e.account_id, e.remote_id LIMIT 1) AS account_id
+                  FROM documents d) AS origin""",
+    )),
+    (6, (
+        """CREATE TABLE IF NOT EXISTS import_jobs (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, kind TEXT NOT NULL,
+            root TEXT NOT NULL DEFAULT '', category TEXT NOT NULL DEFAULT 'Allgemein',
+            status TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE IF NOT EXISTS import_items (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            job_id BIGINT NOT NULL REFERENCES import_jobs(id) ON DELETE CASCADE,
+            ordinal INTEGER NOT NULL, path TEXT NOT NULL, locator TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending', reason TEXT NOT NULL DEFAULT '',
+            size BIGINT, sha256 TEXT NOT NULL DEFAULT '',
+            document_id BIGINT REFERENCES documents(id) ON DELETE SET NULL,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(job_id, ordinal)
+        )""",
+        """CREATE TABLE IF NOT EXISTS import_item_errors (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            item_id BIGINT NOT NULL REFERENCES import_items(id) ON DELETE CASCADE,
+            attempt INTEGER NOT NULL, reason TEXT NOT NULL, message TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+    )),
+    (7, (
+        """CREATE TABLE IF NOT EXISTS document_versions (
+            document_id BIGINT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+            lineage_id BIGINT NOT NULL, version INTEGER NOT NULL,
+            UNIQUE(lineage_id, version)
+        )""",
+        "INSERT INTO document_versions(document_id, lineage_id, version) SELECT id, id, 1 FROM documents",
+    )),
+    (8, (
+        """CREATE TABLE IF NOT EXISTS email_attachments (
+            document_id BIGINT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+            email_document_id BIGINT REFERENCES documents(id) ON DELETE SET NULL,
+            name TEXT NOT NULL, content_type TEXT NOT NULL DEFAULT '', size BIGINT
+        )""",
+    )),
+    (9, (
+        """CREATE TABLE IF NOT EXISTS tags (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, name TEXT NOT NULL, normalized TEXT NOT NULL UNIQUE
+        )""",
+        """CREATE TABLE IF NOT EXISTS document_tags (
+            document_id BIGINT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            tag_id BIGINT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+            PRIMARY KEY(document_id, tag_id)
+        )""",
+        """CREATE TABLE IF NOT EXISTS rules (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, position INTEGER NOT NULL, name TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1, source_type TEXT NOT NULL DEFAULT '',
+            path_pattern TEXT NOT NULL DEFAULT '', sender_domain TEXT NOT NULL DEFAULT '',
+            extension TEXT NOT NULL DEFAULT '', keyword TEXT NOT NULL DEFAULT '',
+            category TEXT NOT NULL DEFAULT '', tags TEXT NOT NULL DEFAULT '',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE IF NOT EXISTS rule_runs (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, status TEXT NOT NULL DEFAULT 'applied',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, reverted_at TIMESTAMPTZ
+        )""",
+        """CREATE TABLE IF NOT EXISTS rule_run_changes (
+            run_id BIGINT NOT NULL REFERENCES rule_runs(id) ON DELETE CASCADE,
+            document_id BIGINT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            previous_category TEXT NOT NULL, new_category TEXT NOT NULL,
+            added_tags TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY(run_id, document_id)
+        )""",
+    )),
 )
 
 POSTGRES_APPLICATION_TABLES = {
@@ -126,8 +330,15 @@ POSTGRES_APPLICATION_TABLES = {
 
 SQLITE_TABLE_VERSIONS = {
     'documents': 1, 'chunks': 1, 'ai_runs': 1, 'settings': 2,
-    'email_accounts': 3, 'email_imports': 4,
+    'email_accounts': 3, 'email_imports': 4, 'sources': 5,
+    'import_jobs': 6, 'import_items': 6, 'import_item_errors': 6, 'document_versions': 7,
+    'email_attachments': 8, 'tags': 9, 'document_tags': 9, 'rules': 9, 'rule_runs': 9,
+    'rule_run_changes': 9,
 }
+
+# Constant SQL list of all application tables, derived from the catalog so that
+# schema checks cannot drift from the migrations.
+_APPLICATION_TABLE_LIST = ','.join(f"'{name}'" for name in sorted(SQLITE_TABLE_VERSIONS))
 
 SQLITE_COLUMNS = {
     'documents': (('id','INTEGER',0,None,1), ('title','TEXT',1,None,0),
@@ -153,12 +364,52 @@ SQLITE_COLUMNS = {
                       ('remote_id','TEXT',1,None,2),
                       ('document_id','INTEGER',1,None,0),
                       ('imported_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
+    'sources': (('document_id','INTEGER',0,None,1), ('source_type','TEXT',1,None,0),
+                ('account_id','TEXT',1,"''",0), ('locator','TEXT',1,"''",0),
+                ('recorded_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
+    'import_jobs': (('id','INTEGER',0,None,1), ('kind','TEXT',1,None,0),
+                    ('root','TEXT',1,"''",0), ('category','TEXT',1,"'Allgemein'",0),
+                    ('status','TEXT',1,None,0), ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0),
+                    ('updated_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
+    'import_items': (('id','INTEGER',0,None,1), ('job_id','INTEGER',1,None,0),
+                     ('ordinal','INTEGER',1,None,0), ('path','TEXT',1,None,0),
+                     ('locator','TEXT',1,None,0), ('status','TEXT',1,"'pending'",0),
+                     ('reason','TEXT',1,"''",0), ('size','INTEGER',0,None,0),
+                     ('sha256','TEXT',1,"''",0), ('document_id','INTEGER',0,None,0),
+                     ('attempts','INTEGER',1,'0',0),
+                     ('updated_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
+    'import_item_errors': (('id','INTEGER',0,None,1), ('item_id','INTEGER',1,None,0),
+                           ('attempt','INTEGER',1,None,0), ('reason','TEXT',1,None,0),
+                           ('message','TEXT',1,None,0),
+                           ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
+    'document_versions': (('document_id','INTEGER',0,None,1), ('lineage_id','INTEGER',1,None,0),
+                          ('version','INTEGER',1,None,0)),
+    'email_attachments': (('document_id','INTEGER',0,None,1), ('email_document_id','INTEGER',0,None,0),
+                          ('name','TEXT',1,None,0), ('content_type','TEXT',1,"''",0),
+                          ('size','INTEGER',0,None,0)),
+    'tags': (('id','INTEGER',0,None,1), ('name','TEXT',1,None,0), ('normalized','TEXT',1,None,0)),
+    'document_tags': (('document_id','INTEGER',1,None,1), ('tag_id','INTEGER',1,None,2)),
+    'rules': (('id','INTEGER',0,None,1), ('position','INTEGER',1,None,0), ('name','TEXT',1,None,0),
+              ('enabled','INTEGER',1,'1',0), ('source_type','TEXT',1,"''",0),
+              ('path_pattern','TEXT',1,"''",0), ('sender_domain','TEXT',1,"''",0),
+              ('extension','TEXT',1,"''",0), ('keyword','TEXT',1,"''",0),
+              ('category','TEXT',1,"''",0), ('tags','TEXT',1,"''",0),
+              ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
+    'rule_runs': (('id','INTEGER',0,None,1), ('status','TEXT',1,"'applied'",0),
+                  ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0), ('reverted_at','TEXT',0,None,0)),
+    'rule_run_changes': (('run_id','INTEGER',1,None,1), ('document_id','INTEGER',1,None,2),
+                         ('previous_category','TEXT',1,None,0), ('new_category','TEXT',1,None,0),
+                         ('added_tags','TEXT',1,"''",0)),
 }
 
 SQLITE_UNIQUE_CONSTRAINTS = {
     'documents': {('sha256',)}, 'chunks': {('document_id','ordinal')},
     'ai_runs': set(), 'settings': set(), 'email_accounts': set(),
-    'email_imports': set(),
+    'email_imports': set(), 'sources': set(),
+    'import_jobs': set(), 'import_items': {('job_id','ordinal')}, 'import_item_errors': set(),
+    'document_versions': {('lineage_id','version')}, 'email_attachments': set(),
+    'tags': {('normalized',)}, 'document_tags': set(), 'rules': set(), 'rule_runs': set(),
+    'rule_run_changes': set(),
 }
 
 SQLITE_FOREIGN_KEYS = {
@@ -169,6 +420,22 @@ SQLITE_FOREIGN_KEYS = {
         ('account_id','email_accounts','id','NO ACTION','CASCADE'),
         ('document_id','documents','id','NO ACTION','CASCADE'),
     },
+    'sources': {('document_id','documents','id','NO ACTION','CASCADE')},
+    'import_jobs': set(),
+    'import_items': {
+        ('job_id','import_jobs','id','NO ACTION','CASCADE'),
+        ('document_id','documents','id','NO ACTION','SET NULL'),
+    },
+    'import_item_errors': {('item_id','import_items','id','NO ACTION','CASCADE')},
+    'document_versions': {('document_id','documents','id','NO ACTION','CASCADE')},
+    'email_attachments': {('document_id','documents','id','NO ACTION','CASCADE'),
+                          ('email_document_id','documents','id','NO ACTION','SET NULL')},
+    'tags': set(),
+    'document_tags': {('document_id','documents','id','NO ACTION','CASCADE'),
+                      ('tag_id','tags','id','NO ACTION','CASCADE')},
+    'rules': set(), 'rule_runs': set(),
+    'rule_run_changes': {('run_id','rule_runs','id','NO ACTION','CASCADE'),
+                         ('document_id','documents','id','NO ACTION','CASCADE')},
 }
 
 POSTGRES_LEGACY_COLUMNS = {
@@ -208,6 +475,70 @@ POSTGRES_LEGACY_COLUMNS = {
     ('email_imports','remote_id','text','NO','NO',None,None),
     ('email_imports','document_id','bigint','NO','NO',None,None),
     ('email_imports','imported_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('sources','document_id','bigint','NO','NO',None,None),
+    ('sources','source_type','text','NO','NO',None,None),
+    ('sources','account_id','text','NO','NO',"''::text",None),
+    ('sources','locator','text','NO','NO',"''::text",None),
+    ('sources','recorded_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('import_jobs','id','bigint','NO','YES',None,'ALWAYS'),
+    ('import_jobs','kind','text','NO','NO',None,None),
+    ('import_jobs','root','text','NO','NO',"''::text",None),
+    ('import_jobs','category','text','NO','NO',"'Allgemein'::text",None),
+    ('import_jobs','status','text','NO','NO',None,None),
+    ('import_jobs','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('import_jobs','updated_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('import_items','id','bigint','NO','YES',None,'ALWAYS'),
+    ('import_items','job_id','bigint','NO','NO',None,None),
+    ('import_items','ordinal','integer','NO','NO',None,None),
+    ('import_items','path','text','NO','NO',None,None),
+    ('import_items','locator','text','NO','NO',None,None),
+    ('import_items','status','text','NO','NO',"'pending'::text",None),
+    ('import_items','reason','text','NO','NO',"''::text",None),
+    ('import_items','size','bigint','YES','NO',None,None),
+    ('import_items','sha256','text','NO','NO',"''::text",None),
+    ('import_items','document_id','bigint','YES','NO',None,None),
+    ('import_items','attempts','integer','NO','NO','0',None),
+    ('import_items','updated_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('import_item_errors','id','bigint','NO','YES',None,'ALWAYS'),
+    ('import_item_errors','item_id','bigint','NO','NO',None,None),
+    ('import_item_errors','attempt','integer','NO','NO',None,None),
+    ('import_item_errors','reason','text','NO','NO',None,None),
+    ('import_item_errors','message','text','NO','NO',None,None),
+    ('import_item_errors','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('document_versions','document_id','bigint','NO','NO',None,None),
+    ('document_versions','lineage_id','bigint','NO','NO',None,None),
+    ('document_versions','version','integer','NO','NO',None,None),
+    ('email_attachments','document_id','bigint','NO','NO',None,None),
+    ('email_attachments','email_document_id','bigint','YES','NO',None,None),
+    ('email_attachments','name','text','NO','NO',None,None),
+    ('email_attachments','content_type','text','NO','NO',"''::text",None),
+    ('email_attachments','size','bigint','YES','NO',None,None),
+    ('tags','id','bigint','NO','YES',None,'ALWAYS'),
+    ('tags','name','text','NO','NO',None,None),
+    ('tags','normalized','text','NO','NO',None,None),
+    ('document_tags','document_id','bigint','NO','NO',None,None),
+    ('document_tags','tag_id','bigint','NO','NO',None,None),
+    ('rules','id','bigint','NO','YES',None,'ALWAYS'),
+    ('rules','position','integer','NO','NO',None,None),
+    ('rules','name','text','NO','NO',None,None),
+    ('rules','enabled','integer','NO','NO','1',None),
+    ('rules','source_type','text','NO','NO',"''::text",None),
+    ('rules','path_pattern','text','NO','NO',"''::text",None),
+    ('rules','sender_domain','text','NO','NO',"''::text",None),
+    ('rules','extension','text','NO','NO',"''::text",None),
+    ('rules','keyword','text','NO','NO',"''::text",None),
+    ('rules','category','text','NO','NO',"''::text",None),
+    ('rules','tags','text','NO','NO',"''::text",None),
+    ('rules','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('rule_runs','id','bigint','NO','YES',None,'ALWAYS'),
+    ('rule_runs','status','text','NO','NO',"'applied'::text",None),
+    ('rule_runs','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('rule_runs','reverted_at','timestamp with time zone','YES','NO',None,None),
+    ('rule_run_changes','run_id','bigint','NO','NO',None,None),
+    ('rule_run_changes','document_id','bigint','NO','NO',None,None),
+    ('rule_run_changes','previous_category','text','NO','NO',None,None),
+    ('rule_run_changes','new_category','text','NO','NO',None,None),
+    ('rule_run_changes','added_tags','text','NO','NO',"''::text",None),
 }
 
 POSTGRES_LEGACY_CONSTRAINTS = {
@@ -222,6 +553,31 @@ POSTGRES_LEGACY_CONSTRAINTS = {
     ('email_imports', 'p', ('account_id', 'remote_id'), None, (), ' '),
     ('email_imports', 'f', ('account_id',), 'email_accounts', ('id',), 'c'),
     ('email_imports', 'f', ('document_id',), 'documents', ('id',), 'c'),
+    ('sources', 'p', ('document_id',), None, (), ' '),
+    ('sources', 'f', ('document_id',), 'documents', ('id',), 'c'),
+    ('import_jobs', 'p', ('id',), None, (), ' '),
+    ('import_items', 'p', ('id',), None, (), ' '),
+    ('import_items', 'u', ('job_id', 'ordinal'), None, (), ' '),
+    ('import_items', 'f', ('job_id',), 'import_jobs', ('id',), 'c'),
+    ('import_items', 'f', ('document_id',), 'documents', ('id',), 'n'),
+    ('import_item_errors', 'p', ('id',), None, (), ' '),
+    ('import_item_errors', 'f', ('item_id',), 'import_items', ('id',), 'c'),
+    ('document_versions', 'p', ('document_id',), None, (), ' '),
+    ('document_versions', 'u', ('lineage_id', 'version'), None, (), ' '),
+    ('document_versions', 'f', ('document_id',), 'documents', ('id',), 'c'),
+    ('email_attachments', 'p', ('document_id',), None, (), ' '),
+    ('email_attachments', 'f', ('document_id',), 'documents', ('id',), 'c'),
+    ('email_attachments', 'f', ('email_document_id',), 'documents', ('id',), 'n'),
+    ('tags', 'p', ('id',), None, (), ' '),
+    ('tags', 'u', ('normalized',), None, (), ' '),
+    ('document_tags', 'p', ('document_id', 'tag_id'), None, (), ' '),
+    ('document_tags', 'f', ('document_id',), 'documents', ('id',), 'c'),
+    ('document_tags', 'f', ('tag_id',), 'tags', ('id',), 'c'),
+    ('rules', 'p', ('id',), None, (), ' '),
+    ('rule_runs', 'p', ('id',), None, (), ' '),
+    ('rule_run_changes', 'p', ('run_id', 'document_id'), None, (), ' '),
+    ('rule_run_changes', 'f', ('run_id',), 'rule_runs', ('id',), 'c'),
+    ('rule_run_changes', 'f', ('document_id',), 'documents', ('id',), 'c'),
 }
 
 
@@ -289,8 +645,8 @@ def _database_file_lock(path, timeout: float = 20):
             path_lock.close()
 
 
-def _verified_sqlite_backup(db, path, version):
-    backup = path.with_name(path.name + f'.pre-migration-v{version}.bak')
+def _verified_sqlite_backup(db, path, version, suffix=None):
+    backup = path.with_name(path.name + (suffix or f'.pre-migration-v{version}.bak'))
     temporary = backup.with_name(backup.name + f'.{os.getpid()}.{uuid.uuid4().hex}.tmp')
     try:
         with closing(sqlite3.connect(temporary)) as destination:
@@ -400,6 +756,86 @@ def migrate_sqlite(path):
             validate_sqlite(db, CURRENT_SCHEMA_VERSION)
 
 
+def _document_hashes(db):
+    return db.execute('SELECT id, sha256 FROM documents ORDER BY id').fetchall()
+
+
+def _check_restored_sqlite(db, version, hashes):
+    if db.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
+        raise ValueError('Wiederhergestellte Datenbank ist beschädigt.')
+    if _sqlite_version(db) != version:
+        raise ValueError('Wiederhergestellte Datenbank hat eine falsche Version.')
+    validate_sqlite(db, version)
+    db.rollback()  # FTS integrity-check opens a read/write transaction.
+    if _document_hashes(db) != hashes:
+        raise ValueError('Dokument-Prüfsummen weichen von der Sicherung ab.')
+
+
+def restore_sqlite(path, backup):
+    """Replace the SQLite database at path with a validated backup.
+
+    The current database is first copied to a verified pre-restore backup.
+    Older schema versions are restored as-is and migrated on the next start.
+    """
+    path, backup = Path(path), Path(backup)
+    if not backup.is_file():
+        raise ValueError('Sicherungsdatei wurde nicht gefunden.')
+    if path.exists() and os.path.samefile(path, backup):
+        raise ValueError('Sicherung und Zieldatenbank müssen verschiedene Dateien sein.')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    staging = path.with_name(f'{path.name}.restore.{os.getpid()}.{uuid.uuid4().hex}.tmp')
+    try:
+        try:
+            # Copy bytes instead of opening the backup: a read-only SQLite
+            # connection to a WAL-mode file leaves -wal/-shm files beside it,
+            # and validate_sqlite writes an FTS check. A WAL sidecar is copied
+            # too so committed pages stored there are not lost.
+            shutil.copyfile(backup, staging)
+            if Path(str(backup) + '-wal').is_file():
+                shutil.copyfile(str(backup) + '-wal', str(staging) + '-wal')
+            with closing(sqlite3.connect(staging)) as check:
+                version = _sqlite_version(check)
+                if version < 1 or version > CURRENT_SCHEMA_VERSION:
+                    raise ValueError('Sicherung hat keine unterstützte Schemaversion.')
+                if check.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
+                    raise ValueError('Sicherung ist beschädigt.')
+                validate_sqlite(check, version)
+                check.rollback()
+                hashes = _document_hashes(check)
+        except sqlite3.DatabaseError:
+            raise ValueError('Sicherung ist keine lesbare SQLite-Datenbank.') from None
+        with _database_file_lock(path):
+            existed = path.exists()
+            with closing(sqlite3.connect(path, timeout=20)) as target:
+                safety = None
+                if existed:
+                    try:
+                        safety = _verified_sqlite_backup(
+                            target, path, _sqlite_version(target),
+                            f'.pre-restore-{time.strftime("%Y%m%d-%H%M%S")}'
+                            f'-{uuid.uuid4().hex[:8]}.bak')
+                    except (sqlite3.DatabaseError, ValueError):
+                        # ponytail: a damaged target is not overwritten; the user
+                        # renames it and restores into a fresh path instead.
+                        raise ValueError('Aktuelle Datenbank ist nicht lesbar und wird nicht '
+                                         'überschrieben. Datei umbenennen und Wiederherstellung '
+                                         'erneut ausführen.') from None
+                try:
+                    with closing(sqlite3.connect(staging)) as source:
+                        source.backup(target)
+                    _check_restored_sqlite(target, version, hashes)
+                except Exception:
+                    if safety is not None:
+                        with closing(sqlite3.connect(safety)) as previous:
+                            previous.backup(target)
+                    raise
+    finally:
+        for suffix in ('', '-wal', '-shm', '-journal'):
+            Path(str(staging) + suffix).unlink(missing_ok=True)
+    return {'version': version, 'documents': len(hashes),
+            'safety_backup': str(safety) if safety else None}
+
+
 def _value(row, name, index=0):
     if row is None:
         return None
@@ -424,9 +860,8 @@ def _validate_postgres_schema(db, version, legacy=False):
 +        is_identity, column_default, identity_generation
 +        FROM information_schema.columns
 +        WHERE table_schema='wissensraum'
-+          AND table_name IN ('documents','chunks','ai_runs','settings',
-+                             'email_accounts','email_imports')
-+        ORDER BY table_name, ordinal_position""".replace('\n+', '\n')).fetchall()
++          AND table_name IN (""".replace('\n+', '\n') + _APPLICATION_TABLE_LIST + """)
+        ORDER BY table_name, ordinal_position""").fetchall()
     actual_columns = {
         (_value(row, 'table_name'), _value(row, 'column_name', 1),
          _value(row, 'data_type', 2), _value(row, 'is_nullable', 3),
@@ -451,8 +886,7 @@ def _validate_postgres_schema(db, version, legacy=False):
         JOIN pg_catalog.pg_namespace ns ON ns.oid=rel.relnamespace
         LEFT JOIN pg_catalog.pg_class referenced ON referenced.oid=con.confrelid
         WHERE ns.nspname='wissensraum' AND con.contype IN ('p','u','f','c','x')
-          AND rel.relname IN ('documents','chunks','ai_runs','settings',
-                              'email_accounts','email_imports')""").fetchall()
+          AND rel.relname IN (""" + _APPLICATION_TABLE_LIST + ')').fetchall()
     actual_constraints = {
         (_value(row, 'table_name'), _value(row, 'constraint_type', 1),
          tuple(_value(row, 'columns', 2) or ()), _value(row, 'referenced_table', 3),
@@ -508,22 +942,23 @@ def migrate_postgres(db, lock_timeout_seconds=POSTGRES_LOCK_TIMEOUT_SECONDS, *, 
     tables = {_value(row, 'table_name') for row in rows}
     if 'schema_migrations' not in tables:
         if tables == POSTGRES_APPLICATION_TABLES:
-            _validate_postgres_schema(db, CURRENT_SCHEMA_VERSION, legacy=True)
+            _validate_postgres_schema(db, POSTGRES_LEGACY_SCHEMA_VERSION, legacy=True)
             db.execute("""CREATE TABLE wissensraum.schema_migrations (
                 version INTEGER PRIMARY KEY,
                 applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
             )""")
-            for target in range(1, CURRENT_SCHEMA_VERSION + 1):
+            for target in range(1, POSTGRES_LEGACY_SCHEMA_VERSION + 1):
                 db.execute('INSERT INTO wissensraum.schema_migrations(version) VALUES(?)',
                            (target,))
-            return
-        if tables:
+            version = POSTGRES_LEGACY_SCHEMA_VERSION
+        elif tables:
             raise ValueError('Unversioniertes PostgreSQL-Schema enthält unerwartete Tabellen.')
-        version = 0
-        db.execute("""CREATE TABLE wissensraum.schema_migrations (
-            version INTEGER PRIMARY KEY,
-            applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )""")
+        else:
+            version = 0
+            db.execute("""CREATE TABLE wissensraum.schema_migrations (
+                version INTEGER PRIMARY KEY,
+                applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )""")
     else:
         history_rows = db.execute(
             'SELECT version FROM wissensraum.schema_migrations ORDER BY version').fetchall()

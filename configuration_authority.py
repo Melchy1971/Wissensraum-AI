@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
+import sys
 import threading
 import time
 import uuid
@@ -177,11 +178,37 @@ def _sync_directory(path):
         kernel32.CloseHandle(handle)
 
 
+def _linux_birth_time_ns(path):
+    """Return the Linux statx creation time, or None if the filesystem lacks it."""
+    # ponytail: statx via libc because os.statx only exists from Python 3.15;
+    # replace with os.statx once 3.15 is the minimum version.
+    import ctypes
+    import struct
+    try:
+        statx = ctypes.CDLL(None, use_errno=True).statx
+    except (OSError, AttributeError):
+        return None
+    statx_btime = 0x800
+    buffer = ctypes.create_string_buffer(256)
+    if statx(-100, os.fsencode(path), 0, statx_btime, buffer) != 0:
+        return None
+    if not struct.unpack_from('=I', buffer, 0)[0] & statx_btime:
+        return None
+    seconds, nanoseconds = struct.unpack_from('=qI', buffer, 80)
+    return seconds * 1_000_000_000 + nanoseconds
+
+
 def _filesystem_binding(path):
     status = Path(path).stat()
     binding = {'device': str(status.st_dev), 'inode': str(status.st_ino)}
     if os.name == 'nt':
         binding['created_ns'] = str(status.st_ctime_ns)
+    elif sys.platform.startswith('linux'):
+        # Inode numbers are reused after unlink; creation time detects a
+        # replaced database file at the same path without opening SQL.
+        created_ns = _linux_birth_time_ns(path)
+        if created_ns is not None:
+            binding['created_ns'] = str(created_ns)
     return binding
 
 

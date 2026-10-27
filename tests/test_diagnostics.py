@@ -1,6 +1,8 @@
 import json
 import os
+import shutil
 import sqlite3
+from contextlib import closing
 import subprocess
 import sys
 import tempfile
@@ -11,6 +13,7 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from migrations import CURRENT_SCHEMA_VERSION
 from diagnostics import (
     DiagnosticResult,
     check_active_database,
@@ -20,6 +23,7 @@ from diagnostics import (
     check_python,
     check_tcl_tk,
     format_diagnostics,
+    health_overview,
     run_diagnostics,
 )
 
@@ -38,6 +42,10 @@ def make_v1_sqlite(path):
     store = Store(path)
     store.add('Altbestand', 'Unveränderte Suche in Schema Version eins')
     with store.connect() as connection:
+        for table in ('rule_run_changes', 'rule_runs', 'rules', 'document_tags', 'tags',
+                      'email_attachments', 'document_versions', 'import_item_errors', 'import_items', 'import_jobs',
+                      'sources'):
+            connection.execute(f'DROP TABLE {table}')
         connection.execute('DROP TABLE email_imports')
         connection.execute('DROP TABLE email_accounts')
         connection.execute('DROP TABLE settings')
@@ -440,13 +448,21 @@ class DiagnosticTests(unittest.TestCase):
     def test_legacy_sqlite_versions_warn_without_mutation_then_migrate(self):
         from core import Store
         from database import DatabaseSettings
-        for version in (1, 2, 3):
+        for version in (1, 2, 3, 4, 5, 6, 7, 8):
             with self.subTest(version=version), tempfile.TemporaryDirectory() as folder:
                 path = Path(folder) / 'wissen.db'
                 store = Store(path)
                 store.add('Altbestand', f'Migration Version {version}')
                 with store.connect() as connection:
-                    connection.execute('DROP TABLE email_imports')
+                    for table in ('rule_run_changes', 'rule_runs', 'rules', 'document_tags', 'tags'):
+                        connection.execute(f'DROP TABLE {table}')
+                    if version < 8: connection.execute('DROP TABLE email_attachments')
+                    if version < 7: connection.execute('DROP TABLE document_versions')
+                    if version < 6:
+                        for table in ('import_item_errors', 'import_items', 'import_jobs'):
+                            connection.execute(f'DROP TABLE {table}')
+                    if version < 5: connection.execute('DROP TABLE sources')
+                    if version < 4: connection.execute('DROP TABLE email_imports')
                     if version < 3: connection.execute('DROP TABLE email_accounts')
                     if version < 2: connection.execute('DROP TABLE settings')
                     connection.execute(f'PRAGMA user_version={version}')
@@ -459,7 +475,11 @@ class DiagnosticTests(unittest.TestCase):
                 self.assertEqual(sqlite_schema_snapshot(path), before)
                 migrated = Store(path)
                 with migrated.connect() as connection:
-                    self.assertEqual(connection.execute('PRAGMA user_version').fetchone()[0], 4)
+                    self.assertEqual(connection.execute('PRAGMA user_version').fetchone()[0],
+                                     CURRENT_SCHEMA_VERSION)
+                    self.assertEqual(tuple(connection.execute(
+                        'SELECT source_type,account_id,locator FROM sources').fetchall()[0]),
+                        ('note', '', ''))
                 self.assertEqual(migrated.search('Migration')[0]['title'], 'Altbestand')
 
     def test_sqlite_v1_health_executes_real_write_at_custom_path_and_rolls_it_back(self):
@@ -485,14 +505,18 @@ class DiagnosticTests(unittest.TestCase):
 
             self.assertEqual(result.status, 'WARN')
             self.assertEqual(result.details, {'backend': 'SQLite'})
-            self.assertIn('Schema 4', result.message)
+            self.assertIn(f'Schema {CURRENT_SCHEMA_VERSION}', result.message)
             self.assertIn(path.resolve().as_uri() + '?mode=rw', connect_targets)
             self.assertIn('BEGIN IMMEDIATE', traced)
             self.assertTrue(any(statement.startswith('INSERT INTO documents') for statement in traced))
             self.assertIn('ROLLBACK', traced)
             self.assertEqual(sqlite_content_snapshot(path), before)
-            self.assertEqual(store.search('Unveränderte')[0]['title'], 'Altbestand')
-            self.assertEqual(list(path.parent.glob('legacy.db-*')), [])
+            self.assertEqual(list(path.parent.glob('legacy.db-*')), [])  # before our own connection below
+            with closing(sqlite3.connect(path)) as connection:  # unmigrated: query the v1 index directly
+                self.assertEqual(connection.execute(
+                    'SELECT d.title FROM search_index JOIN chunks c ON c.id=search_index.rowid '
+                    "JOIN documents d ON d.id=c.document_id WHERE search_index MATCH 'Unveränderte'"
+                    ).fetchone()[0], 'Altbestand')
 
     def test_sqlite_v1_health_fails_closed_when_document_write_is_denied(self):
         from database import DatabaseSettings
@@ -523,7 +547,7 @@ class DiagnosticTests(unittest.TestCase):
     def test_sqlite_health_rejects_newer_and_incompatible_legacy_schema(self):
         from core import Store
         from database import DatabaseSettings
-        for version,corrupt in ((5,False),(2,True)):
+        for version,corrupt in ((CURRENT_SCHEMA_VERSION + 1,False),(2,True)):
             with self.subTest(version=version), tempfile.TemporaryDirectory() as folder:
                 path = Path(folder) / 'wissen.db'
                 Store(path)
@@ -583,6 +607,7 @@ class DiagnosticTests(unittest.TestCase):
                 settings=DatabaseSettings(Path(folder),types.SimpleNamespace(get=lambda *_:None),environ={})
                 self.assertEqual(check_active_database(settings,path).status,'FAIL')
 
+    @unittest.skipUnless(shutil.which('sh'), 'sh nicht im Suchpfad; unter Windows Git Bash in PATH aufnehmen')
     def test_shell_launcher_uses_supported_existing_venv_without_system_python(self):
         root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as folder:
@@ -614,6 +639,7 @@ class DiagnosticTests(unittest.TestCase):
             self.assertIn('-m pip install -r requirements.txt', calls)
             self.assertIn('app.py', calls)
 
+    @unittest.skipUnless(shutil.which('sh'), 'sh nicht im Suchpfad; unter Windows Git Bash in PATH aufnehmen')
     def test_shell_launcher_gates_venv_creation_on_supported_system_python(self):
         root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as folder:
@@ -642,6 +668,7 @@ class DiagnosticTests(unittest.TestCase):
             self.assertIn('sys.version_info', log.read_text(encoding='utf-8'))
             self.assertFalse((work / '.venv').exists())
 
+    @unittest.skipUnless(shutil.which('sh'), 'sh nicht im Suchpfad; unter Windows Git Bash in PATH aufnehmen')
     def test_shell_launcher_rejects_unsupported_existing_venv_without_system_fallback(self):
         root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as folder:
@@ -781,6 +808,67 @@ class DiagnosticTests(unittest.TestCase):
                          '[PASS] python: Python ok. (version=3.13.7)\n'
                          '[FAIL] database: Datenbank prüfen. (backend=SQLite)\n'
                          'Ergebnis: 1 bestanden, 0 Warnungen, 1 fehlgeschlagen.')
+
+
+class HealthOverviewTests(unittest.TestCase):
+    def setUp(self):
+        # The overview includes the optional OCR; its state is fixed here so that these tests do
+        # not depend on whether and how Tesseract is installed on the test computer.
+        not_installed = {'available': False, 'reason': 'packages', 'version': '', 'languages': [],
+                         'message': 'OCR-Erweiterung nicht installiert.'}
+        self.enterContext(patch('ocr.status', return_value=not_installed))
+
+    class Vault:
+        def __init__(self, secrets=None):
+            self.secrets = dict(secrets or {})
+
+        def get(self, name):
+            return self.secrets.get(name)
+
+    def build(self, secrets=None, provider='openai'):
+        from core import Store
+        from importer import MailAccounts
+        from settings import Settings
+        folder = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        store = Store(folder / 'wissen.db')
+        store.add('Dokument', 'Inhalt')
+        with store.connect() as db:
+            db.execute("INSERT INTO settings(name,value) VALUES('active_provider',?)", (provider,))
+            db.execute("INSERT INTO email_accounts(id,label,provider,email,username) "
+                       "VALUES('a','Arbeit','gmail','a@example.test','a@example.test')")
+        vault = self.Vault(secrets)
+        return store, Settings(store, folder, vault, environ={}), MailAccounts(store, vault, folder)
+
+    def test_missing_ai_key_and_mail_secret_are_warnings_without_secret_values(self):
+        from settings import PROVIDERS
+        store, settings, accounts = self.build()
+        with patch('urllib.request.urlopen', side_effect=AssertionError('network')), \
+                patch('imaplib.IMAP4_SSL', side_effect=AssertionError('network')):
+            results = health_overview(store, settings, accounts, PROVIDERS)
+        self.assertEqual([(r.check_id, r.status) for r in results[:3]],
+                         [('database', 'PASS'), ('ai_provider', 'WARN'), ('mail_accounts', 'WARN')])
+        self.assertEqual((results[3].check_id, results[3].status), ('ocr', 'PASS'))  # not installed is valid
+        self.assertEqual(results[0].details['documents'], 1)
+        self.assertIn('Arbeit', results[2].message)
+
+    def test_configured_state_passes_and_never_exposes_keys(self):
+        from settings import PROVIDERS
+        secret = 'sk-GEHEIM-1234567890'
+        store, settings, accounts = self.build({'openai': secret, 'mail:a': 'app-passwort'})
+        text = format_diagnostics(health_overview(store, settings, accounts, PROVIDERS))
+        self.assertNotIn('FAIL', text.split('Ergebnis')[0])
+        self.assertNotIn('WARN', text.split('Ergebnis')[0])
+        self.assertNotIn(secret, text)
+        self.assertNotIn('app-passwort', text)
+
+    def test_ollama_needs_no_key_and_broken_store_fails_closed(self):
+        from settings import PROVIDERS
+        store, settings, accounts = self.build(provider='ollama')
+        self.assertEqual(health_overview(store, settings, accounts, PROVIDERS)[1].status, 'PASS')
+        with patch.object(store, 'connect', side_effect=OSError('kaputt')):
+            results = health_overview(store, settings, accounts, PROVIDERS)
+        self.assertEqual(results[0].status, 'FAIL')
+        self.assertEqual(results[2].status, 'FAIL')
 
 
 if __name__ == '__main__':

@@ -7,7 +7,11 @@ from settings import Settings
 from settings import SystemVault
 from database import DatabaseSettings, resolve_sqlite_path
 from configuration_authority import ConfigurationAuthority, identity_for_profile
-from diagnostics import DiagnosticResult, format_diagnostics, run_diagnostics
+from diagnostics import DiagnosticResult, format_diagnostics, health_overview, run_diagnostics
+from importer import Importer, MailAccounts
+from import_jobs import ImportJobs
+import mail_cleanup
+import rules
 from configuration import (APPLY_ERROR, EXPORT_ERROR, ConfigurationTransfer,
                            ConfigurationTransferError, RECOVERY_ERROR,
                            pending_configuration_recovery,
@@ -71,8 +75,36 @@ def main(argv=None):
     parser.add_argument('--db',type=Path,help='Lokale SQLite-Datei; überschreibt die konfigurierte Datenquelle')
     commands = parser.add_subparsers(dest='command',required=True)
     commands.add_parser('doctor')
+    commands.add_parser('status',help='Gesundheit von Datenbank, aktiver KI und E-Mail-Konten anzeigen')
     commands.add_parser('config-sync')
-    commands.add_parser('list')
+    listing = commands.add_parser('list')
+    listing.add_argument('--all-versions',action='store_true',help='auch ältere Versionen anzeigen')
+    listing.add_argument('--tag',help='nur Dokumente mit diesem Tag')
+    commands.add_parser('tags',help='Alle Tags mit Anzahl der Dokumente')
+    commands.add_parser('rules',help='Regeln für Bereich und Tags in ihrer Reihenfolge anzeigen')
+    rule_add = commands.add_parser('rule-add',help='Regel anlegen (mindestens eine Bedingung, Bereich oder Tags)')
+    rule_add.add_argument('name')
+    for option in ('source-type','path-pattern','sender-domain','extension','keyword','category','tags'):
+        rule_add.add_argument('--'+option,default='')
+    rule_delete = commands.add_parser('rule-delete',help='Regel löschen; gesetzte Bereiche und Tags bleiben')
+    rule_delete.add_argument('rule_id',type=int)
+    commands.add_parser('rules-preview',help='Zeigen, was die Regeln an vorhandenen Dokumenten ändern würden')
+    rules_apply = commands.add_parser('rules-apply',help='Regeln auf vorhandene Dokumente anwenden (als Lauf)')
+    rules_apply.add_argument('--confirm',action='store_true',help='Änderungen wirklich übernehmen')
+    commands.add_parser('rules-runs',help='Angewendete Läufe anzeigen')
+    rules_revert = commands.add_parser('rules-revert',help='Lauf vollständig zurücknehmen')
+    rules_revert.add_argument('run_id',type=int)
+    versions = commands.add_parser('versions',help='Alle Versionen eines Dokuments anzeigen')
+    versions.add_argument('id',type=int)
+    strip = commands.add_parser('strip-mail-attachments',
+                                help='Anhänge aus vor Schritt 6.3a gespeicherten IMAP-Originalen entfernen')
+    strip.add_argument('--dry-run',action='store_true',help='nur zählen, nichts ändern')
+    strip.add_argument('--backup-confirmed',action='store_true',
+                       help='PostgreSQL: eine aktuelle pg_dump-Sicherung liegt vor')
+    commands.add_parser('ocr-status',help='Optionale Texterkennung: Tesseract-Version und Sprachen')
+    commands.add_parser('retry-no-text',help='Quarantäne „kein lesbarer Text“ erneut verarbeiten (z. B. nach OCR-Installation)')
+    preview = commands.add_parser('preview',help='Datei oder Ordner prüfen, ohne etwas zu speichern')
+    preview.add_argument('path',type=Path)
     imp = commands.add_parser('import')
     imp.add_argument('path',type=Path)
     imp.add_argument('--category',default='Allgemein')
@@ -83,6 +115,8 @@ def main(argv=None):
     for name in ('search','ask'):
         sub = commands.add_parser(name)
         sub.add_argument('query')
+        if name == 'search':
+            sub.add_argument('--tag',help='nur Dokumente mit diesem Tag')
     summary = commands.add_parser('summarize')
     summary.add_argument('id',type=int)
     backup = commands.add_parser('backup')
@@ -113,6 +147,31 @@ def main(argv=None):
                     'Konfigurationswiederherstellung ist ausstehend; Anwendung normal starten.', {}))
             print(format_diagnostics(results))
             return 1 if any(result.status == 'FAIL' for result in results) else 0
+        if args.command == 'restore':
+            if recovery_pending:
+                raise ConfigurationTransferError(RECOVERY_ERROR,'CONFIG_IMPORT_RECOVERY_INCOMPLETE')
+            if args.db is None and database_settings.profile()['backend'] != 'sqlite':
+                raise ValueError('Wiederherstellung ist nur für SQLite verfügbar; '
+                                 'PostgreSQL wird auf dem Server mit pg_restore wiederhergestellt.')
+            if args.confirm != sqlite_path.name:
+                raise ValueError(f'Bestätigung erforderlich: --confirm {sqlite_path.name}')
+            logger = create_operational_logger(BASE,'cli')
+            metadata={'operation':args.command,'backend':'sqlite'}
+            _log_event(logger,'command_started',metadata=metadata)
+            try:
+                result = restore_sqlite(sqlite_path,args.source)
+                if args.db is None:
+                    # Restored settings and accounts replace the cached authority.
+                    ConfigurationAuthority(BASE).synchronize(Store(sqlite_path))
+                print(json.dumps(result,ensure_ascii=False,indent=2))
+                _log_event(logger,'command_completed',metadata=metadata)
+                return 0
+            except Exception as error:
+                _log_event(logger,'command_failed',severity='ERROR',metadata=metadata,
+                           exception_class=safe_exception_class(error),error_code='CLI_COMMAND_FAILED')
+                raise
+            finally:
+                _close_logger(logger)
         if args.command != 'config-export':
             recover_pending_configuration(BASE,database_settings,sqlite_path)
         if args.command == 'config-export':
@@ -144,7 +203,24 @@ def main(argv=None):
         _log_event(logger,'command_started',metadata=metadata)
         try:
             if args.command == 'list':
-                result = store.list()
+                result = store.list(all_versions=args.all_versions,tag=args.tag)
+            elif args.command in RULE_COMMANDS:
+                result = rule_command(store,args)
+            elif args.command == 'ocr-status':
+                import ocr
+                result = ocr.status()
+            elif args.command == 'retry-no-text':
+                jobs = ImportJobs(store,Importer(store,MailAccounts(store,vault,BASE)))
+                result = [jobs.run(job_id) for job_id in jobs.retry_quarantined('no_text')]
+            elif args.command == 'strip-mail-attachments':
+                result = mail_cleanup.strip_stored_attachments(store,dry_run=args.dry_run,
+                                                               backup_confirmed=args.backup_confirmed)
+            elif args.command == 'versions':
+                result = store.versions(args.id)
+            elif args.command == 'preview':
+                jobs = ImportJobs(store)
+                result = (jobs.preview_folder(args.path) if args.path.is_dir()
+                          else jobs.preview_files([args.path]))
             elif args.command == 'config-sync':
                 ConfigurationAuthority(BASE).synchronize(store)
                 result = {'status':'synchronisiert','restart_required':False}
@@ -159,7 +235,7 @@ def main(argv=None):
                 if args.report:
                     _write_import_report(args.report, report, args.report_format)
             elif args.command == 'search':
-                result = store.search(args.query)
+                result = store.search(args.query,tag=args.tag)
             elif args.command == 'backup':
                 store.backup(args.target)
                 result = {'backup':str(args.target)}

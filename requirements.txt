@@ -4,3 +4,6 @@ keyring==25.7.0
 msal==1.39.0
 psycopg[binary]==3.3.6
 Pillow==12.3.0
+openpyxl==3.1.5
+python-pptx==1.0.2
+striprtf==0.0.35

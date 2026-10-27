@@ -82,7 +82,7 @@ class DatabaseSettings:
             value=json.loads(self.path.read_text(encoding='utf-8'))
         except FileNotFoundError:
             return {}
-        except (OSError,UnicodeError,json.JSONDecodeError):
+        except (OSError,UnicodeError,json.JSONDecodeError,RecursionError):
             raise ValueError('Datenbankkonfiguration ist nicht lesbar; data/database.json prüfen.') from None
         if type(value) is not dict or not all(type(key) is str for key in value):
             raise ValueError('Datenbankkonfiguration ist ungültig; data/database.json prüfen.')
@@ -310,7 +310,7 @@ class DatabaseSettings:
                 from core import _PostgresConnection
                 from migrations import (CURRENT_SCHEMA_VERSION,
                                         _acquire_postgres_migration_lock,
-                                        migrate_postgres)
+                                        _postgres_expected_tables, migrate_postgres)
                 with connection.transaction():
                     db=_PostgresConnection(connection)
                     _acquire_postgres_migration_lock(db)
@@ -319,8 +319,7 @@ class DatabaseSettings:
                     rows=db.execute(
                         "SELECT table_name FROM information_schema.tables WHERE table_schema='wissensraum' ORDER BY table_name").fetchall()
                     tables=[row['table_name'] if isinstance(row,dict) else row[0] for row in rows]
-                    required={'documents','chunks','ai_runs','settings','email_accounts',
-                              'email_imports','schema_migrations'}
+                    required=_postgres_expected_tables(CURRENT_SCHEMA_VERSION)|{'schema_migrations'}
                     version_row=db.execute(
                         'SELECT MAX(version) AS version FROM wissensraum.schema_migrations').fetchone()
                     version=version_row['version'] if isinstance(version_row,dict) else version_row[0]

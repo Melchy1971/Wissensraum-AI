@@ -38,10 +38,10 @@ class DesignSettings:
     def values(self):
         try:
             values=json.loads(self.path.read_text(encoding='utf-8'))
-        except (OSError,ValueError,TypeError):
+        except (OSError,ValueError,TypeError,RecursionError):
             values={}
-        theme=values.get('theme','light')
-        return {'theme':theme if theme in THEMES else 'light'}
+        theme=values.get('theme') if type(values) is dict else None
+        return {'theme':theme if type(theme) is str and theme in THEMES else 'light'}
 
     def theme(self):
         return self.values()['theme']
@@ -83,14 +83,20 @@ class DesignSettings:
                 image.load()
                 normalized=image.convert('RGBA')
                 normalized.thumbnail(self.LOGO_SIZE,Image.Resampling.LANCZOS)
-                self.directory.mkdir(parents=True,exist_ok=True)
-                temporary=self.directory/'logo.tmp.png'
-                normalized.save(temporary,format='PNG',optimize=True)
-                temporary.replace(self.logo_path)
         except ValueError:
             raise
         except (OSError,UnidentifiedImageError):
             raise ValueError('Die Datei ist kein lesbares PNG-, JPG- oder WebP-Bild.') from None
+        temporary=self.directory/f'logo.tmp-{uuid.uuid4().hex}.png'
+        try:
+            self.directory.mkdir(parents=True,exist_ok=True)
+            normalized.save(temporary,format='PNG',optimize=True)
+            temporary.replace(self.logo_path)
+        except OSError:
+            raise ValueError('Logo konnte nicht gespeichert werden; Speicherplatz und Schreibrechte prüfen. '
+                             'Das bisherige Logo bleibt erhalten.') from None
+        finally:
+            temporary.unlink(missing_ok=True)
         return self.logo_path
 
     def remove_logo(self):

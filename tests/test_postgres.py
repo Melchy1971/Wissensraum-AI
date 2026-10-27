@@ -3,6 +3,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import json
 import os
+import shutil
+import subprocess
 import time
 import tempfile
 import unittest
@@ -18,7 +20,8 @@ from configuration import (ConfigurationTransfer, ConfigurationTransferError,
 from database import DatabaseSettings
 from design import DesignSettings
 from importer import MailAccounts
-from migrations import CURRENT_SCHEMA_VERSION, migrate_postgres
+from migrations import CURRENT_SCHEMA_VERSION, POSTGRES_MIGRATIONS, migrate_postgres
+from test_migrations import SOURCE_FIXTURE, fixture_sources, insert_source_fixture
 from settings import Settings
 from test_settings import FakeVault
 
@@ -114,6 +117,295 @@ class PostgresStoreTests(unittest.TestCase):
              self.assertRaisesRegex(ValueError, 'zurückgesetzt'):
             settings.reset_postgresql(self.profile, self.password, self.profile['database'])
         self.assertEqual(store.get(document_id)['title'], 'Vor Reset')
+
+    def _create_version_4_with_source_fixture(self, versioned):
+        with self._raw_connect() as connection:
+            with connection.transaction():
+                connection.execute('SELECT pg_advisory_xact_lock(%s)', (MIGRATION_LOCK_ID,))
+                connection.execute('CREATE SCHEMA wissensraum')
+                connection.execute('SET LOCAL search_path TO wissensraum')
+                for target, statements in POSTGRES_MIGRATIONS:
+                    if target <= 4:
+                        for statement in statements:
+                            connection.execute(statement)
+                if versioned:
+                    connection.execute('''CREATE TABLE schema_migrations (
+                        version INTEGER PRIMARY KEY,
+                        applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+                    for target in range(1, 5):
+                        connection.execute('INSERT INTO schema_migrations(version) VALUES(%s)',
+                                           (target,))
+                connection.execute("INSERT INTO email_accounts(id,label,provider,email,username) "
+                                   "VALUES('konto','Alt','imap','alt@example.test','alt@example.test')")
+                insert_source_fixture(_PostgresConnection(connection))
+
+    def _assert_source_fixture_backfilled(self):
+        with self._raw_connect() as connection:
+            connection.execute('SET search_path TO wissensraum')
+            sources, (documents, rows) = fixture_sources(connection)
+            history = [row[0] for row in connection.execute(
+                'SELECT version FROM schema_migrations ORDER BY version')]
+        self.assertEqual(sources, {title: source for title, *_, source in SOURCE_FIXTURE})
+        self.assertEqual(documents, rows)
+        self.assertEqual(history, list(range(1, CURRENT_SCHEMA_VERSION + 1)))
+
+    def test_version_4_schema_backfills_sources_on_real_postgresql(self):
+        self._create_version_4_with_source_fixture(versioned=True)
+        PostgresStore(self.profile, self.password)
+        self._assert_source_fixture_backfilled()
+
+    def test_unversioned_legacy_schema_is_adopted_then_backfilled(self):
+        self._create_version_4_with_source_fixture(versioned=False)
+        PostgresStore(self.profile, self.password)
+        self._assert_source_fixture_backfilled()
+
+    def test_add_records_one_source_per_document_on_real_postgresql(self):
+        store = PostgresStore(self.profile, self.password)
+        note, _ = store.add('Notiz', 'PG Notiz')
+        file, _ = store.add('Datei', 'PG Datei', filename='ordner/a.md', original=b'a')
+        mail, _ = store.add('Mail', 'PG Mail', 'E-Mail · Arbeit', 'Mail.eml', b'm',
+                            ('imap', 'konto', 'imap:INBOX:1'))
+        self.assertEqual(store.add('Kopie', 'PG Notiz', filename='b.md'), (note, False))
+        with self.assertRaises(ValueError):
+            store.add('Falsch', 'PG Falsch', source=('ftp', '', ''))
+        with store.connect() as db:
+            rows = {row['document_id']: (row['source_type'], row['account_id'], row['locator'])
+                    for row in db.execute('SELECT * FROM sources')}
+        self.assertEqual(rows, {note: ('note', '', ''), file: ('file', '', 'ordner/a.md'),
+                                mail: ('imap', 'konto', 'imap:INBOX:1')})
+        store.delete(file)
+        with store.connect() as db:
+            self.assertEqual(db.execute('SELECT count(*) AS total FROM sources').fetchone()['total'], 2)
+
+    def _backup_snapshot(self):
+        with self._raw_connect() as connection:
+            connection.execute('SET search_path TO wissensraum')
+            query = lambda sql: [tuple(row) for row in connection.execute(sql)]
+            return {
+                'documents': query('SELECT id, sha256, original FROM documents ORDER BY id'),
+                'chunks': query('SELECT document_id, ordinal, content FROM chunks ORDER BY id'),
+                'sources': query('SELECT document_id, source_type, account_id, locator '
+                                 'FROM sources ORDER BY document_id'),
+                'ai_runs': query('SELECT question, answer, sources_json FROM ai_runs ORDER BY id'),
+                'settings': query('SELECT name, value FROM settings ORDER BY name'),
+                'history': query('SELECT version FROM schema_migrations ORDER BY version'),
+            }
+
+    def test_documented_pg_dump_restore_round_trip_preserves_knowledge_base(self):
+        # Runs exactly the commands documented in README.md (PostgreSQL-Sicherung).
+        tools = {name: shutil.which(name, path=os.environ.get('PGTEST_PG_BIN') or None)
+                 for name in ('pg_dump', 'pg_restore', 'psql')}
+        if not all(tools.values()):
+            if os.environ.get('PGTEST_REQUIRE_PG_TOOLS') == '1':
+                self.fail('pg_dump/pg_restore/psql fehlen, obwohl PGTEST_REQUIRE_PG_TOOLS=1 gesetzt ist')
+            self.skipTest('pg_dump/pg_restore/psql nicht verfügbar')
+        store = PostgresStore(self.profile, self.password)
+        store.add('Notiz', 'Sicherung Notiz')
+        store.add('Datei', 'Sicherung Datei', filename='ordner/a.pdf', original=b'%PDF\x00\xff')
+        store.add('Mail', 'Sicherung Mail', 'E-Mail · Arbeit', 'Mail.eml', b'raw',
+                  ('imap', 'konto', 'imap:INBOX:1'))
+        store.log('ask', 'Frage', 'Antwort [Q1]', [{'title': 'Notiz'}], 'modell')
+        with store.connect() as db:
+            db.execute("INSERT INTO settings(name,value) VALUES('active_provider','ollama')")
+        before = self._backup_snapshot()
+        connection = ['--host', self.profile['host'], '--port', str(self.profile['port']),
+                      '--username', self.profile['username'], '--dbname', self.profile['database']]
+        environment = {**os.environ, 'PGPASSWORD': self.password}
+        with tempfile.TemporaryDirectory() as folder:
+            dump = str(Path(folder) / 'wissensraum.dump')
+            run = lambda *args: subprocess.run(args, env=environment, check=True,
+                                               capture_output=True, text=True, timeout=120)
+            run(tools['pg_dump'], *connection, '--schema=wissensraum', '--format=custom',
+                '--file', dump)
+            self.assertIn('TABLE DATA wissensraum documents', run(tools['pg_restore'], '--list', dump).stdout)
+            run(tools['psql'], *connection, '-c', 'DROP SCHEMA wissensraum CASCADE')
+            run(tools['pg_restore'], *connection, '--single-transaction', '--exit-on-error',
+                '--no-owner', dump)
+        restored = PostgresStore(self.profile, self.password)
+        restored.health()
+        self.assertEqual(self._backup_snapshot(), before)
+        self.assertEqual({hit['title'] for hit in restored.search('Sicherung')}, {'Notiz', 'Datei', 'Mail'})
+        new_id, created = restored.add('Neu', 'Nach Wiederherstellung')
+        self.assertTrue(created)
+        self.assertGreater(new_id, max(row[0] for row in before['documents']))
+
+    def test_import_job_with_cancel_resume_and_crash_recovery_on_real_postgresql(self):
+        import threading
+        import import_fixtures as fx
+        from import_jobs import ImportJobs
+        store = PostgresStore(self.profile, self.password)
+        jobs = ImportJobs(store)
+        with tempfile.TemporaryDirectory() as folder:
+            folder = Path(folder)
+            for name, data in {'a.txt': b'PG Auftrag eins', 'b.pdf': fx.pdf_with_text('PG Auftrag zwei'),
+                               'c.docx': fx.docx_with_text('PG Auftrag drei'), 'd.exe': b'MZ',
+                               'e.txt': b'PG Auftrag eins'}.items():
+                (folder / name).write_bytes(data)
+            job_id = jobs.create_for_folder(folder)
+            cancel = threading.Event()
+            self.assertEqual(jobs.run(job_id, cancel, lambda done, total, _: cancel.set())['status'], 'cancelled')
+            real_add = store.add
+            def add_then_crash(*args, **kwargs):
+                real_add(*args, **kwargs)
+                raise KeyboardInterrupt
+            with patch.object(store, 'add', side_effect=add_then_crash):
+                with self.assertRaises(KeyboardInterrupt):
+                    jobs.run(job_id)
+            summary = jobs.run(job_id)
+            report = jobs.write_report(job_id, folder / 'bericht.csv').read_text(encoding='utf-8-sig')
+        self.assertEqual((summary['status'], summary['imported'], summary['duplicate'], summary['quarantined']),
+                         ('completed', 3, 1, 1))
+        with store.connect() as db:
+            self.assertEqual(db.execute('SELECT count(*) AS total FROM documents').fetchone()['total'], 3)
+            self.assertEqual(db.execute('SELECT count(*) AS total FROM sources').fetchone()['total'], 3)
+        self.assertIn('Dateityp nicht unterstützt', report)
+        first = jobs.items(job_id)[0]
+        store.delete(first['document_id'])
+        self.assertIsNone(jobs.items(job_id)[0]['document_id'])
+
+    def test_document_versions_preview_and_current_search_on_real_postgresql(self):
+        from import_jobs import ImportJobs
+        store = PostgresStore(self.profile, self.password)
+        jobs = ImportJobs(store)
+        with tempfile.TemporaryDirectory() as folder:
+            folder = Path(folder)
+            (folder / 'plan.txt').write_text('Plan Altwert Budget', encoding='utf-8')
+            first_job = jobs.create_for_folder(folder)
+            self.assertEqual(jobs.run(first_job)['imported'], 1)
+            (folder / 'plan.txt').write_text('Plan Neuwert Budget', encoding='utf-8')
+            with store.connect() as db:
+                before = db.execute('SELECT (SELECT count(*) FROM documents) AS d,'
+                                    '(SELECT count(*) FROM document_versions) AS v').fetchone()
+            preview = jobs.preview_folder(folder)
+            with store.connect() as db:
+                after = db.execute('SELECT (SELECT count(*) FROM documents) AS d,'
+                                   '(SELECT count(*) FROM document_versions) AS v').fetchone()
+            self.assertEqual(after, before)
+            self.assertEqual((preview[0]['outcome'], preview[0]['version'], preview[0]['type']), ('version', 2, 'txt'))
+            self.assertEqual(jobs.run(jobs.create_for_folder(folder))['versioned'], 1)
+        current = store.list()
+        self.assertEqual([row['version'] for row in current], [2])
+        versions = store.versions(current[0]['id'])
+        self.assertEqual([row['version'] for row in versions], [2, 1])
+        self.assertEqual(store.get(versions[1]['id'])['content'], 'Plan Altwert Budget')
+        self.assertEqual({row['document_id'] for row in store.search('Budget')}, {current[0]['id']})
+        self.assertEqual(store.search('Altwert'), [])
+        self.assertEqual([row['document_id'] for row in store.search('Altwert', all_versions=True)],
+                         [versions[1]['id']])
+        store.delete(current[0]['id'])
+        self.assertEqual([row['id'] for row in store.list()], [versions[1]['id']])
+
+    def test_released_mail_attachment_is_linked_on_real_postgresql(self):
+        import import_fixtures as fx
+        from importer import Importer, MailAccounts
+        from mail_fakes import FakeGraph, graph_attachment
+        from test_settings import FakeVault
+        store = PostgresStore(self.profile, self.password)
+        with tempfile.TemporaryDirectory() as folder:
+            accounts = MailAccounts(store, FakeVault(), Path(folder))
+            account_id = accounts.save({'label': 'M365', 'provider': 'microsoft', 'email': 'm@example.test',
+                                        'username': 'm@example.test',
+                                        'client_id': '11111111-2222-3333-4444-555555555555'})
+            accounts.microsoft_token = lambda _: 'token'
+            pdf = fx.pdf_with_text('PG Anhang Lieferschein')
+            graph = FakeGraph({'MSG=': ({'subject': 'PG Lieferung', 'from': {'emailAddress': {'address': 'a@example.test'}},
+                                         'toRecipients': [], 'receivedDateTime': '2026-10-23T10:00:00Z',
+                                         'body': {'contentType': 'text', 'content': 'Lieferung anbei.'}},
+                                        [graph_attachment('A1', 'lieferschein.pdf', 'application/pdf', pdf)])})
+            importer = Importer(store, accounts)
+            self.assertEqual(importer.import_microsoft_ids(account_id, ['MSG='], transport=graph)['attachments_imported'], 0)
+            self.assertEqual(graph.content_requests(), [])
+            first = importer.import_microsoft_ids(account_id, [], transport=graph, attachments={'MSG=': ['A1']})
+            again = importer.import_microsoft_ids(account_id, [], transport=graph, attachments={'MSG=': ['A1']})
+        self.assertEqual((first['attachments_imported'], again['attachments_duplicates']), (1, 1))
+        with store.connect() as db:
+            link = db.execute('SELECT * FROM email_attachments').fetchall()
+            email_id = db.execute("SELECT document_id FROM sources WHERE source_type='graph'").fetchone()['document_id']
+        self.assertEqual([(row['email_document_id'], row['name'], row['size']) for row in link],
+                         [(email_id, 'lieferschein.pdf', len(pdf))])
+        self.assertEqual(store.get(link[0]['document_id'])['original'], pdf)
+        self.assertTrue(importer.preview_microsoft(account_id, transport=graph)[0]['attachments'][0]['imported'])
+        store.delete(email_id)
+        with store.connect() as db:
+            self.assertIsNone(db.execute('SELECT email_document_id FROM email_attachments').fetchone()['email_document_id'])
+
+    def test_pst_job_and_attachment_cleanup_on_real_postgresql(self):
+        import import_fixtures as fx
+        import mail_cleanup
+        from import_jobs import ImportJobs
+        from importer import Importer, MailAccounts
+        from mail_fakes import FakePstArchive, mail
+        from test_settings import FakeVault
+        store = PostgresStore(self.profile, self.password)
+        pdf = fx.pdf_with_text('PG Archivanhang')
+        archive = FakePstArchive([(mail('PG Archiv', 'Archivtext.'), [('anhang.pdf', 'application/pdf', pdf)])])
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'archiv.pst'; path.write_bytes(b'!BDN')
+            importer = Importer(store, MailAccounts(store, FakeVault(), Path(folder)))
+            importer._pst_archive = lambda p, factory=None: archive
+            jobs = ImportJobs(store, importer)
+            job_id = importer.create_pst_job(jobs, path, importer.preview_pst(path), {'2100': ['0']})
+            self.assertEqual(jobs.run(job_id)['imported'], 2)
+            self.assertEqual(archive.read_log, ['anhang.pdf'])
+            raw = mail('PG Altmail', 'Alter Text.', [('alt.pdf', 'application/pdf', pdf)])
+            old_id, _ = importer._add_email(raw, 'Arbeit', ('imap', '', 'imap:INBOX:1'))
+        with self.assertRaisesRegex(ValueError, 'pg_dump'):
+            mail_cleanup.strip_stored_attachments(store)
+        self.assertEqual(store.get(old_id)['original'], raw)
+        result = mail_cleanup.strip_stored_attachments(store, backup_confirmed=True)
+        self.assertEqual((result['changed'], result['backup']), (1, ''))
+        self.assertIn(b'X-Wissensraum-Anhaenge-nicht-gespeichert: 1', store.get(old_id)['original'])
+
+    def test_new_formats_import_as_job_on_real_postgresql(self):
+        import import_fixtures as fx
+        from import_jobs import ImportJobs
+        store = PostgresStore(self.profile, self.password)
+        jobs = ImportJobs(store)
+        with tempfile.TemporaryDirectory() as folder:
+            folder = Path(folder)
+            files = {'seite.html': fx.html_doc('PG HTML Inhalt'), 'brief.rtf': fx.rtf_doc('PG RTF Inhalt'),
+                     'liste.xlsx': fx.xlsx_with_text('PG XLSX Inhalt'), 'vortrag.pptx': fx.pptx_with_text('PG PPTX Inhalt'),
+                     'nachricht.eml': fx.eml_with_attachment('PG EML Inhalt'), 'geschuetzt.xlsx': fx.office_cfb()}
+            for name, data in files.items():
+                (folder / name).write_bytes(data)
+            summary = jobs.run(jobs.create_for_folder(folder))
+        self.assertEqual((summary['imported'], summary['quarantined']), (5, 1))
+        for word in ('HTML', 'RTF', 'XLSX', 'PPTX', 'EML'):
+            self.assertTrue(store.search(f'PG {word} Inhalt'), word)
+        with store.connect() as db:
+            original = db.execute('SELECT d.original FROM documents d JOIN sources s ON s.document_id=d.id '
+                                  'WHERE s.locator LIKE ?', ('%nachricht.eml',)).fetchone()['original']
+        self.assertNotIn(b'ANHANGSINHALT-EML', bytes(original))
+
+    def test_rules_tags_and_reverted_runs_on_real_postgresql(self):
+        from test_rules import import_and_rules_scenario
+        with tempfile.TemporaryDirectory() as folder:
+            import_and_rules_scenario(self, PostgresStore(self.profile, self.password), Path(folder))
+
+    def test_mail_sync_on_real_postgresql(self):
+        from import_jobs import ImportJobs
+        from importer import Importer, MailAccounts
+        from mail_fakes import FakeImapServer, mail
+        from mail_sync import MailSync
+        from test_settings import FakeVault
+        store = PostgresStore(self.profile, self.password)
+        with tempfile.TemporaryDirectory() as folder:
+            accounts = MailAccounts(store, FakeVault(), Path(folder))
+            importer = Importer(store, accounts)
+            account_id = accounts.save({'label': 'Arbeit', 'provider': 'imap', 'email': 'm@example.test',
+                                        'username': 'm', 'host': 'imap.example.test', 'port': 993}, 'geheim')
+            server = FakeImapServer({1: mail('Alt', 'Vorher.')})
+            real = importer._imap_login
+            importer._imap_login = lambda account, folder_, factory=None: real(account, folder_, server.client)
+            now = [1000.0]
+            sync = MailSync(store, importer, ImportJobs(store, importer), lambda: now[0])
+            sync.activate(account_id, 15)
+            server.raw['2'] = mail('Neu', 'Nachher.')
+            now[0] += 15 * 60
+            self.assertEqual(sync.run_due()[account_id]['imported'], 1)
+            now[0] += 15 * 60
+            self.assertEqual(sync.run_due()[account_id]['imported'], 0)
+        self.assertEqual([row['title'] for row in store.list()], ['Neu'])
 
     def test_malformed_legacy_schema_is_rejected_without_stamp(self):
         with self._raw_connect() as connection:
@@ -228,7 +520,8 @@ class PostgresStoreTests(unittest.TestCase):
                 with self.subTest(table=table):
                     self.assertFalse(db.execute(
                         f"SELECT 1 FROM wissensraum.{table} "
-                        f"WHERE {column} LIKE '.wissensraum_health_probe_%' LIMIT 1").fetchone())
+                        f"WHERE {column} LIKE ? LIMIT 1",
+                        ('.wissensraum_health_probe_%',)).fetchone())
 
         document_id, created = store.add(
             'PostgreSQL Test', 'Freigabe für den PostgreSQL Integrationslauf.',
@@ -245,7 +538,7 @@ class PostgresStoreTests(unittest.TestCase):
         accounts=MailAccounts(store,vault,Path(authority_temp.name))
         account_id=accounts.save({'label':'Testkonto','provider':'gmail','email':'test@example.com',
             'username':'test@example.com','host':'imap.gmail.com','port':'993','client_id':'','tenant':'common'},
-            'synthetic-app-password')
+            'abcdefghijklmnop')
         with store.connect() as db:
             db.execute('INSERT INTO email_imports(account_id,remote_id,document_id) VALUES(?,?,?)',
                        (account_id, 'imap:INBOX:1', document_id))
@@ -259,8 +552,10 @@ class PostgresStoreTests(unittest.TestCase):
         reset = DatabaseSettings(Path.cwd(), vault, environ={}).reset_postgresql(
             self.profile, self.password, self.profile['database'])
         self.assertEqual(reset['tables'], [
-            'ai_runs', 'chunks', 'documents', 'email_accounts', 'email_imports',
-            'schema_migrations', 'settings'])
+            'ai_runs', 'chunks', 'document_tags', 'document_versions', 'documents', 'email_accounts',
+            'email_attachments', 'email_imports',
+            'import_item_errors', 'import_items', 'import_jobs', 'rule_run_changes', 'rule_runs', 'rules',
+            'schema_migrations', 'settings', 'sources', 'tags'])
         with PostgresStore(self.profile, self.password).connect() as db:
             data_tables = [table for table in reset['tables'] if table != 'schema_migrations']
             self.assertTrue(all(db.execute(
