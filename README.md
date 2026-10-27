@@ -43,7 +43,7 @@ Python 3.11 bis 3.13 mit Tkinter voraussetzen, anschließend `sh start.sh` ausf�
 | Datenbank | Lokales SQLite oder aktivierbares PostgreSQL auf einem VPS; Fremdschlüssel, Transaktionen und Volltextsuche |
 | Dokumente | TXT, Markdown, textbasierte PDF, DOCX einschließlich Tabellen, HTML, RTF, XLSX (alle Tabellenblätter), PPTX (Folien, Tabellen, Notizen) und gespeicherte E-Mails (EML); mit optionaler lokaler Texterkennung auch Bilder und gescannte PDFs; Einzeldateien oder rekursiver Ordnerimport |
 | E-Mail | Gmail und sonstige IMAP-Konten im Nur-Lesen-Modus; Microsoft 365/Outlook über OAuth 2.0 und Microsoft Graph |
-| Outlook-Archive | Lokaler PST-Import über die optionale `libratom`-Erweiterung |
+| Outlook-Archive | Lokaler PST-Import über die optionale Erweiterung `libpff-python` |
 | Originale | Binärdateien als BLOB in SQL; Export über die Oberfläche |
 | Herkunft | Tabelle `sources` mit genau einer Quelle je Dokument: Quelltyp (`note`, `file`, `pst`, `imap`, `graph`), Konto-ID bei IMAP/Graph und Fundort (relativer Pfad, PST-Name, `imap:<Ordner>:<UID>`, `graph:<ID>`). Bei Dubletten bleibt die erste Quelle erhalten. |
 | Notizen | Titel, frei wählbarer Bereich, Inhalt |
@@ -340,6 +340,6 @@ Microsoft-Konten verwenden OAuth 2.0 und Microsoft Graph. Dafür wird einmalig e
 
 ### Outlook-PST
 
-PST-Verarbeitung benötigt `libratom` und dessen lokale C-Bibliothek. Unter Windows einmal `install-pst-support.bat` ausführen. Falls die Installation scheitert, die **C++ Build Tools für Visual Studio** installieren und das Skript erneut starten. Anschließend im Reiter **Import** die PST-Datei auswählen. Die Verarbeitung erfolgt lokal; Outlook selbst ist nicht erforderlich.
+PST-Verarbeitung benötigt `libpff-python` (Modul `pypff`, LGPL-3.0-or-later). Unter Windows einmal `install-pst-support.bat` ausführen. Das Paket bringt fertige Builds für Python 3.11 bis 3.13 mit, Build-Werkzeuge sind nicht nötig. Bis 27.10.2026 lief die PST-Verarbeitung über `libratom`; dessen letzte Version von 2022 verlangt numpy 1.23.5, das sich unter Python 3.12 und 3.13 nicht installieren lässt. Anschließend im Reiter **Import** die PST-Datei auswählen. Die Verarbeitung erfolgt lokal; Outlook selbst ist nicht erforderlich.
 
 Kontokennwörter, App-Passwörter und Microsoft-Token werden im nativen Betriebssystem-Schlüsselspeicher verwaltet. SQLite enthält nur Kontometadaten. Beim Entfernen eines Kontos werden dessen gespeicherte Zugangsdaten entfernt; bereits importierte E-Mails bleiben in der Wissensdatenbank.

@@ -21,7 +21,7 @@ if errorlevel 1 (
 .venv\Scripts\python.exe -m pip install -r requirements-pst.txt
 if errorlevel 1 (
   echo.
-  echo Installation fehlgeschlagen. Fuer libratom werden unter Windows C++ Build Tools benoetigt.
+  echo Installation fehlgeschlagen. Internetverbindung pruefen und erneut starten.
   pause
   exit /b 1
 )

@@ -17,6 +17,7 @@ import uuid
 from contextlib import contextmanager
 from core import MAX_DOCUMENT_BYTES, ImportRejected, extract_document
 import mail_structure
+from pst_archive import attachment_name
 from configuration_authority import (CONFIGURATION_OPERATION_BUSY, ConfigurationAuthority,
                                      configuration_operation_lock, store_identity)
 
@@ -718,8 +719,9 @@ class Importer:
         limit=self._limit(limit)
         if archive_factory is None:
             try:
-                from libratom.lib.pff import PffArchive
-                archive_factory=PffArchive
+                import pypff  # noqa: F401  (libpff-python)
+                from pst_archive import PstArchive
+                archive_factory=PstArchive
             except ImportError:
                 raise ValueError('PST-Unterstützung fehlt. install-pst-support.bat im Programmordner ausführen.') from None
         report={'found':0,'imported':0,'duplicates':0,'errors':0}
@@ -744,8 +746,9 @@ class Importer:
             raise ValueError('Eine vorhandene Outlook-PST-Datei auswählen.')
         if archive_factory is None:
             try:
-                from libratom.lib.pff import PffArchive
-                archive_factory=PffArchive
+                import pypff  # noqa: F401  (libpff-python)
+                from pst_archive import PstArchive
+                archive_factory=PstArchive
             except ImportError:
                 raise ValueError('PST-Unterstützung fehlt. install-pst-support.bat im Programmordner ausführen.') from None
         return archive_factory(path)
@@ -760,7 +763,7 @@ class Importer:
         import mimetypes
         items=[]
         for index,attachment in enumerate(getattr(message,'attachments',None) or ()):
-            name=getattr(attachment,'name',None) or f'Anhang-{index+1}'
+            name=attachment_name(attachment) or f'Anhang-{index+1}'
             items.append({'id':str(index),'name':name,'content_type':mimetypes.guess_type(name)[0] or '',
                           'size':int(getattr(attachment,'size',0) or 0)})
         return items
@@ -921,7 +924,7 @@ class Importer:
                     if int(index)>=len(attachments):
                         raise ValueError('Anhang wurde nicht gefunden.')
                     attachment=attachments[int(index)]
-                    name=getattr(attachment,'name',None) or f'Anhang-{int(index)+1}'
+                    name=attachment_name(attachment) or f'Anhang-{int(index)+1}'
                     size=int(getattr(attachment,'size',0) or 0)
                     if size>MAX_DOCUMENT_BYTES:  # rejected before reading
                         raise ImportRejected('too_large','Anhang überschreitet das Limit von 20 MB.')
@@ -960,7 +963,7 @@ class Importer:
 
     @staticmethod
     def _pst_attachment_names(archive,message):
-        """Names, types and sizes from libratom metadata; attachment content is not read (step 6.3b)."""
+        """Names, types and sizes from the attachment metadata; attachment content is not read (step 6.3b)."""
         metadata=getattr(archive,'get_attachment_metadata',None)
         if metadata is None:
             return []

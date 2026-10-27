@@ -127,7 +127,7 @@ Die Annahmen werden vor Beginn eines Mehrbenutzer- oder Serverbetriebs neu bewer
 | Desktop-Oberfläche | Deutsche Tkinter-Oberfläche mit Hauptnavigation und kontrolliertem Beenden | Produktiv nutzbar |
 | Lokale Dokumente | TXT, Markdown, textbasierte PDF und DOCX | Produktiv nutzbar |
 | Ordnerimport | Rekursiv, relative Pfade, keine Verfolgung symbolischer Links | Produktiv nutzbar |
-| PST | Optional über `libratom` | Eingeschränkt durch lokale Systemabhängigkeiten |
+| PST | Optional über `libpff-python` (seit 27.10.2026, vorher `libratom`) | Fertige Builds für Windows, Linux und macOS |
 | E-Mail | Gmail/IMAP sowie Microsoft Graph, zweistufige Importfreigabe | Funktionsfähig, keine Anhänge |
 | Dubletten | SHA-256 über normalisierten extrahierten Text | Exakte Inhaltsdubletten |
 | Suche | Lexikalische Volltextsuche: SQLite mit BM25, PostgreSQL mit `ts_rank_cd` | Funktionsfähig, keine Semantik |

@@ -246,7 +246,7 @@ class FakePstMessage:
 
 
 class FakePstArchive:
-    """PST archive like libratom's PffArchive; ``read_log`` lists every attachment content read."""
+    """PST archive like pst_archive.PstArchive; ``read_log`` lists every attachment content read."""
 
     def __init__(self, messages):
         self.read_log = []
