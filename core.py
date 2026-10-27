@@ -28,12 +28,68 @@ SCHEMA = ('PRAGMA foreign_keys = ON;\n' + '\n'.join(
     ', content TEXT NOT NULL, UNIQUE(document_id, ordinal)')
 
 SUPPORTED_DOCUMENT_SUFFIXES = frozenset({'.txt', '.md', '.pdf', '.docx'})
+SEMANTIC_STOPWORDS = frozenset({
+    'und', 'oder', 'die', 'der', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einer', 'eines',
+    'mit', 'nach', 'für', 'auf', 'im', 'in', 'am', 'an', 'zu', 'von', 'wer', 'was', 'wie', 'wo',
+    'ist', 'sind', 'war', 'sowie', 'auch', 'nur', 'nicht', 'kein', 'keine'
+})
+SEMANTIC_SYNONYMS = {
+    'zustimmung': {'freigabe', 'genehmigung', 'genehmigt', 'zustimmen', 'freigegeben'},
+    'genehmigung': {'freigabe', 'genehmigt', 'zustimmung', 'zustimmen', 'freigegeben'},
+    'genehmigt': {'freigabe', 'genehmigung', 'zustimmung', 'freigegeben'},
+    'genehmigen': {'freigabe', 'genehmigung', 'zustimmung', 'freigegeben'},
+    'freigabe': {'genehmigung', 'zustimmung', 'genehmigt', 'freigegeben'},
+    'freigeben': {'genehmigung', 'zustimmung', 'genehmigt', 'freigegeben'},
+    'erteilt': {'gibt', 'gibt', 'genehmigt', 'freigibt', 'freigabe'},
+    'erteilen': {'gibt', 'genehmigt', 'freigibt', 'freigabe'},
+    'gibt': {'erteilt', 'genehmigt', 'freigibt', 'freigabe'},
+    'verantwortlich': {'führungskraft', 'verantwortlicher', 'genehmiger'},
+    'verantwortlicher': {'führungskraft', 'verantwortlich', 'genehmiger'},
+    'führungskraft': {'verantwortlicher', 'verantwortlich', 'leiter'},
+    'antrag': {'anträge', 'beantragung', 'ticket'},
+    'anträge': {'antrag', 'beantragung', 'ticket'},
+    'prüfung': {'prüfen', 'kontrolle', 'check'},
+    'prüfen': {'prüfung', 'kontrolle', 'check'},
+}
+
 
 def chunks(text: str, size: int = 1800, overlap: int = 200):
     for start in range(0, len(text), size-overlap):
         yield text[start:start+size]
         if start+size >= len(text):
             break
+
+
+def _semantic_terms(text):
+    return [term.casefold() for term in re.findall(r'\w+', text, re.UNICODE) if len(term) > 2]
+
+
+def _semantic_rank_rows(rows, query, limit):
+    query_terms = [term for term in _semantic_terms(query) if term not in SEMANTIC_STOPWORDS]
+    if not query_terms:
+        query_terms = _semantic_terms(query)
+    if not query_terms:
+        return []
+    expanded = set(query_terms)
+    for term in query_terms:
+        expanded.update(SEMANTIC_SYNONYMS.get(term, ()))
+    ranked = []
+    for row in rows:
+        row = dict(row)
+        corpus_terms = set(_semantic_terms(f"{row.get('title', '')} {row.get('category', '')} {row.get('content', '')}"))
+        title_terms = set(_semantic_terms(row.get('title', '')))
+        exact = len(set(query_terms) & corpus_terms)
+        semantic = len(expanded & corpus_terms)
+        title_match = len(set(query_terms) & title_terms) + len(expanded & title_terms) * 0.5
+        retrieval_score = round(exact + semantic * 0.6 + title_match * 0.8, 4)
+        reranking_score = round(exact * 2 + semantic * 0.8 + title_match * 1.5, 4)
+        if retrieval_score <= 0 and reranking_score <= 0:
+            continue
+        row['retrieval_score'] = retrieval_score
+        row['reranking_score'] = reranking_score
+        ranked.append(row)
+    ranked.sort(key=lambda row: (-row['reranking_score'], -row['retrieval_score'], row.get('document_id', 0), row.get('chunk_id', 0)))
+    return ranked[:limit]
 
 
 class Store:
@@ -260,7 +316,8 @@ class Store:
                   FROM search_index JOIN chunks c ON c.id=search_index.rowid
                   JOIN documents d ON d.id=c.document_id WHERE search_index MATCH ?
                   ORDER BY rank,c.id LIMIT ?''', (fts, max(1, min(limit, 30)))).fetchall()
-            return [dict(r) for r in rows]
+        ranked = _semantic_rank_rows(rows, query, limit)
+        return ranked if ranked else [dict(r) for r in rows]
 
     def log(self, kind, question, answer, sources, model):
         with self.connect() as db:

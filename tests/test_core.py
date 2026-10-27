@@ -35,6 +35,14 @@ class KnowledgeTests(unittest.TestCase):
         self.assertTrue(self.store.search('Einkauf'))
         self.assertTrue(self.store.search('Prozess'))
 
+    def test_search_uses_semantic_fallback_for_synonyms(self):
+        doc_id,_ = self.store.add('Freigabeprozess','Die Führungskraft genehmigt Anträge nach Prüfung.')
+        hits = self.store.search('Wer erteilt die Zustimmung?')
+        self.assertTrue(hits)
+        self.assertEqual(hits[0]['document_id'], doc_id)
+        self.assertIn('retrieval_score', hits[0])
+        self.assertIn('reranking_score', hits[0])
+
     def test_delete_removes_fts_and_preserves_other_document(self):
         a,_ = self.store.add('A','Sonderwort Freigabe')
         b,_ = self.store.add('B','Sport Turnier')
