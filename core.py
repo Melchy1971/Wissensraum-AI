@@ -176,18 +176,29 @@ class VectorIndex:
                 'WHERE v.chunk_id IS NULL ORDER BY c.id LIMIT ?',
                 (_vector_model(model), max(1, min(int(limit), 1000))))]
 
+    def vector_counts(self, model):
+        """(chunks with a vector of ``model``, all chunks)."""
+        with self.connect() as db:
+            row = db.execute('SELECT (SELECT count(*) FROM chunk_vectors WHERE model=?) AS done,'
+                             '(SELECT count(*) FROM chunks) AS total', (_vector_model(model),)).fetchone()
+        return int(row['done']), int(row['total'])
+
     def save_vectors(self, model, vectors):
-        """Store ``{chunk_id: values}``; all vectors of one call must share their dimension."""
+        """Store ``{chunk_id: values}``; all vectors of one call must share their dimension.
+
+        Chunks deleted in the meantime are skipped, so a background run never fails on them.
+        """
         model = _vector_model(model)
         rows = [(int(chunk_id), *pack_vector(values)) for chunk_id, values in vectors.items()]
         if len({dimension for _, _, dimension in rows}) > 1:
             raise ValueError('Vektoren mit unterschiedlicher Dimension.')
         with self.connect() as db:
             db.executemany(
-                'INSERT INTO chunk_vectors(chunk_id,model,dimension,vector) VALUES(?,?,?,?) '
+                'INSERT INTO chunk_vectors(chunk_id,model,dimension,vector) '
+                'SELECT ?,?,?,? WHERE EXISTS (SELECT 1 FROM chunks WHERE id=?) '
                 'ON CONFLICT(chunk_id) DO UPDATE SET model=excluded.model,'
                 'dimension=excluded.dimension,vector=excluded.vector',
-                [(chunk_id, model, dimension, blob) for chunk_id, blob, dimension in rows])
+                [(chunk_id, model, dimension, blob, chunk_id) for chunk_id, blob, dimension in rows])
         return len(rows)
 
     def vector_search(self, model, query, limit=8, all_versions=False, tag=None):

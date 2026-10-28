@@ -37,6 +37,9 @@ def check_vector_contract(case, store):
                                                 by_title['Erste Fassung']: axis(2),
                                                 by_title['Zweite Fassung']: axis(2, tilt=0.5)}), 4)
     case.assertEqual(store.pending_vectors(MODEL), [])
+    case.assertEqual(store.vector_counts(MODEL), (4, 4))
+    store.save_vectors(MODEL, {999_999: axis(0)})  # chunk deleted meanwhile: skipped, no error
+    case.assertEqual(store.vector_counts(MODEL), (4, 4))
 
     hits = store.vector_search(MODEL, axis(0, tilt=0.2), limit=2)
     case.assertEqual([hit['title'] for hit in hits], ['Heizung', 'Auto'])

@@ -100,6 +100,12 @@ def main(argv=None):
     strip.add_argument('--backup-confirmed',action='store_true',
                        help='PostgreSQL: eine aktuelle pg_dump-Sicherung liegt vor')
     commands.add_parser('ocr-status',help='Optionale Texterkennung: Tesseract-Version und Sprachen')
+    vectors = commands.add_parser('vectors',help='Semantische Suche: Status, Aktivierung und Einbettung über lokales Ollama')
+    vector_action = vectors.add_mutually_exclusive_group()
+    vector_action.add_argument('--activate',action='store_true',help='aktivieren (prüft einmal das Ollama-Modell)')
+    vector_action.add_argument('--deactivate',action='store_true')
+    vector_action.add_argument('--run',action='store_true',help='alle Abschnitte ohne Vektor jetzt einbetten')
+    vectors.add_argument('--model',help='Ollama-Modell beim Aktivieren (Standard qwen3-embedding:0.6b)')
     commands.add_parser('retry-no-text',help='Quarantäne „kein lesbarer Text“ erneut verarbeiten (z. B. nach OCR-Installation)')
     preview = commands.add_parser('preview',help='Datei oder Ordner prüfen, ohne etwas zu speichern')
     preview.add_argument('path',type=Path)
@@ -213,6 +219,8 @@ def main(argv=None):
             elif args.command == 'ocr-status':
                 import ocr
                 result = ocr.status()
+            elif args.command == 'vectors':
+                result = vector_command(store,args)
             elif args.command == 'retry-no-text':
                 jobs = ImportJobs(store,Importer(store,MailAccounts(store,vault,BASE)))
                 result = [jobs.run(job_id) for job_id in jobs.retry_quarantined('no_text')]
@@ -284,6 +292,30 @@ def main(argv=None):
         else:
             message = str(e)
         parser.exit(1,f'Fehler: {message}\n')
+
+def vector_command(store, args):
+    from vector_sync import VectorSync
+    sync = VectorSync(store)
+    if args.activate:
+        sync.activate(args.model)
+    elif args.deactivate:
+        sync.deactivate()
+    elif args.run:
+        state = sync.run()
+        embedded = state['embedded']
+        while not state['failed'] and state['embedded'] and sync.store.pending_vectors(state['model'], limit=1):
+            state = sync.run()
+            embedded += state['embedded']
+        if state['failed']:
+            raise ValueError(state['last_result'])
+    state = sync.config()
+    done, total = sync.progress()
+    result = {'aktiv': state['enabled'], 'modell': state['model'], 'eingebettet': done, 'abschnitte': total,
+              'letztes_ergebnis': state['last_result']}
+    if args.run:
+        result['in_diesem_lauf'] = embedded
+    return result
+
 
 if __name__ == '__main__':
     raise SystemExit(main())

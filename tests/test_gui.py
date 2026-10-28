@@ -538,6 +538,31 @@ class InterfaceTests(unittest.TestCase):
         panel.deactivate()
         self.assertIn('ist aus',panel.status.get())
 
+    def test_semantic_search_is_off_until_activated_and_embeds_from_the_timer(self):
+        from test_vector_sync import FakeEmbedder
+        import time
+        FakeEmbedder.calls, FakeEmbedder.offline = [], False
+        window=self.window
+        panel=window.vector_panel
+        panel.sync.embedder=FakeEmbedder
+        window.store.add('Heizung','Wartung im März')
+        panel.load()
+        self.assertIn('ist aus. 0 von 1',panel.status.get())
+        panel.tick()
+        self.assertFalse(panel.running)
+        self.assertEqual(FakeEmbedder.calls,[])  # nothing is sent before activation
+        panel.activate(); self.wait_until_idle(window)
+        self.assertIn('Aktiv mit qwen3-embedding:0.6b. 0 von 1',panel.status.get())
+        panel.tick()
+        deadline=time.monotonic()+20
+        while (panel.running or panel.pending is None) and time.monotonic()<deadline:
+            time.sleep(0.02)
+        panel.poll()
+        self.assertIn('1 von 1 Abschnitten eingebettet',panel.status.get())
+        self.assertEqual(window.status.get(),'Semantische Suche: 1 Abschnitte eingebettet')
+        panel.deactivate()
+        self.assertIn('ist aus. 1 von 1',panel.status.get())
+
     def test_database_profile_is_stored_without_password(self):
         window=self.window
         values={'host':'db.example.test','port':'5432','database':'wissen_test','username':'test_user',

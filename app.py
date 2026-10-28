@@ -16,6 +16,7 @@ import mail_cleanup
 import rules
 from rules_view import RulesPage
 from sync_view import SyncPanel
+from vector_view import VectorPanel
 from settings import Settings, SystemVault, PROVIDERS
 from database import DatabaseSettings, resolve_sqlite_path
 from diagnostics import DiagnosticResult, format_diagnostics, health_overview, run_diagnostics
@@ -1189,6 +1190,7 @@ class App(tk.Tk if tk is not None else object):
         self.settings_help=ttk.Label(frame,text='Modell-IDs sind bearbeitbar; Modellzugriff hängt vom Anbieter ab. Verbindungstests können API-Kosten verursachen. '
                   'Schlüssel werden nicht in der Wissensdatenbank gespeichert. Entfernen deaktiviert auch vorhandene Datei-/Umgebungsschlüssel für diese Anwendung.')
         self.settings_help.pack(anchor='w',fill='x',pady=(5,0))
+        self.vector_panel=VectorPanel(self,frame)
         self.refresh_settings()
         self.build_database_settings()
         self.build_mail_settings()
