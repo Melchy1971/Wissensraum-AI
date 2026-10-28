@@ -8,13 +8,21 @@
 
 **Repository:** `Melchy1971/Wissensraum-AI`
 
-**Geprüfte Codebasis:** Letzter Stand mit Gate `6e1a9e3` (28.10.2026, Evaluationsdatensatz 7.1, ohne Produktcodeänderung). Letzter produktcodewirksamer Stand `5ca9021`. Lokales Matrix-Gate `tests/local_ci.py`: 7 von 7 Jobs grün an `5ca9021`, `4ef9545` und `6e1a9e3` (D-015, GitHub Actions ohne Budget). Vorheriger Abnahmestand `84f9ecf`: CI-Lauf [40185408996](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40185408996): alle sieben Jobs grün. Release 2.0 wurde am 26.10.2026 mit eigenen Daten abgenommen; nachfolgende Commits bis zu dieser Planaktualisierung betreffen ausschließlich README und Masterplan.
+**Geprüfte Codebasis:** Letzter codewirksamer Stand `ebd2475` (28.10.2026, Schritt 7.2a, Schemaversion 10). Lokales Matrix-Gate `tests/local_ci.py`: 7 von 7 Jobs grün an `5ca9021`, `4ef9545`, `6e1a9e3` und `ebd2475` (D-015, GitHub Actions ohne Budget). Vorheriger Abnahmestand `84f9ecf`: CI-Lauf [40185408996](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40185408996): alle sieben Jobs grün. Release 2.0 wurde am 26.10.2026 mit eigenen Daten abgenommen; nachfolgende Commits bis zu dieser Planaktualisierung betreffen ausschließlich README und Masterplan.
 
 **Ablage:** Einziger Masterplan ist diese Datei `masterplan.md`. Die frühere Kopie `docs/masterplan.md` wurde am 22.10.2026 entfernt.
 
-**Status:** Phasen- und Testplan · Release 1.9 freigegeben, Release 2.0 abgenommen 26.10.2026, Phasen 0 bis 6 ✅ · Release 2.0.1 (Soll-Umfang von Phase 6, D-013) abgenommen 26.10.2026, Phase 7 (Release 2.1) begonnen mit Schritt 7.1 Evaluationsdatensatz 🟡, noch nicht freigegeben
+**Status:** Phasen- und Testplan · Release 1.9 freigegeben, Release 2.0 abgenommen 26.10.2026, Phasen 0 bis 6 ✅ · Release 2.0.1 (Soll-Umfang von Phase 6, D-013) abgenommen 26.10.2026, Phase 7 (Release 2.1) in Arbeit: 7.1 Evaluationsdatensatz 🟡, 7.2a Vektorspeicher und Embedding-Adapter 🟡, noch nicht freigegeben
 
 **Legende:** ✅ vollständig implementiert und gesamtes Gate nachweislich bestanden · 🟡 implementiert oder teilweise geprüft, aber noch nicht vollständig abgenommen · ❌ Gate fehlgeschlagen oder Freigabe blockiert · ⬜ geplant und noch nicht begonnen
+
+## Aktualisierung 28.10.2026 (Abend) – Phase 7, Schritt 7.2a Vektorspeicher und Embedding-Adapter 🟡
+
+**Umfang (`ebd2475`):** Migration 10 legt `chunk_vectors` an, für SQLite mit `BLOB`, für PostgreSQL mit `BYTEA`: ein Vektor je Abschnitt mit Modell und Dimension, Löschung mit dem Abschnitt. `VectorIndex` in `core.py` gilt für beide Stores: `pending_vectors(model)` liefert Abschnitte ohne Vektor dieses Modells, ein Vektor eines anderen Modells zählt als fehlend. `save_vectors` prüft Endlichkeit, Dimension und Länge und speichert L2-normiert als float16. `vector_search` sucht exakt mit numpy und beachtet Versions- und Tagfilter wie die Volltextsuche. `Embedder` spricht Ollama (`qwen3-embedding:0.6b`, Abfrage-Präfix laut Modellkarte) und OpenAI (`text-embedding-3-small`) über die bestehende Anbietergrenze an. Neue Abhängigkeit `numpy==2.3.4`. Schemaverträge, `schema.sql` und Testfixtures folgen Version 10. Die eingefrorenen historischen Fixtures hatten Version 9 nicht enthalten, sie ist ergänzt. Import, Suche und Oberfläche sind noch nicht angebunden.
+
+**Nachweise:** 5 neue Tests (`tests/test_vectors.py` mit gemeinsamem Vertrag für beide Backends, PostgreSQL-Fall in `tests/test_postgres.py`): 500 Tests. Lokales Matrix-Gate an `ebd2475`: 7 von 7 Jobs grün. Migration einer Kopie der eigenen SQLite-Datenbank: Version 9 → 10, 17 Dokumente mit identischen Hashes, 34 Abschnitte, geprüfte Sicherung `pre-migration-v9`, Gesundheitsprüfung bestanden, Original unverändert. Adapter gegen lokales Ollama 0.40.4: 1.024 Dimensionen.
+
+**Grenze:** `vector_search` liest bei jeder Anfrage alle Vektoren des Modells aus der Datenbank, bei 50.000 Abschnitten etwa 100 MB. Die P95-Messung und ein Zwischenspeicher folgen in Schritt 7.3.
 
 ## Aktualisierung 28.10.2026 (Nachmittag) – Phase 7, Schritt 7.1 Evaluationsdatensatz 🟡
 
@@ -66,7 +74,7 @@
 
 **Bekannte Restpunkte:**
 
-- Windows mit Python 3.11 auf dem Entwicklungsrechner: in jedem Lauf zwei bis zehn Tests mit WinError 145 beim Löschen des Temp-Ordners nach bestandenem Prüfteil, auch mit eigenem, vom Virenscan ausgenommenem Temp-Ordner. Unter 3.12 und 3.13 nie. Das Gate wiederholt genau diese Tests einmal und protokolliert sie; jeder andere Fehler bleibt rot. Am `0c441e0` schlug zusätzlich `test_diagnostics.DiagnosticTests.test_sqlite_v1_health_executes_real_write_at_custom_path_and_rolls_it_back` fehl, weil eine fremde Datei `LEGACY.DB-SHM.tmp` im Temp-Ordner lag; im bisher einzigen Lauf mit eigenem Temp-Ordner nicht aufgetreten. Ursache offen.
+- Windows mit Python 3.11 auf dem Entwicklungsrechner: in jedem Lauf einige Tests (in den Gate-Läufen bisher 3 bis 13) mit WinError 145 beim Löschen des Temp-Ordners nach bestandenem Prüfteil, auch mit eigenem, vom Virenscan ausgenommenem Temp-Ordner. Unter 3.12 und 3.13 nie. Das Gate wiederholt genau diese Tests einmal und protokolliert sie; jeder andere Fehler bleibt rot. Am `0c441e0` schlug zusätzlich `test_diagnostics.DiagnosticTests.test_sqlite_v1_health_executes_real_write_at_custom_path_and_rolls_it_back` fehl, weil eine fremde Datei `LEGACY.DB-SHM.tmp` im Temp-Ordner lag; im bisher einzigen Lauf mit eigenem Temp-Ordner nicht aufgetreten. Ursache offen.
 - Das Nicht-Lesen von Anhangsinhalt ist mit Attrappen geprüft, nicht gegen eine echte PST-Datei mit libpff.
 - `.github/workflows/tests.yml` kompiliert sieben Module nicht (`content_types.py`, `formats.py`, `mail_sync.py`, `pst_archive.py`, `rules.py`, `rules_view.py`, `sync_view.py`). Das lokale Gate kompiliert alle eingecheckten Python-Dateien. Die Workflow-Datei war für die Agentenwerkzeuge schreibgeschützt, die Korrektur `python -m compileall -q -l . tests` steht aus.
 
@@ -570,8 +578,8 @@ Frühere Zwischenstände: Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33
 
 **Muss-Umfang:**
 
-- Embedding-Schnittstelle mit wählbarem Anbieter und lokalem Modell
-- `pgvector` für PostgreSQL; definierte lokale Strategie für SQLite
+- Embedding-Schnittstelle mit wählbarem Anbieter und lokalem Modell 🟡 Adapter für Ollama und OpenAI vorhanden (7.2a), Auswahl in den Einstellungen fehlt
+- `pgvector` für PostgreSQL; definierte lokale Strategie für SQLite 🟡 nach D-016 auf beiden Backends Byte-Spalte und exakte Suche mit numpy (7.2a); `pgvector` verschoben
 - hybride Fusion aus Volltext- und Vektorsuche
 - optionaler Reranker
 - konfigurierbare Chunk-Strategie nach Dokumenttyp
@@ -888,6 +896,7 @@ Ein Arbeitspaket ist abgeschlossen, wenn:
 | D-013 | Soll-Umfang von Phase 6 wird als Release 2.0.1 vor Phase 7 umgesetzt, in drei Teilschritten mit eigenem Gate: S1 Formate (HTML, RTF, XLSX, PPTX, EML), S2 Regeln für Kategorien und Tags, S3 zeitgesteuerte Postfachsynchronisation; S3 läuft nur, solange die Anwendung geöffnet ist (keine Windows-Aufgabenplanung) | Entschieden 26.10.2026 (Product Owner) |
 | D-014 | Festlegungen für Release 2.1: (1) Evaluationsdatensatz aus zwei Teilen, etwa 60 synthetische Fragen mit eingecheckten Vektoren des Referenzmodells für die CI und 20 bis 30 eigene Fragen des Product Owners mit erwarteter Quelle für die Abnahme; (2) Referenzmodell Qwen3-Embedding 0.6B lokal über Ollama (Apache 2.0, 1.024 Dimensionen), OpenAI text-embedding-3-small wählbar; Modell und Dimension je Vektor gespeichert, Modellwechsel erzwingt Neuberechnung; (3) SQLite: exakter Vergleich aller Vektoren (BLOB, numpy), PostgreSQL: pgvector; (4) Fusion Reciprocal Rank Fusion mit k = 60 aus je 50 Volltext- und Vektortreffern; (5) Reranker als Schnittstelle, erste Variante über die aktive Chat-KI, standardmäßig aus, Nutzen wird gemessen; (6) Messung: Recall@10 ≥ 0,85, Hauptquelle in ≥ 95 % der beantworteten Fragen, P95 der Suche einschließlich Frage-Vektor ohne KI-Antwort unter 2 s bei 10.000 Dokumenten und etwa 50.000 Abschnitten auf SQLite, automatisch aus dem versionierten Datensatz | Entschieden 26.10.2026 (Product Owner) |
 | D-015 | GitHub Actions hat kein Budget. Das lokale Matrix-Gate `tests/local_ci.py` ersetzt die Actions-Matrix mit denselben sieben Jobs (Windows und Linux × Python 3.11, 3.12, 3.13 sowie PostgreSQL 18); eine Phase gilt nur mit einem Protokoll `local-ci-gate-<commit>.md` mit 7 von 7 grünen Jobs am selben Commit als bestanden | Entschieden 28.10.2026 (Product Owner) |
+| D-016 | Abweichend von D-014 (3) speichert PostgreSQL Vektoren vorerst wie SQLite als Byte-Spalte (`BYTEA`) mit exakter Suche in numpy. Grund: gleicher Speichervertrag auf beiden Backends, keine Servervoraussetzung; `pgvector` würde ohne installierte Erweiterung den Start abbrechen. `pgvector` folgt als eigene Migration, sobald ein Index nötig ist | Entschieden 28.10.2026 (Product Owner) |
 
 ## 14. Hauptrisiken
 
