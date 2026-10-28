@@ -118,5 +118,485 @@
     "title": "Mitgliedschaft Tischtennisverein",
     "category": "Freizeit",
     "content": "Mitglied im Tischtennisverein seit 2019. Der Jahresbeitrag für Erwachsene beträgt 144 Euro und wird im Februar eingezogen. Training ist dienstags und donnerstags ab 19:30 Uhr in der Sporthalle der Gesamtschule. Die Mannschaft spielt in der Kreisliga, Heimspiele am Freitagabend. Austritt ist schriftlich mit einer Frist von drei Monaten zum Jahresende möglich. Für Turniere wird eine Startgebühr von 8 Euro fällig."
+  },
+  {
+    "id": "rechtsschutz",
+    "title": "Rechtsschutzversicherung Familie",
+    "category": "Versicherung",
+    "content": "Die Rechtsschutzversicherung umfasst Privat-, Berufs- und Verkehrsrechtsschutz für die ganze Familie. Wohnungsrechtsschutz für das selbst genutzte Haus ist eingeschlossen. Selbstbeteiligung 250 Euro je Rechtsfall, Wartezeit drei Monate für neue Streitigkeiten. Jahresbeitrag 298 Euro. Die Hotline für eine telefonische Erstberatung durch einen Anwalt ist rund um die Uhr erreichbar. Kündigung drei Monate vor Ablauf."
+  },
+  {
+    "id": "haftpflicht-privat",
+    "title": "Private Haftpflichtversicherung",
+    "category": "Versicherung",
+    "content": "Die private Haftpflicht deckt Personen- und Sachschäden bis 20 Millionen Euro pauschal. Mitversichert sind Schäden an geliehenen Sachen bis 5.000 Euro, Gefälligkeitsschäden und der Verlust fremder Schlüssel. Deliktunfähige Kinder sind bis 50.000 Euro eingeschlossen. Der Beitrag beträgt 79 Euro im Jahr. Der Vertrag verlängert sich jeweils um ein Jahr."
+  },
+  {
+    "id": "wohngebaeude",
+    "title": "Wohngebäudeversicherung Einfamilienhaus",
+    "category": "Versicherung",
+    "content": "Das Einfamilienhaus ist gegen Feuer, Leitungswasser, Sturm und Hagel zum gleitenden Neuwert versichert. Zusätzlich wurde der Baustein Glasbruch für Fenster und Ceranfeld abgeschlossen, Selbstbehalt 500 Euro je Schaden. Die Photovoltaikanlage ist über eine eigene Klausel mitversichert. Jahresbeitrag 734 Euro, Beitragsanpassung nach dem Baupreisindex."
+  },
+  {
+    "id": "berufsunfaehigkeit",
+    "title": "Berufsunfähigkeitsversicherung Vertrag",
+    "category": "Versicherung",
+    "content": "Die Berufsunfähigkeitsversicherung zahlt eine monatliche Rente von 1.800 Euro ab einem Grad der Berufsunfähigkeit von 50 Prozent. Laufzeit bis zum 67. Lebensjahr. Verzicht auf abstrakte Verweisung. Die Gesundheitsfragen wurden beim Abschluss vollständig beantwortet, die Unterlagen liegen im Ordner Verträge. Beitrag monatlich 71 Euro, Dynamik von 3 Prozent jährlich."
+  },
+  {
+    "id": "auslandskranken",
+    "title": "Auslandsreisekrankenversicherung",
+    "category": "Versicherung",
+    "content": "Die Auslandsreisekrankenversicherung gilt weltweit für Reisen bis 56 Tage je Reise. Eingeschlossen ist der medizinisch sinnvolle Rücktransport. Jahresbeitrag 24 Euro für die Familie. Arztrechnungen aus dem Urlaub im Original einreichen, eine Übersetzung ist nicht nötig. Die Notrufnummer steht auf der Karte im Portemonnaie."
+  },
+  {
+    "id": "zahnzusatz",
+    "title": "Zahnzusatzversicherung Tarifdetails",
+    "category": "Versicherung",
+    "content": "Die Zahnzusatzversicherung erstattet bei Zahnersatz 90 Prozent der Kosten inklusive Kassenleistung. In den ersten vier Jahren gelten Höchstbeträge von 1.000, 2.000, 3.000 und 4.000 Euro. Kieferorthopädie für Erwachsene ist nicht versichert. Der Monatsbeitrag beträgt 23,40 Euro. Erstattung über die App mit Foto der Rechnung."
+  },
+  {
+    "id": "kombi-service",
+    "title": "Kombi Inspektion und Ölwechsel",
+    "category": "Mobilität",
+    "content": "Inspektion des Kombi bei 90.000 Kilometern in der Vertragswerkstatt. Ölwechsel mit Filter, Innenraumfilter getauscht, Bremsflüssigkeit erneuert. Die vorderen Bremsscheiben haben noch etwa 30 Prozent Restmaterial. Kosten 486 Euro. Nächste Inspektion nach 30.000 Kilometern oder in zwei Jahren. Die Winterreifen lagern beim Reifenhändler."
+  },
+  {
+    "id": "reifen",
+    "title": "Reifenwechsel und Einlagerung",
+    "category": "Mobilität",
+    "content": "Die Sommerreifen haben noch 4 Millimeter Profil, die Winterreifen 6 Millimeter. Wechsel jeweils im Oktober und im April beim Reifenhändler an der Hauptstraße, Einlagerung 49 Euro pro Saison. Die Reifen sind mit Position markiert. Reifendruck vorne 2,5 bar, hinten 2,7 bar bei voller Beladung."
+  },
+  {
+    "id": "carsharing",
+    "title": "Carsharing Mitgliedschaft Stadtwerke",
+    "category": "Mobilität",
+    "content": "Mitglied beim stationsbasierten Carsharing der Stadtwerke. Die Station liegt 300 Meter entfernt am Marktplatz. Grundgebühr 5 Euro im Monat, Zeittarif 2,90 Euro pro Stunde plus 25 Cent pro Kilometer. Buchung per App, die Kundenkarte öffnet das Fahrzeug. Bei Schäden vor Fahrtantritt Fotos in der App hochladen."
+  },
+  {
+    "id": "bahncard",
+    "title": "Bahncard 50 und Fahrten",
+    "category": "Mobilität",
+    "content": "Die Bahncard 50 zweite Klasse gilt bis Ende Juli und verlängert sich automatisch, wenn sie nicht sechs Wochen vorher gekündigt wird. Preis 244 Euro im Jahr. Dienstreisen werden über den Arbeitgeber gebucht, die Bahncard wird zur Hälfte erstattet. Die App speichert die Tickets, ein Ausdruck ist nicht nötig."
+  },
+  {
+    "id": "pedelec-akku",
+    "title": "Pflegehinweise E-Bike-Akku",
+    "category": "Mobilität",
+    "content": "Den Akku im Winter bei Zimmertemperatur lagern und mit 30 bis 60 Prozent Ladung einlagern. Nicht bei Frost laden. Das Ladegerät nur auf nicht brennbarem Untergrund betreiben. Nach etwa 800 Ladezyklen ist mit spürbar weniger Reichweite zu rechnen. Die Kontakte gelegentlich mit einem trockenen Tuch reinigen."
+  },
+  {
+    "id": "waermepumpe-angebot",
+    "title": "Angebot Wärmepumpe Luft-Wasser",
+    "category": "Haus",
+    "content": "Angebot eines Fachbetriebs für eine Luft-Wasser-Wärmepumpe mit 9 kW Heizleistung als Ersatz für die bestehende Therme. Gesamtpreis 27.900 Euro inklusive Pufferspeicher und Demontage. Förderung nach aktueller Richtlinie bis zu 50 Prozent möglich, Antrag vor Auftragsvergabe stellen. Jahresarbeitszahl laut Berechnung 3,6. Entscheidung bis Frühjahr offen."
+  },
+  {
+    "id": "heizkoerper",
+    "title": "Hydraulischer Abgleich Heizkörper",
+    "category": "Haus",
+    "content": "Der hydraulische Abgleich wurde im Oktober durchgeführt. Alle Heizkörper erhielten voreinstellbare Thermostatventile. Die Vorlauftemperatur sank von 65 auf 55 Grad bei gleicher Behaglichkeit. Im Bad bleibt der Handtuchheizkörper auf Stufe 5. Kosten 1.240 Euro, davon 15 Prozent gefördert."
+  },
+  {
+    "id": "wasserenthaerter",
+    "title": "Wasserenthärtung Keller",
+    "category": "Haus",
+    "content": "Die Enthärtungsanlage im Keller stellt das Wasser auf 8 Grad deutscher Härte ein. Regeneriersalz wird etwa alle sechs Wochen nachgefüllt, ein 25-Kilo-Sack reicht für zwei Füllungen. Wartung einmal jährlich durch den Installateur, letzter Termin im Mai. Die Rohwasserhärte beträgt laut Wasserwerk 19 Grad."
+  },
+  {
+    "id": "fenster",
+    "title": "Fenster und Rollläden Wartung",
+    "category": "Haus",
+    "content": "Die Kunststofffenster werden einmal im Jahr eingestellt und die Beschläge geölt. Dichtungen mit Silikonpflege behandeln. Die elektrischen Rollläden im Wohnzimmer fahren über die Hausautomation bei Sonnenuntergang herunter. Der Gurt im Kinderzimmer ist ausgefranst und sollte getauscht werden."
+  },
+  {
+    "id": "dachrinne",
+    "title": "Dachrinne und Fallrohre reinigen",
+    "category": "Haus",
+    "content": "Die Dachrinnen werden im November nach dem Laubfall gereinigt. An der Nordseite sitzt ein Laubfangkorb im Fallrohr. Das Regenwasser fließt in eine Zisterne mit 3.000 Litern, die zur Gartenbewässerung genutzt wird. Die Pumpe der Zisterne vor dem Winter herausnehmen."
+  },
+  {
+    "id": "rauchmelder",
+    "title": "Rauchmelder Prüfung",
+    "category": "Haus",
+    "content": "Im Haus hängen sieben Rauchmelder mit fest verbauter Zehn-Jahres-Batterie, eingebaut im Jahr 2021. Die jährliche Funktionsprüfung erfolgt im Januar über die Testtaste. Im Flur des Obergeschosses ist ein vernetzter Melder, der alle anderen auslöst. Austausch aller Geräte spätestens 2031."
+  },
+  {
+    "id": "smart-home",
+    "title": "Hausautomation Regeln und Szenen",
+    "category": "Technik",
+    "content": "Die Hausautomation steuert Licht, Rollläden, Heizung und die Wallbox. Szene Abwesend senkt die Raumtemperatur auf 17 Grad und schaltet alle Steckdosen im Wohnzimmer ab. Die Steuerung erhält die Erzeugungsdaten vom Wechselrichter über Modbus. Ein Update der Steuerung ist erst nach Rücksprache mit dem Installateur geplant."
+  },
+  {
+    "id": "nas-alt",
+    "title": "Altes NAS Ausmusterung",
+    "category": "Technik",
+    "content": "Das alte NAS mit zwei Festplatten zu je 4 Terabyte wird ausgemustert. Die Daten wurden auf den neuen Server übertragen und mit Prüfsummen verglichen. Die Platten werden vor der Entsorgung mit mehrfachem Überschreiben gelöscht. Das Gehäuse geht zum Wertstoffhof."
+  },
+  {
+    "id": "drucker",
+    "title": "Drucker Toner und Einstellungen",
+    "category": "Technik",
+    "content": "Der Laserdrucker im Arbeitszimmer druckt standardmäßig beidseitig in Schwarzweiß. Der Toner reicht für etwa 3.000 Seiten, Ersatz liegt im Schrank. Scans landen per Netzwerkfreigabe im Eingangsordner des Servers. Der Druckerstandby schaltet nach 15 Minuten ein."
+  },
+  {
+    "id": "handyvertrag",
+    "title": "Mobilfunkvertrag Laufzeit",
+    "category": "Verträge",
+    "content": "Der Mobilfunkvertrag mit 30 Gigabyte Datenvolumen kostet 19,99 Euro im Monat. Die Mindestlaufzeit endete im Juli, seitdem ist der Vertrag monatlich kündbar. Die eSIM wurde über die App aktiviert. Roaming in der EU ist ohne Aufpreis enthalten, in der Schweiz nicht."
+  },
+  {
+    "id": "internetvertrag",
+    "title": "Glasfaseranschluss Vertrag",
+    "category": "Verträge",
+    "content": "Der Glasfaseranschluss liefert 500 Megabit im Download und 250 im Upload. Monatlicher Preis 44,99 Euro, in den ersten sechs Monaten 19,99 Euro. Eine feste öffentliche IPv4-Adresse ist nicht enthalten, nur IPv6. Die Störungshotline ist werktags von 8 bis 22 Uhr erreichbar. Kündigungsfrist ein Monat nach Ablauf der Mindestlaufzeit."
+  },
+  {
+    "id": "streaming",
+    "title": "Abonnements Streaming und Zeitung",
+    "category": "Finanzen",
+    "content": "Laufende Abonnements: Videostreaming 13,99 Euro im Monat, Musikstreaming im Familientarif 17,99 Euro, digitale Tageszeitung 24,90 Euro. Das Zeitungsabo wird im Januar überprüft, weil der Preis gestiegen ist. Alle Abos laufen über die gemeinsame Kreditkarte."
+  },
+  {
+    "id": "fitnessstudio",
+    "title": "Vertrag Fitnessstudio",
+    "category": "Freizeit",
+    "content": "Mitgliedschaft im Fitnessstudio am Gewerbegebiet für 34,90 Euro im Monat bei 12 Monaten Laufzeit. Danach monatlich kündbar mit einem Monat Frist. Getränkeflatrate inklusive. Das Studio hat täglich von 6 bis 23 Uhr geöffnet, Kurse wie Rückenfit am Montag um 18 Uhr."
+  },
+  {
+    "id": "musikschule",
+    "title": "Musikschule Gitarrenunterricht",
+    "category": "Familie",
+    "content": "Gitarrenunterricht an der städtischen Musikschule jeden Mittwoch um 16 Uhr, 30 Minuten Einzelunterricht. Gebühr 58 Euro im Monat, in den Schulferien findet kein Unterricht statt. Abmeldung nur zum Schulhalbjahr schriftlich. Das Vorspiel ist am 14. Dezember im Saal der Musikschule."
+  },
+  {
+    "id": "kita-gebuehr",
+    "title": "Ganztagsschule Mittagessen Abrechnung",
+    "category": "Familie",
+    "content": "Das Mittagessen in der Ganztagsschule kostet 4,20 Euro pro Tag und wird monatlich über das Schulportal abgerechnet. Abmeldungen für einzelne Tage bis 8 Uhr am Vortag. Die Betreuung endet um 16 Uhr, freitags um 14 Uhr. Für die Ferienbetreuung im Sommer ist eine Anmeldung bis März erforderlich."
+  },
+  {
+    "id": "nachhilfe",
+    "title": "Nachhilfe Mathematik",
+    "category": "Familie",
+    "content": "Nachhilfe in Mathematik bei einer Studentin, donnerstags 17 Uhr, 25 Euro pro Stunde, bar bezahlt. Schwerpunkte sind Bruchrechnung und lineare Gleichungen. Die letzte Klassenarbeit wurde mit befriedigend bewertet. Die Nachhilfe läuft bis zu den Sommerferien."
+  },
+  {
+    "id": "geburtstag-oma",
+    "title": "Planung 80. Geburtstag Oma",
+    "category": "Familie",
+    "content": "Feier zum 80. Geburtstag am Samstag, 21. Juni, im Landgasthof am See ab 14 Uhr mit Kaffee und Kuchen, abends Buffet. Erwartet werden 34 Gäste. Der Saal ist reserviert, Anzahlung 300 Euro bereits geleistet. Geschenk der Enkel ist ein Fotobuch, die Bilder sammelt Tante Ilse."
+  },
+  {
+    "id": "familienkalender",
+    "title": "Familienkalender Absprachen",
+    "category": "Familie",
+    "content": "Gemeinsamer Kalender in der Familie-App. Termine mit Fahrdienst werden rot markiert. Wer einen Termin einträgt, ist auch fürs Erinnern zuständig. Müllabfuhr: Restmüll alle zwei Wochen montags, Biotonne wöchentlich, gelbe Tonne alle drei Wochen freitags. Ferien in Niedersachsen sind im Kalender hinterlegt."
+  },
+  {
+    "id": "rezept-chili",
+    "title": "Rezept Chili sin Carne",
+    "category": "Küche",
+    "content": "Für sechs Portionen zwei Zwiebeln, drei Paprika und eine Chili würfeln und anbraten. Zwei Dosen schwarze Bohnen, eine Dose Mais und 800 Gramm passierte Tomaten zufügen. Mit Kreuzkümmel, geräuchertem Paprikapulver und etwas Kakao würzen und 30 Minuten köcheln. Dazu Reis oder Brot. Schmeckt am zweiten Tag besser."
+  },
+  {
+    "id": "rezept-brot",
+    "title": "Rezept Dinkelvollkornbrot",
+    "category": "Küche",
+    "content": "500 Gramm Dinkelvollkornmehl, 100 Gramm Sonnenblumenkerne, ein Würfel Hefe, ein Teelöffel Salz und 550 Milliliter lauwarmes Wasser verrühren. Teig in eine gefettete Kastenform füllen, nicht gehen lassen. In den kalten Ofen stellen und bei 200 Grad Ober- und Unterhitze 60 Minuten backen. Hält in Papier eingeschlagen vier Tage."
+  },
+  {
+    "id": "rezept-curry",
+    "title": "Rezept Gemüsecurry mit Kichererbsen",
+    "category": "Küche",
+    "content": "Süßkartoffel, Blumenkohl und eine Dose Kichererbsen in Kokosöl mit Zwiebel anbraten. Mit gelber Currypaste, Kurkuma und 400 Milliliter Gemüsebrühe ablöschen und 20 Minuten garen. Zum Schluss Spinat unterheben. Mit Naturjoghurt servieren. Reicht für vier Personen."
+  },
+  {
+    "id": "einkaufsliste",
+    "title": "Vorratsliste Keller",
+    "category": "Küche",
+    "content": "Im Kellerregal lagern stets Nudeln, Reis, passierte Tomaten, Dosenbohnen, Haferflocken und Mehl. Mindestbestand je zwei Packungen. Die Kühltruhe enthält Brot, Gemüse und vorgekochte Suppen, beschriftet mit Datum. Einmal im Quartal wird der Vorrat geprüft und abgelaufenes aussortiert."
+  },
+  {
+    "id": "weinkeller",
+    "title": "Weinvorrat Übersicht",
+    "category": "Küche",
+    "content": "Im Weinregal liegen derzeit 28 Flaschen: Riesling von der Mosel, Spätburgunder aus Baden und zwei Flaschen Portwein als Geschenk. Der Raum hat konstant 12 Grad. Weißweine innerhalb von drei Jahren trinken. Liste wird bei jeder Entnahme aktualisiert."
+  },
+  {
+    "id": "reise-daenemark",
+    "title": "Sommerurlaub Dänemark Ferienhaus",
+    "category": "Privat",
+    "content": "Ferienhaus in Søndervig an der Westküste vom 26. Juli bis 9. August für vier Personen. Miete 1.890 Euro inklusive Endreinigung, Strom wird nach Verbrauch abgerechnet. Anreise mit dem Auto, etwa sechs Stunden Fahrt. Bettwäsche und Handtücher selbst mitbringen. Schlüssel aus dem Schlüsselkasten am Haus."
+  },
+  {
+    "id": "reise-harz",
+    "title": "Wochenende im Harz",
+    "category": "Privat",
+    "content": "Wanderwochenende im Harz im Oktober. Unterkunft in einer Pension in Wernigerode mit Frühstück, 89 Euro pro Nacht im Doppelzimmer. Geplant ist die Fahrt mit der Brockenbahn und der Abstieg zu Fuß über den Goetheweg. Wanderschuhe imprägnieren, Regenjacke einpacken."
+  },
+  {
+    "id": "reise-paris",
+    "title": "Städtereise Paris Ideen",
+    "category": "Privat",
+    "content": "Ideen für eine Städtereise nach Paris im Frühjahr: Anreise mit dem Zug über Köln, Fahrzeit etwa sieben Stunden. Museumspass für zwei Tage, Louvre am Freitagabend wegen längerer Öffnung. Unterkunft im elften Arrondissement suchen. Noch nichts gebucht."
+  },
+  {
+    "id": "reisecheckliste",
+    "title": "Packliste Flugreise",
+    "category": "Privat",
+    "content": "Vor jeder Flugreise prüfen: Personalausweis oder Reisepass gültig, Bordkarte in der App, Ladekabel und Powerbank ins Handgepäck, Flüssigkeiten bis 100 Milliliter im Beutel. Adapter je nach Zielland. Die Nachbarin gießt die Pflanzen, Schlüssel liegt bei ihr."
+  },
+  {
+    "id": "katze-tierarzt",
+    "title": "Katze Tierarzt Termine",
+    "category": "Familie",
+    "content": "Die Katze Mina wurde im September beim Tierarzt untersucht und gechippt, Registrierung bei der Tierschutzorganisation erledigt. Das Futter für empfindliche Mägen gibt es nur in der Praxis. Krallenschneiden alle sechs Wochen. Nächster Kontrolltermin im September des Folgejahres."
+  },
+  {
+    "id": "pflanzen",
+    "title": "Zimmerpflanzen Pflegeplan",
+    "category": "Haus",
+    "content": "Die Monstera im Wohnzimmer wird einmal pro Woche gegossen, im Winter alle zehn Tage. Die Orchideen bekommen alle zwei Wochen ein Tauchbad. Gedüngt wird von März bis September alle vier Wochen. Die Kakteen auf der Fensterbank im Winter kühl und trocken halten."
+  },
+  {
+    "id": "projekt-jira",
+    "title": "Projektnotiz Ticketworkflow Jira",
+    "category": "Beruf",
+    "content": "Der neue Ticketworkflow hat die Status Offen, In Analyse, In Umsetzung, Review und Erledigt. Der Übergang zu Review verlangt einen verlinkten Testfall. Blockierte Tickets erhalten ein eigenes Label statt eines Status. Die Umstellung startet mit dem Team Einkauf, danach folgen Vertrieb und Logistik."
+  },
+  {
+    "id": "prozess-rechnung",
+    "title": "Prozessbeschreibung Rechnungsfreigabe",
+    "category": "Beruf",
+    "content": "Eingangsrechnungen werden zentral gescannt und dem Kostenstellenverantwortlichen zur Freigabe vorgelegt. Bis 5.000 Euro reicht eine Freigabe, darüber sind zwei Freigaben nötig. Die durchschnittliche Durchlaufzeit liegt bei 6,2 Tagen, Ziel sind drei Tage. Engpass ist die Nachfrage bei fehlender Bestellnummer."
+  },
+  {
+    "id": "meeting-retro",
+    "title": "Protokoll Retrospektive Prozessteam",
+    "category": "Beruf",
+    "content": "Gut lief die Zusammenarbeit mit der IT bei der Formularumstellung. Schlecht: zu viele Abstimmungstermine ohne Entscheidung. Maßnahmen: Entscheidungsvorlage vor jedem Termin, Termine maximal 30 Minuten, Protokoll im Wiki innerhalb eines Tages. Verantwortlich für die Nachverfolgung ist das Prozessteam."
+  },
+  {
+    "id": "weiterbildung",
+    "title": "Weiterbildung Prozessmodellierung",
+    "category": "Beruf",
+    "content": "Seminar zur Prozessmodellierung mit BPMN 2.0 an zwei Tagen im November in Hannover. Kosten 1.190 Euro, übernommen vom Arbeitgeber, dafür Rückzahlungsklausel bei Kündigung innerhalb von zwölf Monaten. Die Unterlagen und das Zertifikat liegen im Ordner Weiterbildung."
+  },
+  {
+    "id": "dienstreise",
+    "title": "Reisekostenabrechnung Dienstreise",
+    "category": "Beruf",
+    "content": "Dienstreise nach Frankfurt zum Kundentermin am 7. Oktober. Abrechnung über das Reisekostenportal innerhalb von vier Wochen. Verpflegungsmehraufwand 14 Euro für eine Abwesenheit über acht Stunden. Hotelbelege und Bahnticket als PDF hochladen. Die Kilometerpauschale für Privatwagen beträgt 30 Cent."
+  },
+  {
+    "id": "zeiterfassung",
+    "title": "Zeiterfassung und Gleitzeit Regeln",
+    "category": "Beruf",
+    "content": "Kernzeit ist von 9 bis 15 Uhr, an Freitagen bis 13 Uhr. Die Arbeitszeit wird im Portal gebucht, Korrekturen bis zum fünften des Folgemonats. Pausen ab sechs Stunden mindestens 30 Minuten. Der Gleitzeitsaldo wird monatlich an die Führungskraft gemeldet."
+  },
+  {
+    "id": "bewerbung-alt",
+    "title": "Notizen frühere Bewerbung",
+    "category": "Beruf",
+    "content": "Notizen zum Vorstellungsgespräch bei einem Logistikunternehmen im Jahr 2021. Fragen zu Prozessaufnahme, Moderation und Change Management. Das Angebot wurde abgelehnt, weil die Pendelzeit über eine Stunde lag. Kontakt zur damaligen Personalreferentin besteht weiter über das Netzwerk."
+  },
+  {
+    "id": "kreditkarte",
+    "title": "Kreditkarte Konditionen",
+    "category": "Finanzen",
+    "content": "Die Kreditkarte ist im ersten Jahr kostenlos, danach 29 Euro jährlich. Auslandseinsatz ohne Gebühr, Bargeldabhebungen weltweit viermal im Monat kostenlos. Die Abrechnung erfolgt zum 15. des Monats mit voller Rückzahlung vom Girokonto. Eine Reiserücktrittsversicherung ist nicht enthalten."
+  },
+  {
+    "id": "girokonto",
+    "title": "Girokonto Kontomodell",
+    "category": "Finanzen",
+    "content": "Das Girokonto kostet 4,90 Euro im Monat, entfällt bei einem Geldeingang ab 700 Euro. Überweisungen online sind kostenlos, beleghafte Überweisungen 1,50 Euro. Der Dispositionskredit wird nicht genutzt. Daueraufträge für Miete der Tiefgarage und Vereinsbeiträge laufen über dieses Konto."
+  },
+  {
+    "id": "sparplan",
+    "title": "ETF-Sparplan Übersicht",
+    "category": "Finanzen",
+    "content": "Monatlicher Sparplan auf einen weltweiten Aktien-ETF, Ausführung am 2. des Monats. Ausschüttungen werden automatisch reinvestiert. Der Freistellungsauftrag ist bei der Depotbank vollständig eingetragen. Die Depotübersicht wird einmal im Jahr im Januar geprüft und nicht nach Tagesschwankungen bewertet."
+  },
+  {
+    "id": "haushaltsbuch",
+    "title": "Haushaltsbuch Kategorien",
+    "category": "Finanzen",
+    "content": "Das Haushaltsbuch erfasst Ausgaben in den Kategorien Wohnen, Mobilität, Lebensmittel, Freizeit, Versicherungen und Sonstiges. Belege werden per App fotografiert. Einmal im Monat werden Abweichungen über 20 Prozent besprochen. Das Budget für Freizeit wurde im Herbst erhöht."
+  },
+  {
+    "id": "nebenkosten",
+    "title": "Nebenkosten Haus Jahresübersicht",
+    "category": "Finanzen",
+    "content": "Jährliche Hauskosten außer Energie: Wasser und Abwasser 640 Euro, Müllgebühren 312 Euro, Niederschlagswasser 96 Euro, Straßenreinigung 54 Euro. Die Bescheide kommen im Februar von der Stadt. Abbuchung jeweils quartalsweise. Für Rückfragen ist das Bürgerbüro zuständig."
+  },
+  {
+    "id": "kfz-steuer",
+    "title": "Kraftfahrzeugsteuer Kombi",
+    "category": "Finanzen",
+    "content": "Die Kraftfahrzeugsteuer für den Kombi beträgt 186 Euro im Jahr und wird im Mai per Lastschrift vom Hauptzollamt eingezogen. Grundlage sind Hubraum und CO2-Ausstoß. Das Elektroauto ist bis Ende 2030 von der Steuer befreit."
+  },
+  {
+    "id": "spenden",
+    "title": "Spenden und Mitgliedsbeiträge",
+    "category": "Finanzen",
+    "content": "Regelmäßige Spenden: Kinderhilfswerk 10 Euro monatlich, Tierschutzverein 120 Euro jährlich, Tafel nach Bedarf. Für Beträge bis 300 Euro reicht der Kontoauszug als Nachweis gegenüber dem Finanzamt. Zuwendungsbestätigungen kommen gesammelt im Januar."
+  },
+  {
+    "id": "gartenhaus",
+    "title": "Gartenhaus Bau und Genehmigung",
+    "category": "Haus",
+    "content": "Geplant ist ein Gartenhaus mit 9 Quadratmetern Grundfläche aus Holz. Bis 30 Kubikmeter umbauten Raum ist es laut Landesbauordnung verfahrensfrei, der Grenzabstand muss trotzdem geprüft werden. Fundament aus Punktfundamenten. Lieferung im Frühjahr, Aufbau mit zwei Helfern an einem Wochenende."
+  },
+  {
+    "id": "terrasse",
+    "title": "Terrasse WPC Dielen",
+    "category": "Haus",
+    "content": "Die Terrasse besteht aus WPC-Dielen auf Aluminium-Unterkonstruktion, verlegt 2022. Reinigung zweimal im Jahr mit Schrubber und Seifenlauge, kein Hochdruckreiniger aus kurzer Distanz. Die Markise fährt bei Wind über 35 Kilometern pro Stunde automatisch ein."
+  },
+  {
+    "id": "teich",
+    "title": "Gartenteich Pumpe und Filter",
+    "category": "Haus",
+    "content": "Der Gartenteich fasst etwa 4.000 Liter. Die Filterpumpe läuft von April bis Oktober, im Winter wird sie ausgebaut und frostfrei gelagert. Algen werden mit einem UV-Klärer reduziert. Fische werden ab einer Wassertemperatur unter 8 Grad nicht mehr gefüttert."
+  },
+  {
+    "id": "obstbaeume",
+    "title": "Obstbäume Schnitt und Ernte",
+    "category": "Haus",
+    "content": "Der Apfelbaum und die Zwetschge werden im Februar bei frostfreiem Wetter ausgelichtet. Wasserschosse im Sommer entfernen. Die Apfelernte liegt meist Ende September, ein Teil geht zur Mosterei. Leimringe gegen den Frostspanner werden im Oktober angebracht."
+  },
+  {
+    "id": "verein-garten",
+    "title": "Gartenverein Termine",
+    "category": "Freizeit",
+    "content": "Im Gartenbauverein finden zweimal jährlich Pflanzentauschbörsen statt, im Mai und im September. Der Mitgliedsbeitrag beträgt 24 Euro. Der Verein verleiht Häcksler und Vertikutierer gegen eine kleine Gebühr. Die Jahreshauptversammlung ist im März im Gemeindehaus."
+  },
+  {
+    "id": "laufen",
+    "title": "Lauftraining Halbmarathon",
+    "category": "Freizeit",
+    "content": "Trainingsplan für den Halbmarathon im April: drei Läufe pro Woche, ein langer Lauf am Sonntag bis 18 Kilometer. Zielzeit unter zwei Stunden. Die Laufschuhe haben etwa 600 Kilometer und sollten vor dem Wettkampf ersetzt werden. Startnummer wird am Vortag abgeholt."
+  },
+  {
+    "id": "passwortmanager",
+    "title": "Passwortmanager Einrichtung",
+    "category": "Technik",
+    "content": "Alle Zugangsdaten liegen im Passwortmanager mit Hauptkennwort und zweitem Faktor über einen Hardware-Schlüssel. Ein Notfallzugang ist für die Partnerin eingerichtet und wird nach 72 Stunden Wartezeit freigegeben. Der Tresor wird monatlich als verschlüsselte Datei auf dem Server gesichert. Kennwörter stehen nirgends im Klartext."
+  },
+  {
+    "id": "smartphone",
+    "title": "Smartphone Wechsel Checkliste",
+    "category": "Technik",
+    "content": "Beim Wechsel auf das neue Smartphone: Chatverlauf über die Cloud sichern, Authenticator-Konten exportieren, eSIM über den Anbieter übertragen. Das alte Gerät auf Werkseinstellungen zurücksetzen und beim Händler in Zahlung geben. Hülle und Panzerglas wurden mitbestellt."
+  },
+  {
+    "id": "server-hardware",
+    "title": "Unraid Server Hardware",
+    "category": "Technik",
+    "content": "Der Heimserver hat einen Prozessor mit sechs Kernen, 64 Gigabyte Arbeitsspeicher und vier Festplatten mit je 12 Terabyte, eine davon als Parität. Cache auf zwei NVMe-SSDs im Spiegel. Die unterbrechungsfreie Stromversorgung fährt den Server nach fünf Minuten Stromausfall sauber herunter. Leistungsaufnahme im Leerlauf 38 Watt."
+  },
+  {
+    "id": "docker-dienste",
+    "title": "Container Dienste auf dem Server",
+    "category": "Technik",
+    "content": "Auf dem Server laufen als Container: Dokumentenverwaltung, Fotoverwaltung, Mediaserver, ein Reverse Proxy und die Datenbank für die Hausautomation. Updates werden wöchentlich geprüft und nicht automatisch eingespielt. Jede Anwendung hat ein eigenes Netzwerk, nur der Proxy ist im Heimnetz erreichbar."
+  },
+  {
+    "id": "fotos-archiv",
+    "title": "Fotoarchiv Struktur",
+    "category": "Technik",
+    "content": "Das Fotoarchiv ist nach Jahr und Monat geordnet, Ereignisse bekommen einen eigenen Ordner mit Datum vorne. Originale werden nie bearbeitet, Bearbeitungen landen im Unterordner Export. Duplikate werden über Prüfsummen erkannt. Insgesamt etwa 85.000 Bilder und 1.200 Videos."
+  },
+  {
+    "id": "monitor",
+    "title": "Monitor und Dockingstation",
+    "category": "Technik",
+    "content": "Am Arbeitsplatz hängen zwei Monitore mit 27 Zoll über eine Dockingstation am Notebook. Die Dockingstation liefert 90 Watt über USB-C. Ein Monitor ist hochkant für Dokumente ausgerichtet. Die Webcam sitzt oben auf dem mittleren Monitor."
+  },
+  {
+    "id": "e-auto-kauf",
+    "title": "Vergleich Elektroautos vor dem Kauf",
+    "category": "Mobilität",
+    "content": "Vor dem Kauf verglichen: Reichweite im Winter, Ladeleistung am Schnelllader, Kofferraum und Anhängelast. Entscheidend war die Anhängelast von 1.200 Kilogramm für den Fahrradträger und kleine Anhänger. Leasing wurde verworfen, Kauf mit Inzahlungnahme des Zweitwagens."
+  },
+  {
+    "id": "garage-tor",
+    "title": "Garagentor Antrieb",
+    "category": "Haus",
+    "content": "Das Sektionaltor der Garage hat einen Antrieb mit Funkfernbedienung, drei Handsender sind im Umlauf. Bei Stromausfall lässt sich das Tor über den roten Notentriegelungszug öffnen. Die Laufschienen einmal im Jahr reinigen, nicht fetten. Die Lichtschranke stoppt das Tor bei Hindernissen."
+  },
+  {
+    "id": "nachbarschaft",
+    "title": "Absprachen Nachbarschaft",
+    "category": "Privat",
+    "content": "Mit den Nachbarn ist vereinbart, dass die gemeinsame Hecke an der Ostseite abwechselnd geschnitten wird, in geraden Jahren von uns. Im Urlaub leeren wir gegenseitig den Briefkasten. Der gemeinsame Anhänger steht bei Familie Kurz und wird über einen Kalender gebucht."
+  },
+  {
+    "id": "elternzeit-planung",
+    "title": "Planung Sabbatical Gedanken",
+    "category": "Beruf",
+    "content": "Überlegung für ein Sabbatical von drei Monaten in zwei Jahren. Möglich über das Langzeitkonto des Arbeitgebers, in das Überstunden und Teile des Urlaubs eingebracht werden können. Gespräch mit der Führungskraft ist für das Frühjahr geplant. Ziele: längere Reise und ein Ehrenamt."
+  },
+  {
+    "id": "ehrenamt",
+    "title": "Ehrenamt Repair-Café",
+    "category": "Freizeit",
+    "content": "Einmal im Monat am Samstag hilft das Repair-Café im Stadtteilzentrum bei der Reparatur von Elektrogeräten, Fahrrädern und Textilien. Werkzeug stellt der Verein, Ersatzteile zahlen die Besucher. Für Arbeiten an Netzspannung ist eine Elektrofachkraft anwesend. Spendenkasse für die Raummiete."
+  },
+  {
+    "id": "buecher",
+    "title": "Leseliste Sachbücher",
+    "category": "Freizeit",
+    "content": "Auf der Leseliste stehen Bücher zu Prozessmanagement, Entscheidungsfindung und Geschichte der Hanse. Ausgeliehen aus der Stadtbücherei: zwei Bände, Rückgabe bis 18. November, Verlängerung online einmal möglich. Gelesene Bücher bekommen eine kurze Notiz mit den wichtigsten Gedanken."
+  },
+  {
+    "id": "brettspiele",
+    "title": "Spieleabend Sammlung",
+    "category": "Freizeit",
+    "content": "Für den Spieleabend am ersten Freitag im Monat: kooperative Spiele für vier Personen, schnelle Kartenspiele zum Aufwärmen. Die Sammlung umfasst 46 Spiele, verliehene Spiele stehen in einer Liste mit Datum. Snacks bringt jeweils der Gastgeber."
+  },
+  {
+    "id": "tischtennis-material",
+    "title": "Tischtennis Schläger und Beläge",
+    "category": "Freizeit",
+    "content": "Der Schläger hat ein Allround-Holz mit Noppen-innen-Belägen in 2,0 Millimetern auf beiden Seiten. Die Beläge werden etwa alle sechs Monate erneuert, Kosten rund 90 Euro. Hallenschuhe mit heller Sohle sind Pflicht. Bälle der Plastikgeneration mit drei Sternen."
+  },
+  {
+    "id": "fotografie",
+    "title": "Kameraausrüstung",
+    "category": "Freizeit",
+    "content": "Die spiegellose Kamera mit Vollformatsensor wird mit einem Standardzoom und einer lichtstarken Festbrennweite genutzt. Zwei Akkus und ein Ladegerät mit USB-C. Speicherkarten werden nach jedem Ausflug auf den Server kopiert und erst danach formatiert. Kamera und Objektive sind über die Hausrat mitversichert."
+  },
+  {
+    "id": "umzug-alt",
+    "title": "Checkliste früherer Umzug",
+    "category": "Privat",
+    "content": "Beim Umzug ins Haus erledigt: Ummeldung beim Bürgerbüro innerhalb von zwei Wochen, Nachsendeauftrag für sechs Monate, Zählerstände mit Foto dokumentiert, Rundfunkbeitrag umgemeldet. Die Kartons wurden über ein Kleinanzeigenportal weitergegeben."
+  },
+  {
+    "id": "ausweis",
+    "title": "Ausweisdokumente Gültigkeit",
+    "category": "Privat",
+    "content": "Personalausweis gültig bis 2031, Reisepass bis 2028. Die Kinderreisepässe laufen im nächsten Sommer ab und müssen vor dem Urlaub neu beantragt werden, Termin beim Bürgerbüro online buchen, Bearbeitungszeit etwa vier Wochen. Biometrische Passbilder sind im Fotostudio zu machen."
+  },
+  {
+    "id": "versicherungsordner",
+    "title": "Übersicht aller Versicherungen",
+    "category": "Versicherung",
+    "content": "Im Ordner Versicherungen liegen alle Policen in derselben Reihenfolge: Haftpflicht, Hausrat, Wohngebäude, Kfz, Rechtsschutz, Berufsunfähigkeit, Zusatzversicherungen. Jedes Jahr im Oktober wird geprüft, ob Beiträge und Leistungen noch passen. Kündigungsfristen stehen jeweils auf dem Deckblatt."
+  },
+  {
+    "id": "notfallmappe",
+    "title": "Notfallmappe Familie",
+    "category": "Privat",
+    "content": "Die Notfallmappe liegt im Arbeitszimmer im obersten Fach. Sie enthält Kontaktliste, Vollmachten, Kontenübersicht ohne Zugangsdaten und den Hinweis auf den Notfallzugang des Passwortmanagers. Einmal im Jahr wird die Mappe auf Aktualität geprüft."
+  },
+  {
+    "id": "energie-sparen",
+    "title": "Ideen Energie sparen",
+    "category": "Haus",
+    "content": "Ideen zum Sparen: Gefriertruhe im Keller auf minus 18 Grad statt minus 22 einstellen, Spülmaschine im Eco-Programm über Mittag mit Sonnenstrom laufen lassen, Standby-Verbraucher am Fernseher über eine schaltbare Steckdose trennen. Der Gesamtverbrauch soll unter 3.000 kWh pro Jahr sinken."
   }
 ]
