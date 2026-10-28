@@ -21,3 +21,4 @@ design-preview.png
 *.ost
 *.mbox
 *.eml
+.local-ci/
