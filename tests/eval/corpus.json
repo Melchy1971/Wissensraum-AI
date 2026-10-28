@@ -1,0 +1,122 @@
+[
+  {
+    "id": "heizung-wartung",
+    "title": "Wartungsprotokoll Gasbrennwerttherme 2026",
+    "category": "Haus",
+    "content": "Wartung der Gasbrennwerttherme im Heizungsraum am 14. März 2026 durch die Firma Wärmetechnik Albers. Der Brenner wurde gereinigt, der Siphon entleert und die Zündelektrode ersetzt. Der Abgaswert lag bei 38 ppm Kohlenmonoxid und damit im zulässigen Bereich. Der Anlagendruck wurde von 0,9 auf 1,6 bar erhöht. Empfehlung des Technikers: Ausdehnungsgefäß beim nächsten Termin prüfen, da der Vordruck nur noch 0,8 bar beträgt. Kosten der Wartung 189 Euro brutto, Rechnung folgt per Post. Nächster Wartungstermin im März 2027."
+  },
+  {
+    "id": "kfz-versicherung",
+    "title": "Kfz-Versicherung Kombi Vertragsübersicht",
+    "category": "Versicherung",
+    "content": "Haftpflicht und Teilkasko für den Kombi mit dem Kennzeichen OS-MK 214 bei der Nordsee Assekuranz. Vertragsnummer KV-558201. Jahresbeitrag 612 Euro, fällig jeweils zum 1. Januar. Die Selbstbeteiligung in der Teilkasko beträgt 150 Euro. Schadenfreiheitsklasse SF 18 in der Haftpflicht. Eingeschlossen sind Glasbruch, Wildunfall mit Haarwild und Marderbiss inklusive Folgeschäden bis 3.000 Euro. Die Kündigung ist mit einer Frist von einem Monat zum Ablauf des Versicherungsjahres möglich, also bis spätestens 30. November."
+  },
+  {
+    "id": "pv-anlage",
+    "title": "Photovoltaikanlage Dach Süd Ertragsdaten",
+    "category": "Haus",
+    "content": "Die Solaranlage auf dem Süddach hat eine Leistung von 9,8 kWp mit 24 Modulen zu je 410 Watt. Der Wechselrichter ist ein Hybridgerät mit angeschlossenem Batteriespeicher von 10 kWh. Inbetriebnahme war im Juni 2023. Der Jahresertrag 2025 lag bei 9.420 kWh, davon wurden 61 Prozent selbst verbraucht. Die Einspeisevergütung beträgt 8,2 Cent pro Kilowattstunde. Im Dezember fällt der Ertrag auf etwa 180 kWh im Monat. Die Reinigung der Module ist laut Hersteller nicht nötig, solange die Neigung über 15 Grad liegt."
+  },
+  {
+    "id": "arbeitsvertrag",
+    "title": "Arbeitsvertrag Prozessmanagement Nebenabreden",
+    "category": "Beruf",
+    "content": "Die regelmäßige wöchentliche Arbeitszeit beträgt 38 Stunden. Mobiles Arbeiten ist an bis zu drei Tagen pro Woche zulässig, sofern die Erreichbarkeit zwischen 9 und 15 Uhr sichergestellt ist. Der Urlaubsanspruch beträgt 30 Arbeitstage im Kalenderjahr. Resturlaub muss bis zum 31. März des Folgejahres genommen werden, sonst verfällt er. Überstunden werden auf einem Gleitzeitkonto erfasst, maximal 40 Plusstunden. Die Kündigungsfrist beträgt nach der Probezeit drei Monate zum Quartalsende."
+  },
+  {
+    "id": "reise-lissabon",
+    "title": "Reiseplanung Lissabon Mai",
+    "category": "Privat",
+    "content": "Flug am 9. Mai ab Hamburg um 6:40 Uhr, Rückflug am 15. Mai um 19:10 Uhr. Unterkunft ist eine Ferienwohnung in der Alfama, Check-in ab 15 Uhr, der Schlüssel liegt in einer Box mit dem Code 4471. Geplant: Straßenbahnlinie 28, Belém mit dem Hieronymus-Kloster, Tagesausflug nach Sintra mit dem Zug ab Rossio. Für den Palácio da Pena Zeitfenster-Tickets vorab buchen. Die Lisboa Card für 72 Stunden kostet 49 Euro und enthält den öffentlichen Nahverkehr."
+  },
+  {
+    "id": "rezept-linsen",
+    "title": "Rezept rote Linsensuppe mit Kokosmilch",
+    "category": "Küche",
+    "content": "Für vier Portionen eine Zwiebel und zwei Knoblauchzehen in Öl anschwitzen, einen Esslöffel Currypaste und ein Stück Ingwer dazugeben. 250 Gramm rote Linsen, eine Dose gehackte Tomaten und 800 Milliliter Gemüsebrühe zufügen und 15 Minuten köcheln lassen. Dann 400 Milliliter Kokosmilch einrühren und pürieren. Mit Limettensaft, Salz und Koriander abschmecken. Die Suppe lässt sich gut einfrieren und hält im Kühlschrank drei Tage."
+  },
+  {
+    "id": "zahnarzt",
+    "title": "Termine Zahnarztpraxis Dr. Behrens",
+    "category": "Termine",
+    "content": "Kontrolltermin mit professioneller Zahnreinigung am 3. Dezember um 8:15 Uhr. Die Reinigung kostet 95 Euro und wird von der Zusatzversicherung zu 80 Prozent erstattet. Das Bonusheft wurde im letzten Jahr abgestempelt, die Lücke 2022 ist dokumentiert. Bei Absage weniger als 24 Stunden vorher berechnet die Praxis eine Ausfallgebühr von 50 Euro. Telefonnummer der Praxis 0541 778 210."
+  },
+  {
+    "id": "router-netz",
+    "title": "Heimnetz Konfiguration Router und WLAN",
+    "category": "Technik",
+    "content": "Der Router steht im Flur, das Mesh-Repeater-Gerät im Obergeschoss. Das Gäste-WLAN heißt Haus-Gast und ist vom Heimnetz getrennt. Feste IP-Adressen: Unraid-Server 192.168.178.20, Drucker 192.168.178.30, Hausautomation 192.168.178.40. DHCP vergibt Adressen ab 192.168.178.100. Die Firmware wird automatisch nachts um 3 Uhr aktualisiert. Für den Fernzugriff ist ein VPN mit WireGuard eingerichtet, Portfreigaben gibt es keine."
+  },
+  {
+    "id": "unraid-backup",
+    "title": "Datensicherung Unraid Server Konzept",
+    "category": "Technik",
+    "content": "Der Unraid-Server sichert jede Nacht um 2 Uhr die Shares Dokumente, Fotos und Appdata auf eine externe USB-Festplatte. Zusätzlich wird einmal pro Woche verschlüsselt in einen Cloud-Speicher kopiert. Aufbewahrung: sieben tägliche, vier wöchentliche und zwölf monatliche Stände. Die Parität wird am ersten Sonntag im Monat geprüft. Eine Wiederherstellung wurde zuletzt im August getestet, dabei dauerte das Zurückspielen von 40 Gigabyte Fotos knapp zwei Stunden."
+  },
+  {
+    "id": "steuer-belege",
+    "title": "Steuererklärung 2025 Belegliste",
+    "category": "Finanzen",
+    "content": "Für die Einkommensteuererklärung 2025 gesammelt: Fahrten zur Arbeitsstätte an 112 Tagen mit 23 Kilometern einfacher Strecke, Homeoffice-Pauschale für 98 Tage, Arbeitsmittel Bürostuhl 349 Euro, Fachbuch 54 Euro. Handwerkerleistungen aus der Heizungswartung, nur der Lohnanteil ist absetzbar. Spenden an den Tierschutzverein 120 Euro mit Zuwendungsbestätigung. Abgabefrist mit Steuerberater ist der 30. April 2027."
+  },
+  {
+    "id": "garten-hecke",
+    "title": "Gartenplan Hecke und Rasen",
+    "category": "Haus",
+    "content": "Die Hainbuchenhecke an der Grundstücksgrenze wird zweimal im Jahr geschnitten, Ende Juni und Ende August. Zwischen dem 1. März und dem 30. September sind laut Naturschutzgesetz nur schonende Form- und Pflegeschnitte erlaubt. Der Rasen bekommt im April und im September Langzeitdünger, vertikutiert wird im April. Der Mähroboter fährt werktags von 10 bis 16 Uhr. Im Herbst wird das Laub kompostiert, Wasserleitung zum Außenhahn vor dem ersten Frost absperren."
+  },
+  {
+    "id": "e-auto-laden",
+    "title": "Wallbox und Ladeverhalten Elektroauto",
+    "category": "Mobilität",
+    "content": "Die Wallbox in der Garage lädt mit maximal 11 kW und ist beim Netzbetreiber angemeldet. Über die Hausautomation wird bevorzugt mit Überschussstrom vom Dach geladen, wenn mindestens 1,4 kW eingespeist würden. Der Akku wird im Alltag nur bis 80 Prozent geladen. Auf Langstrecken an Schnellladern mit dem Ladetarif der Stadtwerke, 49 Cent pro kWh. Der Durchschnittsverbrauch im Sommer liegt bei 15,8 kWh auf 100 Kilometer, im Winter bei 19,5."
+  },
+  {
+    "id": "mietvertrag-garage",
+    "title": "Mietvertrag Stellplatz Tiefgarage",
+    "category": "Verträge",
+    "content": "Zusätzlich zur Garage am Haus ist ein Stellplatz in der Tiefgarage am Bahnhof gemietet, Platz Nummer 57. Die Miete beträgt 65 Euro im Monat und wird am Monatsanfang abgebucht. Der Vertrag läuft unbefristet und kann mit einer Frist von drei Monaten zum Monatsende gekündigt werden. Ein Transponder für das Tor wurde gegen 30 Euro Pfand ausgegeben. Untervermietung ist nicht erlaubt."
+  },
+  {
+    "id": "wissensraum-idee",
+    "title": "Notiz Ideen Wissensmanagement Suche",
+    "category": "Beruf",
+    "content": "Die Suche im Notizsystem findet nur exakte Wörter. Wer nach Auto sucht, findet keine Notiz, in der Fahrzeug steht. Idee: semantische Suche mit lokalen Vektoren ergänzen und die Treffer mit der Volltextsuche zusammenführen. Wichtig ist, dass jede Antwort ihre Quellen nennt und dass bei dünner Quellenlage keine erfundene Antwort entsteht. Messgröße: Anteil der Fragen, bei denen die richtige Notiz unter den ersten zehn Treffern ist."
+  },
+  {
+    "id": "fahrrad",
+    "title": "Pedelec Inspektion und Rahmennummer",
+    "category": "Mobilität",
+    "content": "Das Pedelec hat die Rahmennummer WAW-77341-K und einen Mittelmotor mit 85 Newtonmeter. Die Jahresinspektion beim Fahrradhändler kostet 79 Euro zuzüglich Material. Bei der letzten Inspektion im April wurden Kette und Bremsbeläge hinten getauscht. Der Akku mit 625 Wattstunden reicht im Eco-Modus für etwa 110 Kilometer. Die Fahrradversicherung ist an die Hausratversicherung gekoppelt und deckt Diebstahl rund um die Uhr."
+  },
+  {
+    "id": "hausrat",
+    "title": "Hausratversicherung Leistungsumfang",
+    "category": "Versicherung",
+    "content": "Die Hausratversicherung deckt eine Versicherungssumme von 85.000 Euro mit Unterversicherungsverzicht. Eingeschlossen sind Feuer, Leitungswasser, Sturm, Hagel und Einbruchdiebstahl, außerdem Überspannung durch Blitz. Elementarschäden wie Hochwasser sind nicht versichert. Fahrraddiebstahl ist bis 3.000 Euro mitversichert, auch nachts ohne Zusatzklausel. Wertsachen im Tresor bis 20.000 Euro. Jahresbeitrag 176 Euro."
+  },
+  {
+    "id": "elternabend",
+    "title": "Protokoll Elternabend Klasse 7b",
+    "category": "Familie",
+    "content": "Beim Elternabend am 22. September wurde die Klassenfahrt nach Borkum vom 4. bis 8. Mai beschlossen, Kosten etwa 310 Euro pro Kind, Anzahlung 100 Euro bis Ende Oktober. Die Klassenleitung übernimmt Frau Hinrichs, Mathematik unterrichtet Herr Tamm. Handys bleiben im Unterricht ausgeschaltet im Ranzen. Elternvertreter sind Familie Kurz und Familie Osterloh. Die nächste Sprechstunde findet nach Vereinbarung statt."
+  },
+  {
+    "id": "stromtarif",
+    "title": "Stromvertrag Haushalt Abschläge",
+    "category": "Finanzen",
+    "content": "Der Stromliefervertrag läuft beim regionalen Versorger mit 100 Prozent Ökostrom. Arbeitspreis 29,4 Cent pro Kilowattstunde, Grundpreis 13,90 Euro im Monat. Der monatliche Abschlag beträgt 58 Euro. Der Netzbezug lag 2025 bei 3.120 kWh, deutlich weniger als vor der Solaranlage. Die Preisgarantie gilt bis Ende 2026. Zählerstand wird jeweils zum Jahreswechsel über das Kundenportal gemeldet."
+  },
+  {
+    "id": "laptop-garantie",
+    "title": "Notebook Kaufbeleg und Garantie",
+    "category": "Technik",
+    "content": "Das Notebook wurde am 12. Februar 2025 im Onlinehandel für 1.249 Euro gekauft. Herstellergarantie 24 Monate mit Vor-Ort-Service, zusätzlich gesetzliche Gewährleistung beim Händler. Seriennummer PF3K-9A21. Bei einem Defekt die Garantie über das Herstellerportal anmelden, nicht über den Händler. Das Netzteil hat 65 Watt und lädt über USB-C. Arbeitsspeicher 32 Gigabyte, nicht aufrüstbar, da verlötet."
+  },
+  {
+    "id": "vereinsbeitrag",
+    "title": "Mitgliedschaft Tischtennisverein",
+    "category": "Freizeit",
+    "content": "Mitglied im Tischtennisverein seit 2019. Der Jahresbeitrag für Erwachsene beträgt 144 Euro und wird im Februar eingezogen. Training ist dienstags und donnerstags ab 19:30 Uhr in der Sporthalle der Gesamtschule. Die Mannschaft spielt in der Kreisliga, Heimspiele am Freitagabend. Austritt ist schriftlich mit einer Frist von drei Monaten zum Jahresende möglich. Für Turniere wird eine Startgebühr von 8 Euro fällig."
+  }
+]
