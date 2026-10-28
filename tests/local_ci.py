@@ -19,6 +19,9 @@ and exits with 0 only when all seven jobs passed on that commit.
 Interpreters: ``LOCAL_CI_PY311`` (``..._PY312``, ``..._PY313``) override the search, otherwise
 ``uv python find``, the Windows ``py`` launcher and ``python3.X`` on PATH are tried in this order.
 
+Tests write their temporary files to ``.local-ci/tmp/<job>``. Exclude this folder from on-access
+virus scanning: a scanner that opens new files there makes cleanup and file-list assertions flaky.
+
 Windows only: the development machine sometimes fails to delete temporary folders after a test
 has already passed (``WinError 145``). A run whose only errors are of this kind repeats exactly
 those tests once. The repetition is recorded in the result and in the protocol; any other error,
@@ -213,7 +216,12 @@ def compile_all(python, log):
 
 
 def unittest_job(job, python, extra_env, logs, modules=None):
-    env = {**os.environ, **extra_env}
+    # Own temp folder per job: one folder to exclude from on-access virus scanning, which holds
+    # handles and adds shadow files in %TEMP% on the development machine (WinError 145).
+    temp = STATE / 'tmp' / job
+    shutil.rmtree(temp, ignore_errors=True)
+    temp.mkdir(parents=True, exist_ok=True)
+    env = {**os.environ, 'TMP': str(temp), 'TEMP': str(temp), 'TMPDIR': str(temp), **extra_env}
     command = [python, '-m', 'unittest', *(modules or ['discover', '-s', 'tests']), '-v']
     if system_name() == 'linux' and modules is None:
         if not shutil.which('xvfb-run'):
