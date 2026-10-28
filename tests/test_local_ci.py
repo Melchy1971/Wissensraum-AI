@@ -53,8 +53,10 @@ class LocalCiTests(unittest.TestCase):
 
     def test_skip_reasons_are_counted(self):
         text = ("test_a (m.C.test_a) ... skipped 'PostgreSQL-Testdienst nicht konfiguriert'\n"
-                "test_b (m.C.test_b) ... skipped 'PostgreSQL-Testdienst nicht konfiguriert'\n")
-        self.assertEqual(local_ci.skip_reasons(text), {'PostgreSQL-Testdienst nicht konfiguriert': 2})
+                "test_b (m.C.test_b) ... skipped 'PostgreSQL-Testdienst nicht konfiguriert'\n"
+                'test_c (m.C.test_c) ... skipped "open-file replacement unsupported: \'x\'"\n')
+        self.assertEqual(local_ci.skip_reasons(text), {'PostgreSQL-Testdienst nicht konfiguriert': 2,
+                                                      "open-file replacement unsupported: 'x'": 1})
 
 
 if __name__ == '__main__':

@@ -141,7 +141,8 @@ def gate_table(commit, results):
 def skip_reasons(verbose_text):
     """Count of skipped tests per reason from ``unittest -v`` output."""
     reasons = {}
-    for reason in re.findall(r"\.\.\. skipped '(.*)'$", verbose_text, re.MULTILINE):
+    for reason in re.findall(r"""\.\.\. skipped (?:'(.*)'|"(.*)")$""", verbose_text, re.MULTILINE):
+        reason = reason[0] or reason[1]  # repr() switches to double quotes when the text has an apostrophe
         reasons[reason] = reasons.get(reason, 0) + 1
     return reasons
 
@@ -252,11 +253,14 @@ def disposable_postgres(pg_bin):
     pwfile = data.parent / f'{data.name}.pw'
     pwfile.write_text(password)
     try:
-        subprocess.run([str(pg_bin / 'initdb'), '-D', str(data / 'cluster'), '-U', 'wissensraum_test',
-                        '--auth=scram-sha-256', f'--pwfile={pwfile}', '-E', 'UTF8', '--locale=C'],
-                       check=True, capture_output=True)
+        created = subprocess.run([str(pg_bin / 'initdb'), '-D', str(data / 'cluster'), '-U', 'wissensraum_test',
+                                  '--auth=scram-sha-256', f'--pwfile={pwfile}', '-E', 'UTF8', '--locale=C'],
+                                 capture_output=True, text=True, check=False)
     finally:
         pwfile.unlink(missing_ok=True)
+    if created.returncode:  # initdb refuses root: run the postgres job as an unprivileged user
+        shutil.rmtree(data, ignore_errors=True)
+        raise SystemExit('postgres: initdb fehlgeschlagen: ' + (created.stderr.strip() or created.stdout.strip()))
     subprocess.run([str(pg_bin / 'pg_ctl'), '-D', str(data / 'cluster'), '-l', str(data / 'server.log'), '-w',
                     '-o', f'-p {port} -k {data} -c listen_addresses=127.0.0.1', 'start'],
                    check=True, capture_output=True)
