@@ -2,19 +2,47 @@
 
 **Dokumentversion:** 1.9
 
-**Stand:** 26.10.2026
+**Stand:** 28.10.2026
 
 **Produktstand:** 2.0 abgenommen am 26.10.2026 (Code-Stand `84f9ecf`) · 1.9 freigegeben am 23.10.2026
 
 **Repository:** `Melchy1971/Wissensraum-AI`
 
-**Geprüfte Codebasis:** Letzter codewirksamer Stand `84f9ecf`. CI-Lauf [40185408996](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40185408996): alle sieben Jobs grün. Release 2.0 wurde am 26.10.2026 mit eigenen Daten abgenommen; nachfolgende Commits bis zu dieser Planaktualisierung betreffen ausschließlich README und Masterplan.
+**Geprüfte Codebasis:** Letzter codewirksamer Stand `5ca9021` (28.10.2026). Lokales Matrix-Gate `tests/local_ci.py` am Commit `5ca9021`: 7 von 7 Jobs grün (D-015, GitHub Actions ohne Budget). Vorheriger Abnahmestand `84f9ecf`: CI-Lauf [40185408996](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40185408996): alle sieben Jobs grün. Release 2.0 wurde am 26.10.2026 mit eigenen Daten abgenommen; nachfolgende Commits bis zu dieser Planaktualisierung betreffen ausschließlich README und Masterplan.
 
 **Ablage:** Einziger Masterplan ist diese Datei `masterplan.md`. Die frühere Kopie `docs/masterplan.md` wurde am 22.10.2026 entfernt.
 
 **Status:** Phasen- und Testplan · Release 1.9 freigegeben, Release 2.0 abgenommen 26.10.2026, Phasen 0 bis 6 ✅ · Release 2.0.1 (Soll-Umfang von Phase 6, D-013) abgenommen 26.10.2026, als Nächstes Phase 7 (Release 2.1), noch nicht freigegeben
 
 **Legende:** ✅ vollständig implementiert und gesamtes Gate nachweislich bestanden · 🟡 implementiert oder teilweise geprüft, aber noch nicht vollständig abgenommen · ❌ Gate fehlgeschlagen oder Freigabe blockiert · ⬜ geplant und noch nicht begonnen
+
+## Aktualisierung 28.10.2026 – P0 MIME-Typ von PST-Anhängen, lokales Matrix-Gate
+
+**Fehler:** Lauf [40491494118](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40491494118) am Merge `9b718d6`: Linux und PostgreSQL grün, Windows 3.11, 3.12 und 3.13 rot in `test_pst_archive.PstArchiveTests.test_attachment_metadata_without_reading_content`. Für einen DOCX-Anhang lieferte die libpff-Implementierung unter Windows keinen MIME-Typ.
+
+**Ursache:** `mimetypes.guess_type` ergänzt seine Tabelle unter Windows aus der Registry und unter Linux aus `/etc/mime.types`. Auf dem Windows-Runner ohne Office ist `.docx` nicht registriert, das Ergebnis war `None`. Auf dem Entwicklungsrechner mit Office war der Test grün. Reproduziert unter Windows mit einer `mimetypes`-Tabelle ohne Registry: am Stand `9b718d6` exakt `('alt.docx', None, 7)`.
+
+**Korrektur `dbb1edc`:** `content_types.py` mit fester Endungstabelle, `application/octet-stream` für unbekannte Endungen. PST-Anhänge nutzen zuerst die MAPI-Eigenschaft `PR_ATTACH_MIME_TAG` (0x370E), dann die Tabelle. Gelesen werden nur Eintrags- und Werttyp sowie der Wert von 0x370E, nie die Anhangsdaten. `importer.py` und `mail_structure.py` nutzen dieselbe Tabelle. Tests für DOCX, XLSX, PPTX, PDF, PNG, JPG und unbekannte Typen; sie schlagen fehl, sobald Anhangsinhalt oder `mimetypes` angefasst wird. Gleiches Ergebnis unter Linux, Windows mit und Windows ohne Registry (identischer Hash der Zuordnung).
+
+**Matrix-Gate:** Die Läufe für `dbb1edc` starteten keinen Job, GitHub meldet fehlgeschlagene Zahlungen beziehungsweise erreichtes Ausgabenlimit. Ein neues Budget ist nicht vorgesehen. `tests/local_ci.py` ersetzt die Matrix mit denselben sieben Jobs (`ba17343`, `0c441e0`, `5ca9021`), 5 neue Tests in `tests/test_local_ci.py`: 492 Tests.
+
+| Job am `5ca9021` | Ergebnis | Tests | Übersprungen | Wiederholt |
+|---|---|---:|---:|---:|
+| windows-3.11 | PASS | 492 | 23 | 4 |
+| windows-3.12 | PASS | 492 | 23 | 0 |
+| windows-3.13 | PASS | 492 | 23 | 0 |
+| linux-3.11 | PASS | 492 | 19 | 0 |
+| linux-3.12 | PASS | 492 | 19 | 0 |
+| linux-3.13 | PASS | 492 | 19 | 0 |
+| postgres (PostgreSQL 18.6) | PASS | 20 | 0 | 0 |
+
+Übersprünge Linux: 17 ohne PostgreSQL-Testdienst, 2 reine Windows-Pfadfälle. Übersprünge Windows: 17 ohne PostgreSQL-Testdienst, 3 ohne `sh`, 2 Dateiersatz bei geöffneter Datei, 1 POSIX-Symlink. Der PostgreSQL-Job lief ohne Übersprung, damit ist `test_configuration_transfer_contract_on_real_postgresql` erstmals gegen einen echten PostgreSQL-18-Server nachgewiesen.
+
+**Bekannte Restpunkte:**
+
+- Windows mit Python 3.11 auf dem Entwicklungsrechner: in jedem Lauf zwei bis zehn Tests mit WinError 145 beim Löschen des Temp-Ordners nach bestandenem Prüfteil, auch mit eigenem, vom Virenscan ausgenommenem Temp-Ordner. Unter 3.12 und 3.13 nie. Das Gate wiederholt genau diese Tests einmal und protokolliert sie; jeder andere Fehler bleibt rot. Am `0c441e0` schlug zusätzlich `test_diagnostics.DiagnosticTests.test_sqlite_v1_health_executes_real_write_at_custom_path_and_rolls_it_back` fehl, weil eine fremde Datei `LEGACY.DB-SHM.tmp` im Temp-Ordner lag; im bisher einzigen Lauf mit eigenem Temp-Ordner nicht aufgetreten. Ursache offen.
+- Das Nicht-Lesen von Anhangsinhalt ist mit Attrappen geprüft, nicht gegen eine echte PST-Datei mit libpff.
+- `.github/workflows/tests.yml` kompiliert sieben Module nicht (`content_types.py`, `formats.py`, `mail_sync.py`, `pst_archive.py`, `rules.py`, `rules_view.py`, `sync_view.py`). Das lokale Gate kompiliert alle eingecheckten Python-Dateien. Die Workflow-Datei war für die Agentenwerkzeuge schreibgeschützt, die Korrektur `python -m compileall -q -l . tests` steht aus.
 
 ## Aktualisierung 22.10.2026 (Nachmittag) – Synchronisation, Linux-Identitätsbindung, geführte SQLite-Wiederherstellung
 
@@ -683,6 +711,7 @@ Erforderlicher Mindestumfang:
 | Priorität | Arbeitspaket | Nutzen | Abhängigkeit |
 |---|---|---|---|
 | P0 | Veröffentlichtes Datenbankkennwort ändern | Schließt unmittelbares Zugangsrisiko | Spätestens vor der ersten extern erreichbaren Instanz von Release 3.1; Rotation ist ein hartes Sicherheits-Gate und keine nachgelagerte Betriebsaufgabe. |
+| ✅ P0 | MIME-Typ von PST-Anhängen plattformunabhängig bestimmen (`dbb1edc`) und lokales Matrix-Gate einführen (`5ca9021`, 7 von 7) | Windows und Linux liefern identische Typen, Gate ohne GitHub-Actions-Budget | D-015 |
 | ✅ P0 | Vier nachgewiesene Migrations-Testfehler korrigieren (`55bc4ca`) | Stellt ein belastbares Phase-4-Gate her | Hermes-Commit `717db895` |
 | ✅ P0 | Alle fünf CI-Jobs wieder auf Grün bringen (Lauf `39410112241`) | Verhindert Freigabe eines nicht abgenommenen Datenbankumbaus | Korrigierte Migrationstests |
 | ✅ P0 | Linux-Identitätsbindung korrigieren und CI-Matrix für den Head grün nachweisen | Stellt grünes Gate wieder her | Push |
@@ -832,6 +861,7 @@ Ein Arbeitspaket ist abgeschlossen, wenn:
 | D-012 | Zielstack für Release 3.1: FastAPI, serverseitige Oberfläche mit HTMX, PostgreSQL 18, persistente Hintergrundaufträge, Docker Compose und Reverse Proxy mit automatischem TLS; SPA nur bei nachgewiesenem Bedarf | Entschieden 26.10.2026 (Product Owner) |
 | D-013 | Soll-Umfang von Phase 6 wird als Release 2.0.1 vor Phase 7 umgesetzt, in drei Teilschritten mit eigenem Gate: S1 Formate (HTML, RTF, XLSX, PPTX, EML), S2 Regeln für Kategorien und Tags, S3 zeitgesteuerte Postfachsynchronisation; S3 läuft nur, solange die Anwendung geöffnet ist (keine Windows-Aufgabenplanung) | Entschieden 26.10.2026 (Product Owner) |
 | D-014 | Festlegungen für Release 2.1: (1) Evaluationsdatensatz aus zwei Teilen, etwa 60 synthetische Fragen mit eingecheckten Vektoren des Referenzmodells für die CI und 20 bis 30 eigene Fragen des Product Owners mit erwarteter Quelle für die Abnahme; (2) Referenzmodell Qwen3-Embedding 0.6B lokal über Ollama (Apache 2.0, 1.024 Dimensionen), OpenAI text-embedding-3-small wählbar; Modell und Dimension je Vektor gespeichert, Modellwechsel erzwingt Neuberechnung; (3) SQLite: exakter Vergleich aller Vektoren (BLOB, numpy), PostgreSQL: pgvector; (4) Fusion Reciprocal Rank Fusion mit k = 60 aus je 50 Volltext- und Vektortreffern; (5) Reranker als Schnittstelle, erste Variante über die aktive Chat-KI, standardmäßig aus, Nutzen wird gemessen; (6) Messung: Recall@10 ≥ 0,85, Hauptquelle in ≥ 95 % der beantworteten Fragen, P95 der Suche einschließlich Frage-Vektor ohne KI-Antwort unter 2 s bei 10.000 Dokumenten und etwa 50.000 Abschnitten auf SQLite, automatisch aus dem versionierten Datensatz | Entschieden 26.10.2026 (Product Owner) |
+| D-015 | GitHub Actions hat kein Budget. Das lokale Matrix-Gate `tests/local_ci.py` ersetzt die Actions-Matrix mit denselben sieben Jobs (Windows und Linux × Python 3.11, 3.12, 3.13 sowie PostgreSQL 18); eine Phase gilt nur mit einem Protokoll `local-ci-gate-<commit>.md` mit 7 von 7 grünen Jobs am selben Commit als bestanden | Entschieden 28.10.2026 (Product Owner) |
 
 ## 14. Hauptrisiken
 

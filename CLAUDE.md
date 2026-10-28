@@ -19,7 +19,7 @@ Lies vor jeder nicht-trivialen Änderung mindestens:
 1. `masterplan.md` – verbindliche Phasen, Status, Test-Gates und Release-Freigaben
 2. `README.md` – Bedienung, Produktgrenzen, Datenhaltung und unterstützte Konfiguration
 3. die betroffenen Implementierungsdateien und Tests
-4. `.github/workflows/tests.yml` – tatsächlich geprüfte Python-, Betriebssystem- und PostgreSQL-Matrix
+4. `tests/local_ci.py` – verbindliches lokales Matrix-Gate (7 Jobs); `.github/workflows/tests.yml` beschreibt dieselbe Matrix, läuft aber seit 28.10.2026 mangels Actions-Budget nicht
 
 Bei Widersprüchen gilt der ausführbare Code zusammen mit reproduzierbaren Tests als Ist-Stand. Widersprüche zwischen Code, Tests, README und Masterplan müssen ausdrücklich benannt und im passenden Dokument korrigiert werden.
 
@@ -167,7 +167,7 @@ python -m unittest tests.test_postgres -v
 Syntaxprüfung:
 
 ```bash
-python -m compileall -q app.py core.py cli.py database.py migrations.py design.py settings.py importer.py
+python -m compileall -q -l . tests
 ```
 
 GUI-Test unter Linux:
@@ -184,7 +184,7 @@ PGTEST_ALLOW_DESTRUCTIVE=1 python -m unittest tests.test_postgres -v
 
 Vor Ausführung sicherstellen, dass der konfigurierte Datenbankname auf `_test` endet. Fehlt `migrations.py` im ausgecheckten Stand, zuerst Repository-Stand und Branch klären; die Prüfung nicht stillschweigend abschwächen.
 
-Die CI-Matrix umfasst Windows und Linux mit Python 3.11 und 3.13 sowie PostgreSQL 18. Lokale Tests ersetzen dieses Matrix-Gate nicht.
+Matrix-Gate seit 28.10.2026: GitHub Actions hat kein Budget mehr. Das lokale Gate `tests/local_ci.py` ersetzt die Actions-Matrix mit denselben sieben Jobs: Windows und Linux jeweils mit Python 3.11, 3.12 und 3.13 sowie der PostgreSQL-18-Vertrag gegen einen Wegwerf-Cluster. Jede Maschine führt `python tests/local_ci.py run` für ihre Plattform aus, der PostgreSQL-Job läuft mit `--postgres --pg-bin <PostgreSQL-18-bin>`. Die Ergebnisdateien beider Plattformen gehören nach `.local-ci/results/<commit>/`. `python tests/local_ci.py report` schreibt `local-ci-gate-<commit>.md` und gilt nur bei 7 von 7 grünen Jobs am selben Commit als bestanden. Einzelne lokale Testläufe ohne dieses Protokoll ersetzen das Gate nicht.
 
 ## 10. Phasen- und Statusregeln
 
@@ -195,7 +195,7 @@ Verwende im Masterplan ausschließlich diese Zustände:
 - ❌ Gate fehlgeschlagen oder Freigabe blockiert
 - ⬜ geplant und noch nicht begonnen
 
-Eine Phase nur dann auf ✅ setzen, wenn alle automatischen Tests, erforderlichen manuellen Tests und die zugehörige CI-Matrix grün sind. Einzelne vorhandene Funktionen rechtfertigen noch keine Freigabe der Gesamtphase.
+Eine Phase nur dann auf ✅ setzen, wenn alle automatischen Tests, erforderlichen manuellen Tests und das lokale Matrix-Gate (`local-ci-gate-<commit>.md`, 7 von 7 Jobs) grün sind. Einzelne vorhandene Funktionen rechtfertigen noch keine Freigabe der Gesamtphase.
 
 Nach einer relevanten Änderung `masterplan.md` aktualisieren:
 
