@@ -42,7 +42,7 @@ def make_v1_sqlite(path):
     store = Store(path)
     store.add('Altbestand', 'Unveränderte Suche in Schema Version eins')
     with store.connect() as connection:
-        for table in ('rule_run_changes', 'rule_runs', 'rules', 'document_tags', 'tags',
+        for table in ('chunk_vectors', 'rule_run_changes', 'rule_runs', 'rules', 'document_tags', 'tags',
                       'email_attachments', 'document_versions', 'import_item_errors', 'import_items', 'import_jobs',
                       'sources'):
             connection.execute(f'DROP TABLE {table}')
@@ -448,14 +448,16 @@ class DiagnosticTests(unittest.TestCase):
     def test_legacy_sqlite_versions_warn_without_mutation_then_migrate(self):
         from core import Store
         from database import DatabaseSettings
-        for version in (1, 2, 3, 4, 5, 6, 7, 8):
+        for version in (1, 2, 3, 4, 5, 6, 7, 8, 9):
             with self.subTest(version=version), tempfile.TemporaryDirectory() as folder:
                 path = Path(folder) / 'wissen.db'
                 store = Store(path)
                 store.add('Altbestand', f'Migration Version {version}')
                 with store.connect() as connection:
-                    for table in ('rule_run_changes', 'rule_runs', 'rules', 'document_tags', 'tags'):
-                        connection.execute(f'DROP TABLE {table}')
+                    connection.execute('DROP TABLE chunk_vectors')
+                    if version < 9:
+                        for table in ('rule_run_changes', 'rule_runs', 'rules', 'document_tags', 'tags'):
+                            connection.execute(f'DROP TABLE {table}')
                     if version < 8: connection.execute('DROP TABLE email_attachments')
                     if version < 7: connection.execute('DROP TABLE document_versions')
                     if version < 6:

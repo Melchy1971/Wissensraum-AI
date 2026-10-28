@@ -11,11 +11,8 @@ import argparse
 import json
 import urllib.request
 
-from evaluate import HERE, corpus_chunks, encode_vector, load, sha256
-
-# Qwen3-Embedding expects an instruction in front of queries, documents stay plain (model card).
-QUERY_INSTRUCTION = ('Instruct: Given a web search query, retrieve relevant passages that answer the query\n'
-                     'Query: ')
+# QUERY_INSTRUCTION is the product's query prefix, so evaluation and search agree.
+from evaluate import HERE, QUERY_INSTRUCTION, corpus_chunks, encode_vector, load, sha256
 
 
 def embed(host, model, texts):

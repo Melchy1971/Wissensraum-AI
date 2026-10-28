@@ -28,7 +28,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parents[1]))
 
-from core import Store, chunks
+from core import QUERY_INSTRUCTION, Store, chunks  # noqa: F401  (re-exported for build_vectors)
 
 KS = (1, 3, 10)
 

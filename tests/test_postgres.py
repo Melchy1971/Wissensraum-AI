@@ -377,6 +377,10 @@ class PostgresStoreTests(unittest.TestCase):
                                   'WHERE s.locator LIKE ?', ('%nachricht.eml',)).fetchone()['original']
         self.assertNotIn(b'ANHANGSINHALT-EML', bytes(original))
 
+    def test_chunk_vectors_on_real_postgresql(self):
+        from test_vectors import check_vector_contract
+        check_vector_contract(self, PostgresStore(self.profile, self.password))
+
     def test_rules_tags_and_reverted_runs_on_real_postgresql(self):
         from test_rules import import_and_rules_scenario
         with tempfile.TemporaryDirectory() as folder:
@@ -552,8 +556,8 @@ class PostgresStoreTests(unittest.TestCase):
         reset = DatabaseSettings(Path.cwd(), vault, environ={}).reset_postgresql(
             self.profile, self.password, self.profile['database'])
         self.assertEqual(reset['tables'], [
-            'ai_runs', 'chunks', 'document_tags', 'document_versions', 'documents', 'email_accounts',
-            'email_attachments', 'email_imports',
+            'ai_runs', 'chunk_vectors', 'chunks', 'document_tags', 'document_versions', 'documents',
+            'email_accounts', 'email_attachments', 'email_imports',
             'import_item_errors', 'import_items', 'import_jobs', 'rule_run_changes', 'rule_runs', 'rules',
             'schema_migrations', 'settings', 'sources', 'tags'])
         with PostgresStore(self.profile, self.password).connect() as db:

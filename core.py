@@ -142,7 +142,90 @@ def _insert_document(db, title, content, category, filename, original, digest, s
     return doc_id
 
 
-class Store:
+MODEL_ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.:/-]{0,119}')
+MAX_VECTOR_DIMENSION = 8192
+
+
+def pack_vector(values):
+    """Validated, L2-normalized float16 bytes and the dimension of one embedding."""
+    import numpy
+    vector = numpy.asarray(values, dtype=numpy.float32)
+    if vector.ndim != 1 or not 0 < vector.size <= MAX_VECTOR_DIMENSION or not numpy.isfinite(vector).all():
+        raise ValueError('Ungültiger Vektor.')
+    norm = float(numpy.linalg.norm(vector))
+    if norm == 0.0:
+        raise ValueError('Ungültiger Vektor.')
+    return (vector / norm).astype('<f2').tobytes(), int(vector.size)
+
+
+def _vector_model(model):
+    if not isinstance(model, str) or not MODEL_ID.fullmatch(model):
+        raise ValueError('Ungültige Modell-ID.')
+    return model
+
+
+class VectorIndex:
+    """Chunk vectors (schema version 10), shared by both backends through ``connect()``."""
+
+    def pending_vectors(self, model, limit=64):
+        """Chunks without a vector of ``model``; a vector of another model counts as missing."""
+        with self.connect() as db:
+            return [dict(row) for row in db.execute(
+                'SELECT c.id AS chunk_id,c.content FROM chunks c '
+                'LEFT JOIN chunk_vectors v ON v.chunk_id=c.id AND v.model=? '
+                'WHERE v.chunk_id IS NULL ORDER BY c.id LIMIT ?',
+                (_vector_model(model), max(1, min(int(limit), 1000))))]
+
+    def save_vectors(self, model, vectors):
+        """Store ``{chunk_id: values}``; all vectors of one call must share their dimension."""
+        model = _vector_model(model)
+        rows = [(int(chunk_id), *pack_vector(values)) for chunk_id, values in vectors.items()]
+        if len({dimension for _, _, dimension in rows}) > 1:
+            raise ValueError('Vektoren mit unterschiedlicher Dimension.')
+        with self.connect() as db:
+            db.executemany(
+                'INSERT INTO chunk_vectors(chunk_id,model,dimension,vector) VALUES(?,?,?,?) '
+                'ON CONFLICT(chunk_id) DO UPDATE SET model=excluded.model,'
+                'dimension=excluded.dimension,vector=excluded.vector',
+                [(chunk_id, model, dimension, blob) for chunk_id, blob, dimension in rows])
+        return len(rows)
+
+    def vector_search(self, model, query, limit=8, all_versions=False, tag=None):
+        """Chunks ranked by cosine similarity to ``query``, exact over all stored vectors.
+
+        ponytail: every call reads all vectors of the model from the database. Ceiling: about
+        100 MB per query at 50,000 chunks with 1,024 dimensions. Upgrade path: an in-memory matrix
+        cached per model and data version, measured against the P95 target in step 7.3.
+        """
+        import numpy
+        model = _vector_model(model)
+        blob, dimension = pack_vector(query)
+        probe = numpy.frombuffer(blob, dtype='<f2').astype(numpy.float32)
+        with self.connect() as db:
+            rows = db.execute(
+                'SELECT v.chunk_id,v.dimension,v.vector FROM chunk_vectors v '
+                'JOIN chunks c ON c.id=v.chunk_id JOIN documents d ON d.id=c.document_id WHERE v.model=?'
+                + ('' if all_versions else ' AND '+CURRENT_VERSION_FILTER)
+                + (' AND '+TAG_FILTER if tag else '') + ' ORDER BY v.chunk_id',
+                (model, *((tag.casefold(),) if tag else ()))).fetchall()
+            if not rows:
+                return []
+            if any(row['dimension'] != dimension for row in rows):
+                raise ValueError('Gespeicherte Vektoren passen nicht zur Dimension der Anfrage.')
+            ids = [row['chunk_id'] for row in rows]
+            matrix = numpy.frombuffer(b''.join(bytes(row['vector']) for row in rows),
+                                      dtype='<f2').reshape(len(rows), dimension).astype(numpy.float32)
+            scores = matrix @ probe
+            best = numpy.argsort(-scores, kind='stable')[:max(1, min(int(limit), 30))]
+            chosen = {ids[i]: float(scores[i]) for i in best}
+            details = {row['chunk_id']: dict(row) for row in db.execute(
+                'SELECT c.id AS chunk_id,d.id AS document_id,d.title,d.category,c.ordinal,c.content '
+                'FROM chunks c JOIN documents d ON d.id=c.document_id WHERE c.id IN ('
+                + ','.join('?' * len(chosen)) + ')', tuple(chosen))}
+        return [{**details[chunk_id], 'score': score} for chunk_id, score in chosen.items()]
+
+
+class Store(VectorIndex):
     backend = 'sqlite'
     # Declared type, PRAGMA not-null flag, normalized default, primary-key position.
     column_contract = {
@@ -208,6 +291,9 @@ class Store:
             'run_id':('INTEGER',1,None,1), 'document_id':('INTEGER',1,None,2),
             'previous_category':('TEXT',1,None,0), 'new_category':('TEXT',1,None,0),
             'added_tags':('TEXT',1,"''",0)},
+        'chunk_vectors': {
+            'chunk_id':('INTEGER',0,None,1), 'model':('TEXT',1,None,0), 'dimension':('INTEGER',1,None,0),
+            'vector':('BLOB',1,None,0)},
     }
     schema_contract = {table:frozenset(columns) for table,columns in column_contract.items()}
     version_tables = {
@@ -226,6 +312,7 @@ class Store:
         8: frozenset({'documents','chunks','search_index','ai_runs','settings','email_accounts',
                       'email_imports','sources','import_jobs','import_items','import_item_errors',
                       'document_versions','email_attachments'}),
+        9: frozenset(schema_contract) - {'chunk_vectors'},
         CURRENT_SCHEMA_VERSION: frozenset(schema_contract),
     }
     primary_keys = {
@@ -235,7 +322,7 @@ class Store:
         'import_jobs': ('id',), 'import_items': ('id',), 'import_item_errors': ('id',),
         'document_versions': ('document_id',), 'email_attachments': ('document_id',),
         'tags': ('id',), 'document_tags': ('document_id','tag_id'), 'rules': ('id',), 'rule_runs': ('id',),
-        'rule_run_changes': ('run_id','document_id'),
+        'rule_run_changes': ('run_id','document_id'), 'chunk_vectors': ('chunk_id',),
     }
     unique_keys = {'documents': {('sha256',)}, 'chunks': {('document_id','ordinal')},
                    'import_items': {('job_id','ordinal')}, 'document_versions': {('lineage_id','version')},
@@ -253,6 +340,7 @@ class Store:
                               ('email_document_id','documents','id','SET NULL')},
         'document_tags': {('document_id','documents','id','CASCADE'), ('tag_id','tags','id','CASCADE')},
         'rule_run_changes': {('run_id','rule_runs','id','CASCADE'), ('document_id','documents','id','CASCADE')},
+        'chunk_vectors': {('chunk_id','chunks','id','CASCADE')},
     }
     sql_fragments = {
         ('view','chunks_search'): ('select c.id, d.title, d.category, c.content','join documents d'),
@@ -483,7 +571,7 @@ class _PostgresConnection:
             return cursor.executemany(self.sql(query),parameters)
 
 
-class PostgresStore:
+class PostgresStore(VectorIndex):
     """PostgreSQL implementation used after explicit activation in database settings."""
     backend = 'postgresql'
     # information_schema: data_type, udt_name, is_nullable, normalized default, is_identity.
@@ -566,6 +654,9 @@ class PostgresStore:
             'run_id':('bigint','int8','NO',None,'NO'), 'document_id':('bigint','int8','NO',None,'NO'),
             'previous_category':('text','text','NO',None,'NO'), 'new_category':('text','text','NO',None,'NO'),
             'added_tags':('text','text','NO',"''",'NO')},
+        'chunk_vectors': {
+            'chunk_id':('bigint','int8','NO',None,'NO'), 'model':('text','text','NO',None,'NO'),
+            'dimension':('integer','int4','NO',None,'NO'), 'vector':('bytea','bytea','NO',None,'NO')},
     }
     schema_contract = {table:frozenset(columns) for table,columns in column_contract.items()}
     required_constraints = {
@@ -605,6 +696,8 @@ class PostgresStore:
         'rule_run_changes_pkey': ('rule_run_changes','p',('run_id','document_id'),None,(),None),
         'rule_run_changes_run_id_fkey': ('rule_run_changes','f',('run_id',),'rule_runs',('id',),'c'),
         'rule_run_changes_document_id_fkey': ('rule_run_changes','f',('document_id',),'documents',('id',),'c'),
+        'chunk_vectors_pkey': ('chunk_vectors','p',('chunk_id',),None,(),None),
+        'chunk_vectors_chunk_id_fkey': ('chunk_vectors','f',('chunk_id',),'chunks',('id',),'c'),
     }
     required_indexes = {
         'chunks_document_id_idx': ('chunks','(document_id)'),
@@ -1049,6 +1142,68 @@ def load_key(base):
                 if sep and name.strip() == 'OPENAI_API_KEY':
                     return value.strip().strip('\"\'')
     raise ValueError('Kein API-Schlüssel verfügbar. .env.local im Programmordner hinterlegen.')
+
+
+# Embedding providers for Release 2.1 (D-014): the local reference model and one cloud option.
+EMBEDDING_PROVIDERS = {
+    'ollama': {'model': 'qwen3-embedding:0.6b', 'endpoint': 'http://127.0.0.1:11434/api/embed'},
+    'openai': {'model': 'text-embedding-3-small', 'endpoint': 'https://api.openai.com/v1/embeddings'},
+}
+# Qwen3-Embedding expects this instruction in front of queries, documents stay plain (model card).
+QUERY_INSTRUCTION = ('Instruct: Given a web search query, retrieve relevant passages that answer the query\n'
+                     'Query: ')
+EMBEDDING_BATCH = 32
+
+
+class Embedder:
+    """Turns texts into vectors over the same provider boundary as ``AI`` (no other network use)."""
+
+    def __init__(self, provider='ollama', model=None, key=None, transport=None):
+        if provider not in EMBEDDING_PROVIDERS:
+            raise ValueError('Unbekannter Embedding-Anbieter.')
+        if provider == 'openai' and (not key or any(c.isspace() or ord(c) < 32 for c in key)):
+            raise ValueError('API-Schlüssel fehlt oder enthält ungültige Zeichen.')
+        self.provider, self.key = provider, key
+        self.model = _vector_model(model or EMBEDDING_PROVIDERS[provider]['model'])
+        self.transport = transport or urllib.request.urlopen
+
+    def embed(self, texts, query=False):
+        """One vector per text, in order; ``query`` adds the model's search instruction."""
+        texts = [str(text) for text in texts]
+        if query and self.model.startswith('qwen3-embedding'):
+            texts = [QUERY_INSTRUCTION + text for text in texts]
+        vectors = []
+        for start in range(0, len(texts), EMBEDDING_BATCH):
+            vectors += self._request(texts[start:start+EMBEDDING_BATCH])
+        return vectors
+
+    def _request(self, batch):
+        headers = {'Content-Type': 'application/json'}
+        if self.provider == 'openai':
+            headers['Authorization'] = 'Bearer '+self.key
+        request = urllib.request.Request(EMBEDDING_PROVIDERS[self.provider]['endpoint'], method='POST',
+                                         data=json.dumps({'model': self.model, 'input': batch}).encode(),
+                                         headers=headers)
+        try:
+            with self.transport(request, timeout=120) as response:
+                result = json.load(response)
+        except urllib.error.HTTPError as error:
+            messages = {401: 'API-Schlüssel ungültig oder widerrufen.',
+                        404: 'Embedding-Modell nicht gefunden. Modell in Ollama laden.',
+                        429: 'API-Limit oder Guthaben erreicht. Abrechnung und Limits prüfen.'}
+            raise ValueError(messages.get(error.code, f'Embedding-Dienst meldet HTTP {error.code}.')) from None
+        except (urllib.error.URLError, TimeoutError, OSError):
+            raise ValueError('Embedding-Dienst nicht erreichbar.') from None
+        except ValueError:
+            raise ValueError('Embedding-Dienst lieferte keine gültige Antwort.') from None
+        if self.provider == 'openai':
+            data = sorted(result.get('data') or [], key=lambda item: item.get('index', 0))
+            vectors = [item.get('embedding') for item in data]
+        else:
+            vectors = result.get('embeddings') or []
+        if len(vectors) != len(batch) or not all(isinstance(v, list) and v for v in vectors):
+            raise ValueError('Embedding-Dienst lieferte nicht für jeden Text einen Vektor.')
+        return vectors
 
 
 class AI:

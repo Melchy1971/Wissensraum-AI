@@ -9,7 +9,7 @@ import uuid
 from contextlib import closing, contextmanager
 from pathlib import Path
 
-CURRENT_SCHEMA_VERSION = 9
+CURRENT_SCHEMA_VERSION = 10
 # Unversioned PostgreSQL schemas predate schema_migrations and match version 4.
 POSTGRES_LEGACY_SCHEMA_VERSION = 4
 # ponytail: source_type is validated in application code (core.SOURCE_TYPES), not by a
@@ -174,6 +174,14 @@ SQLITE_MIGRATIONS = (
             PRIMARY KEY(run_id, document_id)
         )""",
     )),
+    # Release 2.1: one vector per chunk; model and dimension per row, so a model change
+    # makes old vectors stale instead of mixing incompatible spaces.
+    (10, (
+        """CREATE TABLE IF NOT EXISTS chunk_vectors (
+            chunk_id INTEGER PRIMARY KEY REFERENCES chunks(id) ON DELETE CASCADE,
+            model TEXT NOT NULL, dimension INTEGER NOT NULL, vector BLOB NOT NULL
+        )""",
+    )),
 )
 
 
@@ -322,6 +330,12 @@ POSTGRES_MIGRATIONS = (
             PRIMARY KEY(run_id, document_id)
         )""",
     )),
+    (10, (
+        """CREATE TABLE IF NOT EXISTS chunk_vectors (
+            chunk_id BIGINT PRIMARY KEY REFERENCES chunks(id) ON DELETE CASCADE,
+            model TEXT NOT NULL, dimension INTEGER NOT NULL, vector BYTEA NOT NULL
+        )""",
+    )),
 )
 
 POSTGRES_APPLICATION_TABLES = {
@@ -333,7 +347,7 @@ SQLITE_TABLE_VERSIONS = {
     'email_accounts': 3, 'email_imports': 4, 'sources': 5,
     'import_jobs': 6, 'import_items': 6, 'import_item_errors': 6, 'document_versions': 7,
     'email_attachments': 8, 'tags': 9, 'document_tags': 9, 'rules': 9, 'rule_runs': 9,
-    'rule_run_changes': 9,
+    'rule_run_changes': 9, 'chunk_vectors': 10,
 }
 
 # Constant SQL list of all application tables, derived from the catalog so that
@@ -400,6 +414,8 @@ SQLITE_COLUMNS = {
     'rule_run_changes': (('run_id','INTEGER',1,None,1), ('document_id','INTEGER',1,None,2),
                          ('previous_category','TEXT',1,None,0), ('new_category','TEXT',1,None,0),
                          ('added_tags','TEXT',1,"''",0)),
+    'chunk_vectors': (('chunk_id','INTEGER',0,None,1), ('model','TEXT',1,None,0),
+                      ('dimension','INTEGER',1,None,0), ('vector','BLOB',1,None,0)),
 }
 
 SQLITE_UNIQUE_CONSTRAINTS = {
@@ -409,7 +425,7 @@ SQLITE_UNIQUE_CONSTRAINTS = {
     'import_jobs': set(), 'import_items': {('job_id','ordinal')}, 'import_item_errors': set(),
     'document_versions': {('lineage_id','version')}, 'email_attachments': set(),
     'tags': {('normalized',)}, 'document_tags': set(), 'rules': set(), 'rule_runs': set(),
-    'rule_run_changes': set(),
+    'rule_run_changes': set(), 'chunk_vectors': set(),
 }
 
 SQLITE_FOREIGN_KEYS = {
@@ -436,6 +452,7 @@ SQLITE_FOREIGN_KEYS = {
     'rules': set(), 'rule_runs': set(),
     'rule_run_changes': {('run_id','rule_runs','id','NO ACTION','CASCADE'),
                          ('document_id','documents','id','NO ACTION','CASCADE')},
+    'chunk_vectors': {('chunk_id','chunks','id','NO ACTION','CASCADE')},
 }
 
 POSTGRES_LEGACY_COLUMNS = {
@@ -539,6 +556,10 @@ POSTGRES_LEGACY_COLUMNS = {
     ('rule_run_changes','previous_category','text','NO','NO',None,None),
     ('rule_run_changes','new_category','text','NO','NO',None,None),
     ('rule_run_changes','added_tags','text','NO','NO',"''::text",None),
+    ('chunk_vectors','chunk_id','bigint','NO','NO',None,None),
+    ('chunk_vectors','model','text','NO','NO',None,None),
+    ('chunk_vectors','dimension','integer','NO','NO',None,None),
+    ('chunk_vectors','vector','bytea','NO','NO',None,None),
 }
 
 POSTGRES_LEGACY_CONSTRAINTS = {
@@ -578,6 +599,8 @@ POSTGRES_LEGACY_CONSTRAINTS = {
     ('rule_run_changes', 'p', ('run_id', 'document_id'), None, (), ' '),
     ('rule_run_changes', 'f', ('run_id',), 'rule_runs', ('id',), 'c'),
     ('rule_run_changes', 'f', ('document_id',), 'documents', ('id',), 'c'),
+    ('chunk_vectors', 'p', ('chunk_id',), None, (), ' '),
+    ('chunk_vectors', 'f', ('chunk_id',), 'chunks', ('id',), 'c'),
 }
 
 

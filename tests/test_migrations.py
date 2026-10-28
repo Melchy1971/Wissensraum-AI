@@ -121,6 +121,35 @@ SQLITE_HISTORICAL_MIGRATIONS = (
             name TEXT NOT NULL, content_type TEXT NOT NULL DEFAULT '', size INTEGER
         )""",
     )),
+    (9, (
+        """CREATE TABLE tags (
+            id INTEGER PRIMARY KEY, name TEXT NOT NULL, normalized TEXT NOT NULL UNIQUE
+        )""",
+        """CREATE TABLE document_tags (
+            document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+            PRIMARY KEY(document_id, tag_id)
+        )""",
+        """CREATE TABLE rules (
+            id INTEGER PRIMARY KEY, position INTEGER NOT NULL, name TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1, source_type TEXT NOT NULL DEFAULT '',
+            path_pattern TEXT NOT NULL DEFAULT '', sender_domain TEXT NOT NULL DEFAULT '',
+            extension TEXT NOT NULL DEFAULT '', keyword TEXT NOT NULL DEFAULT '',
+            category TEXT NOT NULL DEFAULT '', tags TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE rule_runs (
+            id INTEGER PRIMARY KEY, status TEXT NOT NULL DEFAULT 'applied',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, reverted_at TEXT
+        )""",
+        """CREATE TABLE rule_run_changes (
+            run_id INTEGER NOT NULL REFERENCES rule_runs(id) ON DELETE CASCADE,
+            document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            previous_category TEXT NOT NULL, new_category TEXT NOT NULL,
+            added_tags TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY(run_id, document_id)
+        )""",
+    )),
 )
 
 
@@ -254,7 +283,8 @@ class FakePostgres:
             tables |= {'documents', 'chunks', 'ai_runs', 'settings', 'email_accounts',
                        'email_imports', 'sources', 'import_jobs', 'import_items',
                        'import_item_errors', 'document_versions', 'email_attachments',
-                       'tags', 'document_tags', 'rules', 'rule_runs', 'rule_run_changes'}
+                       'tags', 'document_tags', 'rules', 'rule_runs', 'rule_run_changes',
+                       'chunk_vectors'}
         return tables
 
 
@@ -322,6 +352,9 @@ class SQLiteMigrationTests(unittest.TestCase):
                     for table in ('tags', 'document_tags', 'rules', 'rule_runs', 'rule_run_changes'):
                         self.assertEqual(db.execute(f'SELECT count(*) FROM {table}').fetchone()[0], 0)
                     self.assertEqual(db.execute('SELECT category FROM documents').fetchone()[0], 'Archiv')
+                    # Migration 10 adds an empty vector table; existing chunks keep their ids.
+                    self.assertEqual(db.execute('SELECT count(*) FROM chunk_vectors').fetchone()[0], 0)
+                    self.assertEqual(db.execute('SELECT id FROM chunks').fetchone()[0], 1)
 
     def test_historical_fixtures_do_not_depend_on_runtime_migrations(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -620,7 +653,7 @@ class PostgresMigrationTests(unittest.TestCase):
               for table,kind,columns,referenced,referenced_columns,action in POSTGRES_LEGACY_CONSTRAINTS
               if table.startswith('import_') or table in ('document_versions', 'email_attachments', 'tags',
                                                           'document_tags', 'rules', 'rule_runs',
-                                                          'rule_run_changes')),
+                                                          'rule_run_changes', 'chunk_vectors')),
         ]
         indexes = [
             {'table_name':'chunks','index_name':'chunks_document_id_idx','index_definition':'CREATE INDEX chunks_document_id_idx ON wissensraum.chunks USING btree (document_id)'},
