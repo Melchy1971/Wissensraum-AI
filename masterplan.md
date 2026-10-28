@@ -8,13 +8,21 @@
 
 **Repository:** `Melchy1971/Wissensraum-AI`
 
-**Geprüfte Codebasis:** Letzter codewirksamer Stand `ebd2475` (28.10.2026, Schritt 7.2a, Schemaversion 10). Lokales Matrix-Gate `tests/local_ci.py`: 7 von 7 Jobs grün an `5ca9021`, `4ef9545`, `6e1a9e3` und `ebd2475` (D-015, GitHub Actions ohne Budget). Vorheriger Abnahmestand `84f9ecf`: CI-Lauf [40185408996](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40185408996): alle sieben Jobs grün. Release 2.0 wurde am 26.10.2026 mit eigenen Daten abgenommen; nachfolgende Commits bis zu dieser Planaktualisierung betreffen ausschließlich README und Masterplan.
+**Geprüfte Codebasis:** Letzter codewirksamer Stand `72f0fbf` (28.10.2026, Schritt 7.2b, Schemaversion 10). Lokales Matrix-Gate `tests/local_ci.py`: 7 von 7 Jobs grün an `5ca9021`, `4ef9545`, `6e1a9e3`, `ebd2475` und `72f0fbf` (D-015, GitHub Actions ohne Budget). Vorheriger Abnahmestand `84f9ecf`: CI-Lauf [40185408996](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40185408996): alle sieben Jobs grün. Release 2.0 wurde am 26.10.2026 mit eigenen Daten abgenommen; nachfolgende Commits bis zu dieser Planaktualisierung betreffen ausschließlich README und Masterplan.
 
 **Ablage:** Einziger Masterplan ist diese Datei `masterplan.md`. Die frühere Kopie `docs/masterplan.md` wurde am 22.10.2026 entfernt.
 
-**Status:** Phasen- und Testplan · Release 1.9 freigegeben, Release 2.0 abgenommen 26.10.2026, Phasen 0 bis 6 ✅ · Release 2.0.1 (Soll-Umfang von Phase 6, D-013) abgenommen 26.10.2026, Phase 7 (Release 2.1) in Arbeit: 7.1 Evaluationsdatensatz 🟡, 7.2a Vektorspeicher und Embedding-Adapter 🟡, noch nicht freigegeben
+**Status:** Phasen- und Testplan · Release 1.9 freigegeben, Release 2.0 abgenommen 26.10.2026, Phasen 0 bis 6 ✅ · Release 2.0.1 (Soll-Umfang von Phase 6, D-013) abgenommen 26.10.2026, Phase 7 (Release 2.1) in Arbeit: 7.1 Evaluationsdatensatz 🟡, 7.2a Vektorspeicher und Embedding-Adapter 🟡, 7.2b Einbettung im Hintergrund 🟡, noch nicht freigegeben
 
 **Legende:** ✅ vollständig implementiert und gesamtes Gate nachweislich bestanden · 🟡 implementiert oder teilweise geprüft, aber noch nicht vollständig abgenommen · ❌ Gate fehlgeschlagen oder Freigabe blockiert · ⬜ geplant und noch nicht begonnen
+
+## Aktualisierung 28.10.2026 (Abend) – Phase 7, Schritt 7.2b Einbettung im Hintergrund 🟡
+
+**Umfang (`72f0fbf`):** `vector_sync.py` mit `VectorSync`: standardmäßig aus, Aktivierung prüft einmal das lokale Ollama-Modell. Der Timer der geöffneten Anwendung startet alle 30 Sekunden in einem Hintergrund-Thread einen Lauf über höchstens 256 Abschnitte ohne Vektor; neue Importe und der Bestand werden so schrittweise erfasst. Ein Fehlschlag behält die Aktivierung, neuer Versuch nach fünf Minuten, bereits gespeicherte Chargen bleiben. Gesendet werden nur Abschnittstexte an Ollama auf diesem Rechner; OpenAI ist bewusst nicht auswählbar, weil es Inhalte überträgt. Einstellungsseite „KI-Anbieter“ mit Bereich „Semantische Suche“ (Modell, Aktivieren, Deaktivieren, Fortschritt), CLI `vectors [--activate|--deactivate|--run]`. `save_vectors` überspringt Abschnitte, die während eines Laufs gelöscht wurden, statt die ganze Charge abzubrechen. Die Suche nutzt die Vektoren noch nicht.
+
+**Nachweise:** 8 neue Tests (`tests/test_vector_sync.py`, Oberflächentest in `tests/test_gui.py`, Löschfall in `tests/test_vectors.py`): 508 Tests. Lokales Matrix-Gate an `72f0fbf`: 7 von 7 Jobs grün. Echter Lauf mit Ollama 0.40.4 auf einer Kopie der eigenen Datenbank: 81 von 81 Abschnitten in 15 Sekunden einschließlich Aktivierung und zwei Programmstarts, Original unverändert, Kopie danach gelöscht.
+
+**Grenze:** Bei der gemessenen Rate von etwa 0,15 Sekunden je Abschnitt braucht ein Bestand von 50.000 Abschnitten rund zwei Stunden Rechenzeit, über den Timer verteilt auf mehrere Sitzungen. Für große Bestände ist `vectors --run` vorgesehen.
 
 ## Aktualisierung 28.10.2026 (Abend) – Phase 7, Schritt 7.2a Vektorspeicher und Embedding-Adapter 🟡
 
@@ -578,7 +586,7 @@ Frühere Zwischenstände: Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33
 
 **Muss-Umfang:**
 
-- Embedding-Schnittstelle mit wählbarem Anbieter und lokalem Modell 🟡 Adapter für Ollama und OpenAI vorhanden (7.2a), Auswahl in den Einstellungen fehlt
+- Embedding-Schnittstelle mit wählbarem Anbieter und lokalem Modell 🟡 Adapter für Ollama und OpenAI vorhanden (7.2a); in den Einstellungen und der CLI ist lokales Ollama mit frei wählbarem Modell aktivierbar (7.2b), OpenAI bewusst nicht auswählbar
 - `pgvector` für PostgreSQL; definierte lokale Strategie für SQLite 🟡 nach D-016 auf beiden Backends Byte-Spalte und exakte Suche mit numpy (7.2a); `pgvector` verschoben
 - hybride Fusion aus Volltext- und Vektorsuche
 - optionaler Reranker
