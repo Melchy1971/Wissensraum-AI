@@ -236,7 +236,15 @@ class EvidenceTests(unittest.TestCase):
         result = AI(self.store, '', 'qwen2.5:7b-instruct', transport=ollama, provider='ollama').ask('Wann ist die Wartung der Therme?')
         self.assertEqual(result.status, 'answered')
         self.assertEqual(sent[0]['options']['temperature'], 0)
+        prompt = sum(len(message['content']) for message in sent[0]['messages'])
+        self.assertGreaterEqual(sent[0]['options']['num_ctx'], prompt // 3 + sent[0]['options']['num_predict'])
         self.assertEqual(sent[0]['messages'][0]['role'], 'system')
+
+    def test_ollama_context_grows_with_long_sources(self):
+        from core import ollama_context
+        self.assertEqual(ollama_context('', 'x' * 300, 1600), 4096)
+        self.assertEqual(ollama_context('r' * 1500, 'x' * 15000, 1600), 8192)  # measured case: 16,379 characters
+        self.assertEqual(ollama_context('', 'x' * 500000, 1600), 32768)
 
     def test_assess_without_results_and_signals(self):
         empty = retrieval.Retrieval([], 'hybrid', retrieval.STATUS_HYBRID, {}, (1, 1))

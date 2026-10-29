@@ -1378,6 +1378,17 @@ class Embedder:
         return vectors
 
 
+def ollama_context(instructions, user_input, answer_tokens):
+    """Context window for an Ollama request: prompt plus answer, rounded up to a power of two.
+
+    Ollama otherwise keeps its default window (2,048 tokens measured) and silently drops the start
+    of a longer prompt, which removes the rules. A token is counted as three characters, which
+    overestimates German text; the window is capped at 32,768.
+    """
+    needed = (len(instructions) + len(user_input)) // 3 + answer_tokens + 256
+    return min(32768, max(4096, 1 << (needed - 1).bit_length()))
+
+
 def run_sources(sources_json):
     """(sources, details) of a stored AI run; runs before step 7.4 stored only the source list."""
     stored = json.loads(sources_json)
@@ -1443,7 +1454,8 @@ class AI:
         else:
             payload={'model':self.model,'stream':False,
                      'messages':[{'role':'system','content':instructions},{'role':'user','content':user_input}],
-                     'options':{'num_predict':1600,'temperature':0}}  # reproducible, close to the sources
+                     'options':{'num_predict':1600,'temperature':0,  # reproducible, close to the sources
+                                'num_ctx':ollama_context(instructions,user_input,1600)}}
         req=urllib.request.Request(endpoint,data=json.dumps(payload).encode(),headers=headers,method='POST')
         try:
             with self.transport(req, timeout=90) as response:
