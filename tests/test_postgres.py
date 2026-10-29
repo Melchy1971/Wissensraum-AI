@@ -433,6 +433,10 @@ class PostgresStoreTests(unittest.TestCase):
         from test_retrieval import check_hybrid_contract
         check_hybrid_contract(self, PostgresStore(self.profile, self.password))
 
+    def test_evidence_contract_on_real_postgresql(self):
+        from test_evidence import check_evidence_contract
+        check_evidence_contract(self, PostgresStore(self.profile, self.password))
+
     def test_vector_cache_sees_a_change_by_another_connection_on_real_postgresql(self):
         from retrieval import Retriever
         from test_retrieval import WordEmbedder, embed_all

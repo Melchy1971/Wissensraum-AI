@@ -582,6 +582,33 @@ class InterfaceTests(unittest.TestCase):
         self.assertEqual(len(window.tree.get_children()),1)
         WordEmbedder.offline=False
 
+    def test_answer_shows_evidence_state_and_refusal_without_request(self):
+        from core import AI
+        from test_evidence import Provider
+        window=self.window
+        window.store.add('Wartungsplan','Die Therme bekommt jährlich im März eine Wartung.')
+        provider=Provider('Im März [Q1].')
+        window.ai=lambda:AI(window.store,'sk-synthetic-key-1234','gpt-4.1-mini',transport=provider)
+        window.question.set('Wann ist die Wartung der Therme?'); window.ask(); self.wait_until_idle(window)
+        self.assertEqual(window.evidence_notice.get(),'Quellenlage ausreichend')
+        shown=window.answer.get('1.0','end')
+        self.assertIn('Im März [Q1].',shown)
+        self.assertIn('QUELLEN',shown)
+        window.question.set('Wann kostet die Wartung beim Händler mehr?'); window.ask(); self.wait_until_idle(window)
+        self.assertEqual(window.evidence_notice.get(),'Quellenlage schwach')
+        self.assertIn('Die vorhandenen Quellen reichen nur für eine unsichere Antwort.',window.answer.get('1.0','end'))
+        self.assertEqual(str(window.evidence_label.cget('style')),'Warning.TLabel')
+        window.question.set('Zebra Quantenphysik'); window.ask(); self.wait_until_idle(window)
+        self.assertEqual(window.evidence_notice.get(),'Keine ausreichende Quelle')
+        self.assertIn('Im Wissensbestand wurde keine ausreichend belastbare Quelle gefunden.',window.answer.get('1.0','end'))
+        self.assertEqual(len(provider.requests),2)  # the refusal used no request
+        provider.answer='KEINE_AUSREICHENDE_QUELLE'
+        window.question.set('Wann ist der TÜV für die Therme?'); window.ask(); self.wait_until_idle(window)
+        shown=window.answer.get('1.0','end')
+        self.assertIn('ÄHNLICHSTE DOKUMENTE (Suchhinweise, keine Antwort)',shown)
+        self.assertNotIn('jährlich im März',shown)
+        self.assertIn('Keine ausreichende Quelle',window.history.get('1.0','end'))
+
     def test_database_profile_is_stored_without_password(self):
         window=self.window
         values={'host':'db.example.test','port':'5432','database':'wissen_test','username':'test_user',

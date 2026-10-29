@@ -261,10 +261,13 @@ class App(tk.Tk if tk is not None else object):
         b = ttk.Button(question_row,text='Quellen suchen & antworten',command=self.ask,style='Accent.TButton')
         b.pack(side='left',padx=(8,0))
         self.buttons.append(b)
+        self.evidence_notice = tk.StringVar()
+        self.evidence_label = ttk.Label(self.chat,textvariable=self.evidence_notice,font=('Segoe UI',12,'bold'),wraplength=820)
+        self.evidence_label.pack(anchor='w',pady=(12,0))
         self.answer = ScrolledText(self.chat,wrap='word',font=('Segoe UI',12),padx=18,pady=16,
                                    background='white',foreground='#182c2a')
         self.answer.pack(fill='both',expand=True,pady=(14,0))
-        self.write(self.answer,'Stelle eine Frage mit Begriffen aus deinen Dokumenten.\n\nDie Suche arbeitet mit Volltext. Antworten zeigen Quellen als [Q1], [Q2] usw. Prüfe die zugrunde liegenden Textstellen. KI-Aussagen können fehlerhaft sein.')
+        self.write(self.answer,'Stelle eine Frage zu deinen Dokumenten.\n\nVor jeder KI-Anfrage prüft die Anwendung die Quellenlage. Ohne belastbare Quelle wird keine Antwort erzeugt. Antworten zeigen Quellen als [Q1], [Q2] usw. Prüfe die zugrunde liegenden Textstellen. KI-Aussagen können fehlerhaft sein.')
         ttk.Button(self.history_tab,text='Verlauf aktualisieren',command=self.show_history).pack(anchor='w',pady=(0,12))
         self.history = ScrolledText(self.history_tab,wrap='word',font=('Segoe UI',11),padx=14,pady=12)
         self.history.pack(fill='both',expand=True)
@@ -782,10 +785,24 @@ class App(tk.Tk if tk is not None else object):
         return self.settings.ai()
 
     def present_answer(self, result):
-        answer,sources = result
-        text = answer+'\n\nQUELLEN\n'
-        for i,s in enumerate(sources):
-            text += f'\n[Q{i+1}] {s["title"]} · Dokument {s["document_id"]} · Abschnitt {s["ordinal"]}\n{s["content"]}\n'
+        """Summary as (text, sources); a question as AnswerResult with its evidence state (step 7.4)."""
+        from evidence import INSUFFICIENT, SUFFICIENT, UNAVAILABLE
+        if isinstance(result, tuple):
+            answer,sources = result
+            self.evidence_notice.set('')
+        else:
+            answer,sources = result.text,result.sources
+            self.evidence_notice.set(result.label)
+            self.evidence_label.configure(style='TLabel' if result.state==SUFFICIENT else 'Warning.TLabel')
+        if not isinstance(result, tuple) and result.state in (INSUFFICIENT, UNAVAILABLE):
+            text = answer
+            if sources:  # search hits as hints, never as an answer
+                text += '\n\nÄHNLICHSTE DOKUMENTE (Suchhinweise, keine Antwort)\n'
+                text += ''.join(f'\n· {s["title"]} · Dokument {s["document_id"]} · Abschnitt {s["ordinal"]}' for s in sources)
+        else:
+            text = answer+'\n\nQUELLEN\n'
+            for i,s in enumerate(sources):
+                text += f'\n[Q{i+1}] {s["title"]} · Dokument {s["document_id"]} · Abschnitt {s["ordinal"]}\n{s["content"]}\n'
         self.write(self.answer,text)
         self.tabs.select(self.chat)
         self.show_history()
@@ -807,10 +824,15 @@ class App(tk.Tk if tk is not None else object):
     def show_history(self):
         items = self.store.history()
         text = []
+        from core import run_sources
+        from evidence import LABELS
         for item in items:
-            sources = json.loads(item['sources_json'])
-            refs = '\n'.join(f'[Q{i+1}] {s["title"]} · Dokument {s["document_id"]} · Abschnitt {s["ordinal"]}\n{s["content"]}' for i,s in enumerate(sources))
-            text.append(f'{item["created_at"]} UTC · {item["model"]}\n{item["question"]}\n\n{item["answer"]}\n\nQuellen zum Anfragezeitpunkt:\n{refs}')
+            sources,details = run_sources(item['sources_json'])
+            refs = '\n'.join(f'[Q{i+1}] {s["title"]} · Dokument {s["document_id"]} · Abschnitt {s["ordinal"]}'
+                             + (f'\n{s["content"]}' if s.get('content') else '') for i,s in enumerate(sources))
+            label = f' · {LABELS[details["evidence"]]}' if details.get('evidence') in LABELS else ''
+            model = item['model'] or 'keine KI-Anfrage'
+            text.append(f'{item["created_at"]} UTC · {model}{label}\n{item["question"]}\n\n{item["answer"]}\n\nQuellen zum Anfragezeitpunkt:\n{refs}')
         self.write(self.history,'\n\n'.join(text) if text else 'Noch keine KI-Anfragen gespeichert.')
 
     def open_settings(self):

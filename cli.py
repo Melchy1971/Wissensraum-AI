@@ -216,6 +216,7 @@ def main(argv=None):
         metadata={'operation':args.command,'backend':store.backend}
         _log_event(logger,'command_started',metadata=metadata)
         try:
+            exit_code = 0
             if args.command == 'list':
                 result = store.list(all_versions=args.all_versions,tag=args.tag)
             elif args.command in RULE_COMMANDS:
@@ -286,11 +287,21 @@ def main(argv=None):
                     result['hinweis']='Programm neu starten, damit die konfigurierte Datenquelle verwendet wird.'
             else:
                 ai = Settings(store,BASE).ai()
-                answer,sources = ai.ask(args.query) if args.command=='ask' else ai.summarize(args.id)
-                result = {'answer':answer,'sources':sources}
+                if args.command=='ask':  # same evidence rules as the desktop (step 7.4)
+                    answered = ai.ask(args.query)
+                    result = {'quellenlage':answered.state,'status':answered.status,
+                              'answer':answered.text,'sources':answered.sources}
+                    exit_code = ASK_EXIT_CODES[answered.state]
+                    if answered.state != 'sufficient':
+                        print(answered.label,file=sys.stderr)
+                else:
+                    answer,sources = ai.summarize(args.id)
+                    result = {'answer':answer,'sources':sources}
             print(json.dumps(result,ensure_ascii=False,indent=2))
+            if args.command=='ask':
+                metadata={**metadata,'status':result['quellenlage']}  # the state only, never question or answer
             _log_event(logger,'command_completed',metadata=metadata)
-            return 0
+            return exit_code
         except Exception as error:
             _log_event(logger,'command_failed',severity='ERROR',metadata=metadata,
                        exception_class=safe_exception_class(error),error_code='CLI_COMMAND_FAILED')
@@ -305,6 +316,10 @@ def main(argv=None):
         else:
             message = str(e)
         parser.exit(1,f'Fehler: {message}\n')
+
+# ask: an answer (also a weak one) exits with 0, a refusal with 2, unavailable retrieval with 1.
+ASK_EXIT_CODES = {'sufficient': 0, 'weak': 0, 'insufficient': 2, 'unavailable': 1}
+
 
 def vector_command(store, args):
     from vector_sync import VectorSync

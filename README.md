@@ -49,7 +49,7 @@ Python 3.11 bis 3.13 mit Tkinter voraussetzen, anschließend `sh start.sh` ausf�
 | Notizen | Titel, frei wählbarer Bereich, Inhalt |
 | Dubletten | SHA-256 über den extrahierten, außen getrimmten Text; identischer Text wird einmal gespeichert |
 | Suche | Volltext über Titel, Bereich und Abschnitte (SQLite BM25, PostgreSQL `ts_rank_cd`); mit aktivierter semantischer Suche hybrid aus Volltext und Vektorsuche (Reciprocal Rank Fusion) |
-| KI-Fragen | Höchstens acht passende Textabschnitte, Antwort mit [Q1]-Quellenverweisen |
+| KI-Fragen | Höchstens acht passende Textabschnitte, Prüfung der Quellenlage vor und nach der Antwort, Antwort nur mit gültigen [Q1]-Quellenverweisen |
 | Zusammenfassung | Ausgewähltes Dokument bis 24.000 Zeichen |
 | Verlauf | Erfolgreiche KI-Antworten und unveränderliche Quellenkopien in SQL |
 | Sicherung | Konsistente SQLite-Sicherung über die Backup-API |
@@ -58,7 +58,7 @@ Python 3.11 bis 3.13 mit Tkinter voraussetzen, anschließend `sh start.sh` ausf�
 
 Ohne semantische Suche ist die Suche lexikalisch: Begriffe müssen im Dokument vorkommen. Bei Mehrwortfragen werden die Suchbegriffe mit ODER verknüpft; häufige deutsche und englische Füllwörter (der, die, ist, wie, für, the, is …) werden vorher entfernt, damit sie nicht fast jedes Dokument treffen. Besteht eine Anfrage nur aus Füllwörtern, wird mit ihnen gesucht. Mit aktivierter semantischer Suche werden Volltext und Vektorsuche verbunden, siehe **Hybride Suche**. Höchstens 30 Dokumente werden in der Dokumentensuche angezeigt; mehrere Treffer aus demselben Dokument werden zusammengeführt.
 
-Die KI erhält die acht bestbewerteten Abschnitte, keine vollständige Gesamtauswertung des Bestands. Ein relevanter Abschnitt kann außerhalb dieser Auswahl liegen. Quellenverweise werden auf gültige Nummern geprüft; das prüft nicht, ob die Aussage tatsächlich aus der Quelle folgt. Antworten ohne Quellenmarkierung erhalten einen ausdrücklichen Prüfhinweis. Aussagen müssen anhand der angezeigten Textstellen geprüft werden.
+Die KI erhält die acht bestbewerteten Abschnitte, keine vollständige Gesamtauswertung des Bestands. Ein relevanter Abschnitt kann außerhalb dieser Auswahl liegen. Quellenverweise werden auf gültige Nummern geprüft; das prüft nicht, ob die Aussage tatsächlich aus der Quelle folgt. Antworten ohne Quellenverweis werden nicht als Antwort angezeigt, siehe **Quellenabsicherung**. Aussagen müssen anhand der angezeigten Textstellen geprüft werden.
 
 Grenzen: 50 MB lokale Originaldatei und je E-Mail-Anhang, Dateiinhalt passend zur Endung, DOCX, XLSX und PPTX höchstens 10.000 Archiveinträge, 200 MB entpackt und Entpackverhältnis 100, XLSX höchstens 1 Million Zellen, PPTX höchstens 2.000 Folien, kennwortgeschützte Office-Dateien in Quarantäne als „verschlüsselt“, PDF höchstens 2.000 Seiten, 25 MB je abgerufener IMAP-Nachricht, 2 Millionen extrahierte Zeichen pro Dokument, 4.000 Zeichen pro Frage, 24.000 Zeichen für eine Zusammenfassung; mit OCR höchstens 200 Seiten, 2 Minuten je Seite und 60 Millionen Bildpunkte je Seite. Audio, Web-Crawling, Benutzerverwaltung, Rechtevergabe, Wissensgraph und Mehrbenutzerbetrieb sind nicht enthalten. PostgreSQL ist als aktivierbare Alternative zu SQLite enthalten, setzt aber einen separat betriebenen PostgreSQL-Server voraus. Ein Importlauf verarbeitet maximal 2.000 IMAP-, 1.000 Microsoft- oder 10.000 PST-Nachrichten. Importierte Dokumente sind unveränderlich. Eine geänderte Datei am selben Ort wird beim erneuten Import als neue Version gespeichert; die älteren Versionen bleiben erhalten. Beim Löschen eines Dokuments bleiben Quellenkopien im KI-Verlauf erhalten und können weiter sensible Inhalte enthalten.
 
@@ -172,7 +172,7 @@ python cli.py ocr-status
 python cli.py retry-no-text
 python cli.py versions 12
 python cli.py search "Freigabe"
-python cli.py ask "Wer gibt Beschaffungsanträge frei?"
+python cli.py ask "Wer gibt Beschaffungsanträge frei?"   # Exit 0 Antwort, 2 Verweigerung, 1 Suche nicht verfügbar
 python cli.py summarize 1
 python cli.py backup sicherung.db
 python cli.py restore sicherung.db --confirm wissen.db
@@ -222,7 +222,7 @@ Das Skript migriert Testdatenbanken der Schemaversionen 1 bis 4, bricht eine Mig
 
 **HTTP 429:** API-Guthaben, Abrechnung und Projektlimits prüfen. Der Test dieser Auslieferung ist daran gescheitert. Die Anwendung stellt API-Limits nicht selbst um und wiederholt kostenpflichtige Anfragen nicht automatisch.
 
-**Keine Treffer:** Konkrete Begriffe aus dem Dokument verwenden oder die semantische Suche aktivieren. Zeigt die Statuszeile „Volltext-Fallback“, war Ollama nicht erreichbar; die Liste enthält dann nur Volltexttreffer.
+**Keine Treffer oder „Keine ausreichende Quelle“:** Konkrete Begriffe aus dem Dokument verwenden oder die semantische Suche aktivieren. Zeigt die Statuszeile „Volltext-Fallback“, war Ollama nicht erreichbar; die Liste enthält dann nur Volltexttreffer.
 
 **PDF ohne Text oder Bild:** Dafür ist die optionale Texterkennung nötig (siehe „Texterkennung (OCR)“). Ohne sie landet die Datei als „kein lesbarer Text“ in Quarantäne.
 
@@ -328,6 +328,23 @@ Die Statuszeile nennt das Verfahren: „Volltextsuche“ (semantische Suche aus 
 Die Frage wird mit `qwen3-embedding` und einer Suchanweisung an Ollama auf diesem Rechner geschickt. Die letzten 100 Frage-Vektoren bleiben im Arbeitsspeicher, sie werden weder protokolliert noch in der Datenbank gespeichert. Die Vektoren des Bestands hält die Anwendung als float16-Matrix im Arbeitsspeicher, bei 58.000 Abschnitten rund 114 MiB. Neue, geänderte oder gelöschte Vektoren erkennt sie bei jeder Suche über einen Generationszähler in der Datenbank, unter PostgreSQL auch Änderungen eines zweiten Rechners. Die erste Suche nach dem Start lädt die Matrix, bei diesem Bestand in 0,5 bis 0,6 Sekunden (SQLite) bzw. 1,6 Sekunden (PostgreSQL).
 
 Messen: `python tests/bench/benchmark.py` erzeugt einen synthetischen Referenzbestand mit 10.000 Dokumenten und rund 58.000 Abschnitten in einem temporären Ordner und misst kalte und warme Suchen (Median, P90, P95, P99, Maximum je Stufe). `--ollama` holt die Frage-Vektoren vom lokalen Ollama, `--postgres` nutzt die PostgreSQL-Testdatenbank aus den `PGTEST_*`-Variablen (nur `*_test` mit `PGTEST_ALLOW_DESTRUCTIVE=1`, das Schema wird vorher und nachher gelöscht).
+
+### Quellenabsicherung (Release 2.1, Schritt 7.4)
+
+Vor jeder KI-Anfrage bewertet die Anwendung die Quellenlage aus dem Suchergebnis der hybriden Suche. Eine zweite Suche gibt es nicht. Die Oberfläche zeigt den Zustand über der Antwort, `cli.py ask` gibt ihn als `quellenlage` aus.
+
+| Zustand | Anzeige | Bedingung | Verhalten |
+|---|---|---|---|
+| `sufficient` | Quellenlage ausreichend | Treffer vorhanden, unter den ersten drei ein Dokument, das Volltext und Vektorsuche gemeinsam finden (ohne semantische Suche: der beste Treffer enthält mindestens die Hälfte der Suchwörter) | normale Antwort mit Quellen |
+| `weak` | Quellenlage schwach | semantische Suche ausgefallen oder Vektorbestand unvollständig, keine Übereinstimmung der beiden Listen oder Treffer nur über allgemeine Wörter | Antwort mit dem Hinweis „Die vorhandenen Quellen reichen nur für eine unsichere Antwort.“, Quellen direkt darunter |
+| `insufficient` | Keine ausreichende Quelle | keine Treffer, oder das antwortende Modell findet die Antwort in keiner Quelle, oder die Antwort enthält keinen Quellenverweis | feste Meldung „Im Wissensbestand wurde keine ausreichend belastbare Quelle gefunden.“, die ähnlichsten Dokumente als Suchhinweise; ohne Treffer keine KI-Anfrage |
+| `unavailable` | Retrieval nicht verfügbar | Suche technisch fehlgeschlagen | feste Meldung, keine KI-Anfrage, keine internen Details |
+
+Die Bewertung läuft in zwei Stufen. Signale der Suche (Ränge, Übereinstimmung der Listen, Suchmodus) unterscheiden eine Ausschlussfrage nicht zuverlässig von einer umformulierten Frage. Deshalb muss das antwortende Modell zusätzlich mit dem festen Kennwort `KEINE_AUSREICHENDE_QUELLE` antworten, wenn keine Quelle die Antwort enthält. Die Anwendung zeigt dann die feste Meldung. Diese Fälle kosten eine KI-Anfrage. Der Systemprompt trennt Frage, Quellen (als unvertrauenswürdige Daten), Regeln und erlaubte Kennungen. Nach der Antwort prüft die Anwendung: Eine unbekannte oder erfundene Kennung verwirft die Antwort ohne Speicherung und ohne zweite Anfrage. Eine Antwort ohne Verweis wird nicht als Antwort angezeigt, ihr Text nicht gespeichert.
+
+Der Verlauf speichert je Frage Suchmodus, Quellenlage mit Begründung, Antwortstatus, Modell, Zeitpunkt sowie Dokument- und Abschnittsnummern aller übergebenen Quellen. Den Abschnittstext speichert er nur für zitierte Quellen, er bleibt auch nach dem Löschen des Dokuments erhalten. Frage-Vektoren werden nicht gespeichert. Das Betriebsprotokoll enthält weder Frage noch Antwort noch Dokumenttext.
+
+Messen: `python tests/eval/evaluate.py` zeigt die Quellenlage vor der KI-Anfrage für den synthetischen Datensatz. `--answers <Ollama-Modell>` misst end-to-end mit einem lokalen Modell als antwortendem Modell (Confusion Matrix, False-Accept- und False-Reject-Rate). Es werden nur die synthetischen Texte an das lokale Ollama geschickt. Die Ergebnisse hängen stark vom antwortenden Modell ab.
 
 ### Texterkennung (OCR, Release 2.0, Schritt 6.4)
 

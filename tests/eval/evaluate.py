@@ -7,6 +7,7 @@ chunk and question. ``vectors.json`` is generated once on a machine with Ollama
 
     python tests/eval/evaluate.py            # baseline report
     python tests/eval/evaluate.py --json     # machine-readable
+    python tests/eval/evaluate.py --answers qwen2.5:7b-instruct   # evidence end to end (local Ollama)
 
 Metrics per method (answerable questions only): Recall@1/3/10 of the main source (first entry of
 ``expected``) and the mean reciprocal rank. Exclusion questions report how many got no hit at all
@@ -105,6 +106,92 @@ def method_rankings(store, questions, question_vector, model, name):
     return {method: (rankings[method], seconds[method], top if method == 'vector' else {}) for method in METHODS}
 
 
+GROUPS = ('wortgleich', 'umschreibung', 'eigen', 'ausschluss')
+ACCEPTED = ('answered', 'weak_answer')  # shown as an answer, with at least one valid source
+
+
+def evidence_outcomes(store, questions, question_vector, model, answer=None, name=lambda doc_id: doc_id):
+    """Evidence state before the AI and, with ``answer(question, sources, state)``, the final outcome.
+
+    Uses the retrieval of ``AI.ask`` (hybrid, at most 8 documents) and the product's ``assess`` and
+    ``check_answer``. Without ``answer`` only the state before the AI is reported.
+    """
+    from evidence import INSUFFICIENT, InvalidCitation, assess, check_answer
+    from retrieval import CANDIDATE_LIMIT, HYBRID, STATUS_HYBRID, Retrieval, as_sources, rrf
+    outcomes = {}
+    for item in questions:
+        rows = store.search(item['question'], limit=CANDIDATE_LIMIT)
+        hits = store.vector_search(model, question_vector(item), limit=CANDIDATE_LIMIT)
+        retrieval = Retrieval(rrf(rows, hits, limit=8), HYBRID, STATUS_HYBRID, {}, (1, 1))
+        assessment = assess(retrieval, item['question'])
+        entry = {'state': assessment.state, 'reasons': list(assessment.reasons)}
+        if assessment.state == INSUFFICIENT:
+            entry['status'] = 'refused'
+        elif answer:
+            sources = as_sources(retrieval)
+            started = time.perf_counter()
+            try:
+                status, cited = check_answer(answer(item['question'], sources, assessment.state), len(sources))
+            except InvalidCitation:
+                status, cited = 'invalid_citation', ()
+            except ValueError:  # provider error or cut-off answer: no answer shown, counted separately
+                status, cited = 'error', ()
+            if status == 'answered' and assessment.state == 'weak':
+                status = 'weak_answer'
+            entry.update(status=status, seconds=round(time.perf_counter() - started, 2),
+                         cited=[name(sources[number - 1]['document_id']) for number in cited])
+        outcomes[item['id']] = entry
+    return outcomes
+
+
+def evidence_score(questions, outcomes):
+    """Confusion matrix and rates; accept means shown as an answer, reject means refused."""
+    by_group = {}
+    for group in GROUPS:
+        members = [q for q in questions if q['type'] == group]
+        if members:
+            states = {state: sum(outcomes[q['id']]['state'] == state for q in members)
+                      for state in ('sufficient', 'weak', 'insufficient')}
+            by_group[group] = {'questions': len(members), 'before_ai': states}
+    result = {'groups': by_group}
+    if not all('status' in outcomes[q['id']] for q in questions):
+        return result
+    answerable = [q for q in questions if q['expected']]
+    excluded = [q for q in questions if not q['expected']]
+    accepted = lambda q: outcomes[q['id']]['status'] in ACCEPTED  # noqa: E731
+    ta, fr = sum(map(accepted, answerable)), sum(not accepted(q) for q in answerable)
+    fa, tr = sum(map(accepted, excluded)), sum(not accepted(q) for q in excluded)
+    shown = [q for q in questions if accepted(q)]
+    with_source = [q for q in shown if outcomes[q['id']]['cited']]
+    result.update({
+        'confusion': {'beantwortbar': {'angenommen': ta, 'verweigert': fr},
+                      'ausschluss': {'angenommen': fa, 'verweigert': tr}},
+        'true_accept': ta, 'true_reject': tr, 'false_accept': fa, 'false_reject': fr,
+        'precision_answerable': round(ta / (ta + fa), 3) if ta + fa else None,
+        'recall_answerable': round(ta / len(answerable), 3) if answerable else None,
+        'false_accept_rate': round(fa / len(excluded), 3) if excluded else None,
+        'false_reject_rate': round(fr / len(answerable), 3) if answerable else None,
+        'accepted_with_source': f'{len(with_source)}/{len(shown)}',
+        'main_source_cited': f'{sum(q["expected"][0] in outcomes[q["id"]]["cited"] for q in answerable if accepted(q))}/{ta}',
+        'status': {status: sum(o['status'] == status for o in outcomes.values())
+                   for status in sorted({o['status'] for o in outcomes.values()})},
+        'answer_p95_ms': round(1000 * percentile([o['seconds'] for o in outcomes.values() if 'seconds' in o], 0.95), 1),
+        'per_question': {q['id']: outcomes[q['id']]['status'] for q in questions},  # ids and status only
+        'false_accepts': [q['id'] for q in excluded if accepted(q)],
+        'false_rejects': [q['id'] for q in answerable if not accepted(q)]})
+    for group, data in by_group.items():
+        members = [q for q in questions if q['type'] == group]
+        data['accepted'] = sum(map(accepted, members))
+    return result
+
+
+def ollama_answerer(model):
+    """The product's answer request against the local Ollama, as ``answer(question, sources, state)``."""
+    from core import AI
+    ai = AI(None, '', model, provider='ollama')
+    return lambda question, sources, state: ai.generate(question, sources, state, check=False)
+
+
 def corpus_store(folder, corpus, vectors):
     """The corpus in a throw-away SQLite store, with the checked-in vectors saved like the product does."""
     store = Store(Path(folder) / 'eval.db')
@@ -150,17 +237,18 @@ def score(questions, rankings, seconds, top):
     return result
 
 
-def evaluate():
+def evaluate(answers=None):
     corpus, questions, vectors = load('corpus.json'), load('questions.json'), load('vectors.json')
+    vector = lambda item: decode_vector(vectors['questions'][item['id']]['vector'], vectors['dimension'])  # noqa: E731
     with tempfile.TemporaryDirectory() as folder:
         store, by_row = corpus_store(folder, corpus, vectors)
-        measured = method_rankings(
-            store, questions, lambda item: decode_vector(vectors['questions'][item['id']]['vector'],
-                                                         vectors['dimension']),
-            vectors['model'], by_row.__getitem__)
+        measured = method_rankings(store, questions, vector, vectors['model'], by_row.__getitem__)
+        outcomes = evidence_outcomes(store, questions, vector, vectors['model'],
+                                     ollama_answerer(answers) if answers else None, by_row.__getitem__)
     return {'model': vectors['model'], 'documents': len(corpus),
             'chunks': sum(1 for _ in corpus_chunks(corpus)), 'questions': len(questions),
-            **{method: score(questions, *measured[method]) for method in METHODS}}
+            **{method: score(questions, *measured[method]) for method in METHODS},
+            'evidence': evidence_score(questions, outcomes), 'answer_model': answers}
 
 
 def store_rankings(store, questions, embedder, model):
@@ -176,7 +264,7 @@ def store_rankings(store, questions, embedder, model):
                            model, name)
 
 
-def evaluate_own(db_path, questions_path, model):
+def evaluate_own(db_path, questions_path, model, answers=None):
     """Own questions against an existing database (a copy: opening it migrates the schema)."""
     from core import Embedder
     store = Store(db_path)
@@ -190,8 +278,19 @@ def evaluate_own(db_path, questions_path, model):
               'chunks_with_vector': done, 'missing_sources': missing,
               'questions_without_source': [q['id'] for q in questions if q not in usable]}
     if usable:
-        measured = store_rankings(store, usable, Embedder('ollama', model), model)
+        embedder = Embedder('ollama', model)
+        measured = store_rankings(store, usable, embedder, model)
         result.update({method: score(usable, *measured[method]) for method in METHODS})
+        names = {}
+
+        def name(document_id):
+            if document_id not in names:
+                doc = store.get(document_id)
+                names[document_id] = doc.get('filename') or doc['title']
+            return names[document_id]
+        outcomes = evidence_outcomes(store, usable, lambda item: embedder.embed([item['question']], query=True)[0],
+                                     model, ollama_answerer(answers) if answers else None, name)
+        result.update(evidence=evidence_score(usable, outcomes), answer_model=answers)
     return result
 
 
@@ -208,6 +307,24 @@ def report(result):
             lines.append(f'| {key} | ' + ' | '.join(values) + ' |')
     for method, name in names.items():
         lines.append(f'\n{name}, Hauptquelle nicht unter den ersten 10: {", ".join(result[method]["missed"]) or "keine"}')
+    evidence = result.get('evidence')
+    if evidence:
+        lines.append('\nQuellenlage vor der KI-Anfrage (sufficient / weak / insufficient):')
+        for group, data in evidence['groups'].items():
+            states = data['before_ai']
+            accepted = f', angenommen nach Antwort {data["accepted"]}' if 'accepted' in data else ''
+            lines.append(f'- {group}: {data["questions"]} Fragen, {states["sufficient"]} / {states["weak"]} / '
+                         f'{states["insufficient"]}{accepted}')
+        if 'confusion' in evidence:
+            matrix = evidence['confusion']
+            lines += [f'\nEnd-to-end mit {result.get("answer_model")} (angenommen = als Antwort gezeigt):', '',
+                      '| tatsächlich | angenommen | verweigert |', '|---|---:|---:|',
+                      f'| beantwortbar | {matrix["beantwortbar"]["angenommen"]} | {matrix["beantwortbar"]["verweigert"]} |',
+                      f'| Ausschluss | {matrix["ausschluss"]["angenommen"]} | {matrix["ausschluss"]["verweigert"]} |', '']
+            for key in ('precision_answerable', 'recall_answerable', 'false_accept_rate', 'false_reject_rate',
+                        'accepted_with_source', 'main_source_cited', 'status', 'answer_p95_ms',
+                        'false_accepts', 'false_rejects'):
+                lines.append(f'- {key}: {evidence[key]}')
     if result.get('missing_sources'):
         lines.append('\nNicht im Bestand, Fragen nicht gemessen: ' + ', '.join(result['missing_sources'])
                      + ' (' + ', '.join(result['questions_without_source']) + ')')
@@ -220,10 +337,12 @@ def main(argv=None):
     parser.add_argument('--own', type=Path, help='eigene Fragen (JSON, nicht im Repository)')
     parser.add_argument('--db', type=Path, help='mit --own: Kopie einer SQLite-Datenbank mit Vektoren')
     parser.add_argument('--model', default='qwen3-embedding:0.6b')
+    parser.add_argument('--answers', metavar='OLLAMA_MODELL',
+                        help='Quellenlage end-to-end: Antworten vom lokalen Ollama-Modell (kein Cloud-Dienst)')
     args = parser.parse_args(argv)
     if args.own and not args.db:
         parser.error('--own braucht --db')
-    result = evaluate_own(args.db, args.own, args.model) if args.own else evaluate()
+    result = evaluate_own(args.db, args.own, args.model, args.answers) if args.own else evaluate(args.answers)
     if args.own and 'fulltext' not in result:
         print(json.dumps(result, indent=2, ensure_ascii=False))
         return

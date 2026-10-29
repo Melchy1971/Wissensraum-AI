@@ -282,7 +282,7 @@ class SqliteRetrievalTests(unittest.TestCase):
         seen = []
 
         class Ai(core.AI):
-            def generate(self, question, sources):
+            def generate(self, question, sources, evidence='sufficient'):
                 seen.extend(sources)
                 return 'Antwort [Q1]'
         with patch.object(retrieval, 'Embedder', WordEmbedder):

@@ -145,9 +145,9 @@ class KnowledgeTests(unittest.TestCase):
             calls.append(payload)
             return io.BytesIO(json.dumps({'status':'completed','output':[{'content':[
                 {'type':'output_text','text':'Die Führungskraft gibt frei. [Q1]'}]}]}).encode())
-        answer,sources = AI(self.store,'test-key',transport=transport).ask('Wer macht die Freigabe?')
-        self.assertIn('[Q1]',answer)
-        self.assertEqual(len(sources),1)
+        result = AI(self.store,'test-key',transport=transport).ask('Wer macht die Freigabe?')
+        self.assertIn('[Q1]',result.text)
+        self.assertEqual(len(result.sources),1)
         self.assertFalse(calls[0]['store'])
         self.assertNotIn('Geheimes',calls[0]['input'])
         self.store.delete(a)
@@ -158,10 +158,10 @@ class KnowledgeTests(unittest.TestCase):
     def test_no_sources_never_calls_api(self):
         def fail(*args,**kwargs):
             raise AssertionError('API must not be called')
-        answer,sources = AI(self.store,'key',transport=fail).ask('Unbekannt')
-        self.assertEqual(sources,[])
-        self.assertIn('Keine passenden',answer)
-        self.assertEqual(self.store.history(),[])
+        result = AI(self.store,'key',transport=fail).ask('Unbekannt')
+        self.assertEqual((result.state,result.status,result.sources),('insufficient','refused',[]))
+        self.assertEqual(result.text,'Im Wissensbestand wurde keine ausreichend belastbare Quelle gefunden.')
+        self.assertEqual(self.store.history()[0]['model'],'')  # recorded as a refusal without any request
 
     def test_invalid_citation_not_saved(self):
         self.store.add('A','Freigabe')
