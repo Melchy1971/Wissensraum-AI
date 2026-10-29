@@ -8,13 +8,57 @@
 
 **Repository:** `Melchy1971/Wissensraum-AI`
 
-**Geprüfte Codebasis:** Letzter produktcodewirksamer Stand `d7decfe` (29.10.2026, Schritt 7.3 hybride Suche, Schemaversion 11). Lokales Matrix-Gate `tests/local_ci.py`: 7 von 7 Jobs grün an `5ca9021`, `4ef9545`, `6e1a9e3`, `ebd2475`, `72f0fbf`, `7b85460`, `3cb3aaa` und `d7decfe` (D-015, GitHub Actions ohne Budget). Vorheriger Abnahmestand `84f9ecf`: CI-Lauf [40185408996](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40185408996): alle sieben Jobs grün. Release 2.0 wurde am 26.10.2026 mit eigenen Daten abgenommen; nachfolgende Commits bis zu dieser Planaktualisierung betreffen ausschließlich README und Masterplan.
+**Geprüfte Codebasis:** Letzter produktcodewirksamer Stand `c7ef78a` (29.10.2026, Schritt 7.4 Quellenabsicherung, Schemaversion 11). Lokales Matrix-Gate `tests/local_ci.py`: 7 von 7 Jobs grün an `5ca9021`, `4ef9545`, `6e1a9e3`, `ebd2475`, `72f0fbf`, `7b85460`, `3cb3aaa`, `d7decfe` und `c7ef78a` (D-015, GitHub Actions ohne Budget). Vorheriger Abnahmestand `84f9ecf`: CI-Lauf [40185408996](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40185408996): alle sieben Jobs grün. Release 2.0 wurde am 26.10.2026 mit eigenen Daten abgenommen; nachfolgende Commits bis zu dieser Planaktualisierung betreffen ausschließlich README und Masterplan.
 
 **Ablage:** Einziger Masterplan ist diese Datei `masterplan.md`. Die frühere Kopie `docs/masterplan.md` wurde am 22.10.2026 entfernt.
 
-**Status:** Phasen- und Testplan · Release 1.9 freigegeben, Release 2.0 abgenommen 26.10.2026, Phasen 0 bis 6 ✅ · Release 2.0.1 (Soll-Umfang von Phase 6, D-013) abgenommen 26.10.2026, Phase 7 (Release 2.1) in Arbeit: 7.1 Evaluationsdatensatz ✅, 7.2a Vektorspeicher und Embedding-Adapter ✅, 7.2b Einbettung im Hintergrund ✅, 7.3 hybride Suche ✅, Phase 7 noch nicht freigegeben (Reranker, Antwortkennzeichnung, Chunk-Strategie, Fundstellenanzeige offen)
+**Status:** Phasen- und Testplan · Release 1.9 freigegeben, Release 2.0 abgenommen 26.10.2026, Phasen 0 bis 6 ✅ · Release 2.0.1 (Soll-Umfang von Phase 6, D-013) abgenommen 26.10.2026, Phase 7 (Release 2.1) in Arbeit: 7.1 Evaluationsdatensatz ✅, 7.2a Vektorspeicher und Embedding-Adapter ✅, 7.2b Einbettung im Hintergrund ✅, 7.3 hybride Suche ✅, 7.4 Quellenabsicherung 🟡 (Zielwerte mit lokalem Modell verfehlt), Phase 7 noch nicht freigegeben (Chunk-Strategie, Fundstellenanzeige offen)
 
 **Legende:** ✅ vollständig implementiert und gesamtes Gate nachweislich bestanden · 🟡 implementiert oder teilweise geprüft, aber noch nicht vollständig abgenommen · ❌ Gate fehlgeschlagen oder Freigabe blockiert · ⬜ geplant und noch nicht begonnen
+
+## Aktualisierung 29.10.2026 (Abend) – Phase 7, Schritt 7.4 Quellenabsicherung 🟡
+
+**Umfang (`54e890c`, Korrektur des Kontextfensters `c7ef78a`, Entscheidung D-019):** Neues Modul `evidence.py`. Vor jeder KI-Anfrage bewertet `assess` das Suchergebnis aus 7.3 (keine zweite Suche) als `sufficient`, `weak`, `insufficient` oder `unavailable`. `unavailable` (Suche technisch fehlgeschlagen) und `insufficient` ohne Treffer stellen keine KI-Anfrage. `weak` gilt bei ausgefallener semantischer Suche, unvollständigem Vektorbestand, fehlender Übereinstimmung von Volltext und Vektor unter den ersten drei Dokumenten oder, ohne semantische Suche, wenn der beste Treffer weniger als die Hälfte der Suchwörter enthält. Die Regeln enthalten keine kalibrierten Gewichte oder Schwellen. Zweite Stufe: Der Systemprompt trennt Frage, unvertrauenswürdige Quellen, Regeln und erlaubte Kennungen; das antwortende Modell muss mit `KEINE_AUSREICHENDE_QUELLE` antworten, wenn keine Quelle die Antwort enthält, die Anwendung zeigt dann „Im Wissensbestand wurde keine ausreichend belastbare Quelle gefunden.“ und die ähnlichsten Dokumente als Suchhinweise. Nach der Antwort prüft `check_answer`: unbekannte oder erfundene Kennung verwirft die Antwort (`InvalidCitation`, keine Speicherung, keine zweite Anfrage, Ereignis ohne Inhalt im Betriebsprotokoll); eine Antwort ohne Quellenverweis wird nicht als Antwort angezeigt und ihr Text nicht gespeichert. Ollama antwortet mit Temperatur 0 und einem Kontextfenster passend zur Eingabe. Oberfläche: „Quellenlage ausreichend“, „Quellenlage schwach“ (hervorgehoben, Hinweis über der Antwort, Quellen darunter), „Keine ausreichende Quelle“, „Retrieval nicht verfügbar“. `cli.py ask` nutzt denselben Weg, gibt `quellenlage` und `status` aus und endet mit 0 (Antwort), 2 (Verweigerung) oder 1 (Suche nicht verfügbar oder ungültige Antwort). Speicherung ohne Migration: `ai_runs.sources_json` enthält jetzt ein Objekt mit Suchmodus, Quellenlage, Begründung, Antwortstatus und Snapshot (Dokument- und Abschnittsnummern aller übergebenen Quellen, Abschnittstext nur für zitierte); ältere Einträge mit reiner Liste bleiben lesbar.
+
+**Befund zur Kalibrierung:** Signale der Suche allein trennen Ausschlussfragen nicht von Umschreibungen. Auf dem synthetischen Datensatz verwirft die beste Kombination zweier Signale (höchste Vektorähnlichkeit, Anteil bekannter Begriffe) ohne durchgelassene Ausschlussfrage 28 von 54 beantwortbaren Fragen; die höchste Ähnlichkeit einer Ausschlussfrage liegt jetzt bei 0,768, über vielen beantwortbaren. Ein lokales Prüfmodell vor der Anfrage (`qwen2.5:7b`, wörtlicher Beleg) kam auf 28 % False Reject bei 1 von 8 False Accepts und +1,3 s. Auf Entscheidung des Product Owners deshalb die zweistufige Prüfung mit dem antwortenden Modell.
+
+**Datensatz:** 24 neue synthetische Ausschlussfragen (q63 bis q86), jede nah an einem vorhandenen Dokument und gegen dessen vollständigen Text geprüft; vier beantwortbare Entwürfe wurden verworfen. Jetzt 86 Fragen: 20 wortgleich, 34 umschrieben, 32 Ausschluss. Ihre Vektoren stammen aus Ollama 0.40.12 auf der GPU; die bestehenden Vektoren (Ollama 0.40.4) bleiben, damit die Werte aus 7.3 gültig bleiben. Abweichung zwischen beiden Läufen: Kosinus mindestens 0,9987.
+
+**Quellenlage vor der KI-Anfrage (synthetisch):** wortgleich 20 / 0 / 0, umschrieben 26 / 8 / 0, Ausschluss 26 / 6 / 0 (sufficient / weak / insufficient). Die erste Stufe verweigert hier nichts, weil jede Frage Treffer hat; `weak` markiert Umschreibungen und Ausschlussfragen etwa gleich oft.
+
+**Gefunden und behoben:** Ollama kürzte jede Eingabe über seinem Standard-Kontextfenster ohne Meldung von vorn. Gemessen: 16.379 Zeichen Eingabe, nur 2.050 Token verarbeitet, die Regeln am Anfang fehlten. Der Fehler bestand im Ollama-Anbieter schon vor 7.4 und traf jede längere Frage. Jetzt setzt die Anwendung `num_ctx` passend zur Eingabe (Zeichen durch drei plus Antwortlänge, auf eine Zweierpotenz aufgerundet, 4.096 bis 32.768); dieselbe Eingabe wird vollständig verarbeitet (4.852 Token). Aufgefallen ist das erst an den langen Abschnitten der eigenen Daten.
+
+**End-to-end, synthetisch, antwortendes Modell `qwen2.5:7b-instruct` lokal, Temperatur 0, volles Kontextfenster:**
+
+| tatsächlich | angenommen | verweigert |
+|---|---:|---:|
+| beantwortbar (54) | 33 | 21 |
+| Ausschluss (32) | 2 | 30 |
+
+| Kennzahl | Wert | Ziel |
+|---|---:|---:|
+| True Accept / True Reject | 33 / 30 | |
+| False Accept / False Reject | 2 / 21 | |
+| Precision beantwortbar | 0,943 | |
+| Recall beantwortbar | 0,611 | |
+| False-Accept-Rate Ausschluss | 6,2 % | höchstens 5 % |
+| False-Reject-Rate beantwortbar | 38,9 % | höchstens 10 % |
+| angenommene Antworten mit gültiger Quelle | 35 von 35 | 100 % |
+| Hauptquelle zitiert | 33 von 33 | |
+| KI-Anfrage bei insufficient oder unavailable | 0 | 0 |
+| Antwortzeit P95 | 2,36 s | |
+
+Nach Gruppe angenommen: wortgleich 19 von 20, umschrieben 14 von 34, Ausschluss 2 von 32 (q71 IP-Adresse des Routers: das Dokument nennt andere Adressen; q72 Hundesteuer). Zwei der False Rejects (q22, q50) sind richtig verweigert, ihre Hauptquelle lag nicht unter den übergebenen Abschnitten. Mit Temperatur 0 waren zwei Läufe identisch; vor der Korrektur des Kontextfensters lag die False-Reject-Rate bei 42,6 %.
+
+**Modellvergleich (gleicher Prompt, synthetisch, vor der Korrektur des Kontextfensters):** `qwen2.5:7b-instruct` mit Standardtemperatur 3,1 % bzw. 6,2 % False Accept und 33 % bzw. 41 % False Reject in zwei Läufen; `llama3.1` 53 % False Accept, 9 % False Reject, 35 Antworten ohne Quellenverweis; `gpt-oss` liegt nur zu 5,8 von 13,1 GB im Grafikspeicher und wurde nach über 40 Minuten abgebrochen. Kein lokal verfügbares Modell erreicht beide Ziele. Das im Produkt eingestellte Modell `llama3.2` ist auf dem Entwicklungsrechner nicht installiert.
+
+**Eigene Fragen (70 beantwortbare zu 44 Dokumenten, Messkopie mit 238 Dokumenten und 1.462 Abschnitten, danach gelöscht), `qwen2.5:7b-instruct`, volles Kontextfenster:** angenommen 19, verweigert 51 (35 durch das Modell, 16 Antworten ohne Quellenverweis), False-Reject-Rate 72,9 %, alle 19 angenommenen Antworten zitieren die erwartete Hauptquelle, Antwortzeit P95 9,3 s. Vor der Korrektur des Kontextfensters kam keine einzige Antwort durch (57 ohne Quellenverweis, 11 abgebrochen). Die Quellenlage vor der KI-Anfrage war für alle 70 Fragen `sufficient`. Eigene Ausschlussfragen liegen noch nicht vor; die False-Accept-Rate ist deshalb nur synthetisch gemessen.
+
+**Reranker (Abschnitt 12 des Auftrags):** nicht umgesetzt. Hybrid erreicht die Zielwerte für Recall@1 und MRR aus 7.3 (70 eigene Fragen: 0,586 und 0,706 gegen 0,514 und 0,680 der Vektorsuche). Ein Reranker würde zudem die Hauptschwäche von 7.4 nicht beheben, die im Lesen der Quellen durch das antwortende Modell liegt.
+
+**Nachweise:** 14 neue Tests (`tests/test_evidence.py` mit gemeinsamem Vertrag für beide Backends, PostgreSQL-Fall, Oberflächentest für Zustände, Verweigerung ohne Anfrage und Suchhinweise): 543 Tests. Abgedeckt: ausreichende wortgleiche und semantische Quelle, schwache Quelle, Ausschlussfrage über das Kennwort, widersprüchliche Quellen im Prompt, nur ein allgemeiner Treffer, Volltext-Fallback, unvollständiger Vektorbestand, Ollama nicht erreichbar, keine Quelle, unbekannte und erfundene Kennung, Antwort ohne Kennung, Prompt-Injection im Dokument und mit Aufforderung zur Quellenunterdrückung, keine KI-Anfrage bei `insufficient` und `unavailable`, gleiche Ergebnisse unter SQLite und PostgreSQL, CLI und Oberfläche mit derselben Klassifikation, Snapshot nach Dokumentlöschung, Betriebsprotokoll ohne Frage, Antwort und Dokumenttext, Temperatur und Kontextfenster für Ollama. Mutationsproben: KI-Anfrage trotz `insufficient`, ohne Übereinstimmungsregel, Kennwort ignoriert, Snapshot mit allen Texten, ohne Kennungsprüfung, ohne `unavailable`: alle schlagen fehl. Lokales Matrix-Gate an `c7ef78a`: 7 von 7 Jobs grün (`local-ci-gate-c7ef78a.md`). Linux 3.11, 3.12, 3.13: je 543 bestanden, 25 übersprungen (23 ohne PostgreSQL-Testdienst, 2 Windows-Pfadfälle). Windows 3.11.9, 3.12.10, 3.13.8: je 543 bestanden, 29 übersprungen (23 ohne PostgreSQL-Testdienst, 3 ohne `sh`, 2 Dateiersatz bei geöffneter Datei, 1 POSIX-Symlink). PostgreSQL 18.6: 26 von 26. **Hinweis:** Der erste Lauf von windows-3.11 scheiterte an `test_configuration.ConfigurationTransferTests.test_import_lock_blocks_an_independent_process_and_releases_after_exit` (Konfigurationsimport nach Ende eines sperrenden Zweitprozesses). Der Test berührt 7.4 nicht; einzeln 6 von 6 und als Modul 3 von 3 grün, der wiederholte Job grün. Ein zeitabhängiger Fehler in diesem Test ist damit wahrscheinlich, aber nicht aufgeklärt; offen als Restpunkt.
+
+**Status:** 7.4 🟡 (Gate 7 von 7 an `c7ef78a`): Klassifikation, Prompt-Vertrag, Prüfung nach der Antwort, Speicherung, Oberfläche und CLI umgesetzt, keine KI-Anfrage bei `insufficient` und `unavailable`, 100 % der angenommenen Antworten mit gültiger Quelle. Zielwerte für False Accept und False Reject mit lokalen Modellen verfehlt. Phase 7 🟡.
 
 ## Aktualisierung 29.10.2026 (Nachmittag) – Phase 7, Schritte 7.1 und 7.3 abgenommen ✅
 
@@ -706,10 +750,10 @@ Frühere Zwischenstände: Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33
 - Embedding-Schnittstelle mit wählbarem Anbieter und lokalem Modell ✅ Adapter für Ollama und OpenAI vorhanden (7.2a); in den Einstellungen und der CLI ist lokales Ollama mit frei wählbarem Modell aktivierbar (7.2b), OpenAI bewusst nicht auswählbar
 - `pgvector` für PostgreSQL; definierte lokale Strategie für SQLite ✅ nach D-016 auf beiden Backends Byte-Spalte und exakte Suche mit numpy (7.2a); `pgvector` verschoben
 - hybride Fusion aus Volltext- und Vektorsuche ✅ RRF (7.3, `d7decfe`), auf 70 eigenen Fragen bei Recall@1 und MRR vor der Vektorsuche
-- optionaler Reranker
+- optionaler Reranker: nicht erforderlich (7.4, D-019), Hybrid erreicht Recall@1 und MRR
 - konfigurierbare Chunk-Strategie nach Dokumenttyp
 - Anzeige von Dokument, Abschnitt, Fundstelle, Retrieval-Score und Reranking-Score
-- Antwort verweigern oder kennzeichnen, wenn die Quellenlage nicht ausreicht
+- Antwort verweigern oder kennzeichnen, wenn die Quellenlage nicht ausreicht 🟡 umgesetzt (7.4, D-019), False-Accept- und False-Reject-Ziel mit lokalen Modellen verfehlt
 - Evaluationsdatensatz mit Fragen, erwarteten Quellen und Ausschlussfällen ✅ synthetischer Teil mit Ausschlussfragen (Schritt 7.1); 70 eigene Fragen des Product Owners zu 44 Dokumenten lokal, gemessen auf 232 Dokumenten
 
 **Test und Abnahme:**
@@ -1024,6 +1068,7 @@ Ein Arbeitspaket ist abgeschlossen, wenn:
 | D-016 | Abweichend von D-014 (3) speichert PostgreSQL Vektoren vorerst wie SQLite als Byte-Spalte (`BYTEA`) mit exakter Suche in numpy. Grund: gleicher Speichervertrag auf beiden Backends, keine Servervoraussetzung; `pgvector` würde ohne installierte Erweiterung den Start abbrechen. `pgvector` folgt als eigene Migration, sobald ein Index nötig ist | Entschieden 28.10.2026 (Product Owner) |
 | D-017 | Importgrenze für Dateien und E-Mail-Anhänge 50 MB statt 20 MB; Seiten ohne Textebene in PDFs mit Textebene werden per OCR erkannt | Entschieden 29.10.2026 (Product Owner) |
 | D-018 | Hybride Suche (7.3): RRF mit k = 60, je 50 Kandidaten, ohne Gewichtung; Füllwortfilter in der Volltextsuche beider Backends. Gate-Kriterium: synthetisch Recall@10 ≥ 0,85 und wortgleich nicht schlechter als Volltext, auf den eigenen Fragen Recall@1 und MRR mindestens wie die Vektorsuche; eine Verfehlung wird nicht durch Anpassen an die eigenen Fragen ausgeglichen. PostgreSQL erhält mit Schema 11 gespeicherte Suchvektoren (`search_vector`, GIN), SQLite nur die Versionsnummer | Entschieden 29.10.2026 (Product Owner) |
+| D-019 | Quellenabsicherung (7.4) zweistufig: Suchsignale entscheiden `unavailable`, `insufficient` (keine Treffer, ohne KI-Anfrage) und `weak`; das antwortende Modell verweigert mit festem Kennwort, wenn keine Quelle die Antwort enthält; Antworten ohne gültigen Quellenverweis werden nicht angezeigt. Grund: Suchsignale trennen Ausschlussfragen nicht von Umschreibungen (52 % False Reject bei 0 False Accepts). Ollama antwortet mit Temperatur 0. Kein Reranker, weil Hybrid die Ziele aus 7.3 erreicht | Entschieden 29.10.2026 (Product Owner) |
 
 ## 14. Hauptrisiken
 
