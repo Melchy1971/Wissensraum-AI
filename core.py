@@ -104,6 +104,25 @@ def _versions(db, doc_id):
         'ORDER BY v.version DESC', (doc_id,))]
 
 
+# Function words dropped from a full-text query (decision D-018). With every word joined by OR they
+# matched nearly every document and drowned the relevant hits, also in the fusion with the vector list.
+STOPWORDS = frozenset('''
+aber als am an auch auf aus bei bin bis bist da dann das dass dem den der des die du durch ein eine einem einen
+einer eines er es etwas für dein gegen hat haben hatte ich ihr im in ist kann kein keine können man mehr mein meine
+meinem meinen meiner mich mir mit muss müssen nach nicht noch nur ob oder ohne schon sein seine sich sie sind so
+soll sollen über um und uns unser unter vom von vor war waren warum was wann welche welcher welches wenn wer
+werden wie wieviel viel viele wir wird wo wurde wurden zu zum zur darf
+a an and are at by do does for from how in is of on or the to was what when where which who with
+'''.split())
+
+
+def search_words(query):
+    """Distinct words of a full-text query without function words; all words if only those remain."""
+    words = list(dict.fromkeys(re.findall(r'\w+', query, re.UNICODE)))
+    content = [word for word in words if word.casefold() not in STOPWORDS]
+    return (content or words)[:30]
+
+
 # Documents carrying a tag (normalized name as parameter); used by list and search filters.
 TAG_FILTER = ('d.id IN (SELECT dt.document_id FROM document_tags dt JOIN tags t ON t.id=dt.tag_id '
               'WHERE t.normalized=?)')
@@ -164,6 +183,83 @@ def _vector_model(model):
     return model
 
 
+VECTOR_GENERATION = 'vectors.generation'
+CANDIDATE_LIMIT = 50  # chunks per retrieval list (step 7.3)
+SCORE_BLOCK = 1024  # rows converted to float32 at once while scoring; numpy converts float16 without SIMD
+
+
+def _bump_vector_generation(db):
+    """New random token in the caller's transaction: every cached matrix of this store is stale."""
+    db.execute('INSERT INTO settings(name,value) VALUES(?,?) ON CONFLICT(name) DO UPDATE SET value=excluded.value',
+               (VECTOR_GENERATION, uuid.uuid4().hex))
+
+
+class _VectorMatrix:
+    """Vectors of one model as one contiguous float16 matrix plus sorted chunk ids and their documents.
+
+    A chunk never moves to another document, so the document column stays valid as long as the key.
+    """
+
+    def __init__(self, key, ids, documents, matrix):
+        self.key, self.ids, self.documents, self.matrix = key, ids, documents, matrix
+        self.dimension = matrix.shape[1] if matrix.ndim == 2 else 0
+
+    @property
+    def nbytes(self):
+        return int(self.ids.nbytes + self.documents.nbytes + self.matrix.nbytes)
+
+
+class VectorCache:
+    """One cached matrix for the active model and database (module-wide, guarded by a lock).
+
+    The key holds backend and database identity, model, the stored generation token and the
+    highest chunk id with a vector. Each search reads these values first (both from an index, no
+    table scan), so a change by another process (PostgreSQL) or a restored file is seen at once.
+    ponytail: without the generation (a writer from step 7.2) only appended vectors are noticed,
+    an overwritten one is not; filters and deletions stay correct because they are read live.
+    """
+
+    def __init__(self):
+        import threading
+        self.lock = threading.Lock()
+        self.entry = None
+        self.loads = 0
+
+    def clear(self):
+        with self.lock:
+            self.entry = None
+
+    def get(self, key, load):
+        with self.lock:
+            if self.entry is None or self.entry.key != key:
+                self.entry = None  # release the old matrix before building the new one
+                self.entry = load()
+                self.loads += 1
+            return self.entry
+
+
+VECTOR_CACHE = VectorCache()
+
+
+def _load_vector_matrix(db, key, model):
+    import numpy
+    rows = db.execute('SELECT v.chunk_id,c.document_id,v.dimension,v.vector FROM chunk_vectors v '
+                      'JOIN chunks c ON c.id=v.chunk_id WHERE v.model=? ORDER BY v.chunk_id', (model,)).fetchall()
+    dimensions = {row['dimension'] for row in rows}
+    if len(dimensions) > 1:
+        raise ValueError('Gespeicherte Vektoren haben unterschiedliche Dimensionen.')
+    dimension = dimensions.pop() if dimensions else 0
+    ids = numpy.fromiter((row['chunk_id'] for row in rows), dtype=numpy.int64, count=len(rows))
+    documents = numpy.fromiter((row['document_id'] for row in rows), dtype=numpy.int64, count=len(rows))
+    matrix = numpy.empty((len(rows), dimension), dtype='<f2')
+    for index, row in enumerate(rows):
+        blob = bytes(row['vector'])
+        if len(blob) != 2 * dimension:
+            raise ValueError('Gespeicherter Vektor ist beschädigt.')
+        matrix[index] = numpy.frombuffer(blob, dtype='<f2')
+    return _VectorMatrix(key, ids, documents, matrix)
+
+
 class VectorIndex:
     """Chunk vectors (schema version 10), shared by both backends through ``connect()``."""
 
@@ -178,10 +274,22 @@ class VectorIndex:
 
     def vector_counts(self, model):
         """(chunks with a vector of ``model``, all chunks)."""
+        model = _vector_model(model)
         with self.connect() as db:
-            row = db.execute('SELECT (SELECT count(*) FROM chunk_vectors WHERE model=?) AS done,'
-                             '(SELECT count(*) FROM chunks) AS total', (_vector_model(model),)).fetchone()
-        return int(row['done']), int(row['total'])
+            total = int(db.execute('SELECT count(*) AS total FROM chunks').fetchone()['total'])
+            key, entry = self._vector_key(db, model), VECTOR_CACHE.entry
+            if entry is not None and entry.key == key:  # no table scan while the cached matrix is current
+                return int(entry.ids.size), total
+            done = db.execute('SELECT count(*) AS done FROM chunk_vectors WHERE model=?', (model,)).fetchone()['done']
+        return int(done), total
+
+    def _vector_key(self, db, model):
+        """Cache key from two index lookups, or None without any vector."""
+        state = db.execute('SELECT (SELECT value FROM settings WHERE name=?) AS generation,'
+                           '(SELECT max(chunk_id) FROM chunk_vectors) AS highest', (VECTOR_GENERATION,)).fetchone()
+        if state['highest'] is None:
+            return None
+        return (self.vector_identity(), model, state['generation'], int(state['highest']))
 
     def save_vectors(self, model, vectors):
         """Store ``{chunk_id: values}``; all vectors of one call must share their dimension.
@@ -199,41 +307,54 @@ class VectorIndex:
                 'ON CONFLICT(chunk_id) DO UPDATE SET model=excluded.model,'
                 'dimension=excluded.dimension,vector=excluded.vector',
                 [(chunk_id, model, dimension, blob, chunk_id) for chunk_id, blob, dimension in rows])
+            if rows:
+                _bump_vector_generation(db)
         return len(rows)
 
     def vector_search(self, model, query, limit=8, all_versions=False, tag=None):
-        """Chunks ranked by cosine similarity to ``query``, exact over all stored vectors.
+        """Chunks ranked by cosine similarity to ``query``, exact over the cached matrix.
 
-        ponytail: every call reads all vectors of the model from the database. Ceiling: about
-        100 MB per query at 50,000 chunks with 1,024 dimensions. Upgrade path: an in-memory matrix
-        cached per model and data version, measured against the P95 target in step 7.3.
+        The filters are the full-text search's: current versions unless ``all_versions``, an
+        optional tag. They are read from the database on every call, never from the cache, so a
+        deleted or filtered document cannot come back through a stale matrix.
         """
         import numpy
         model = _vector_model(model)
         blob, dimension = pack_vector(query)
         probe = numpy.frombuffer(blob, dtype='<f2').astype(numpy.float32)
+        limit = max(1, min(int(limit), CANDIDATE_LIMIT))
         with self.connect() as db:
-            rows = db.execute(
-                'SELECT v.chunk_id,v.dimension,v.vector FROM chunk_vectors v '
-                'JOIN chunks c ON c.id=v.chunk_id JOIN documents d ON d.id=c.document_id WHERE v.model=?'
-                + ('' if all_versions else ' AND '+CURRENT_VERSION_FILTER)
-                + (' AND '+TAG_FILTER if tag else '') + ' ORDER BY v.chunk_id',
-                (model, *((tag.casefold(),) if tag else ()))).fetchall()
-            if not rows:
+            key = self._vector_key(db, model)
+            if key is None:
                 return []
-            if any(row['dimension'] != dimension for row in rows):
+            cached = VECTOR_CACHE.get(key, lambda: _load_vector_matrix(db, key, model))
+            if not cached.ids.size:
+                return []
+            if cached.dimension != dimension:
                 raise ValueError('Gespeicherte Vektoren passen nicht zur Dimension der Anfrage.')
-            ids = [row['chunk_id'] for row in rows]
-            matrix = numpy.frombuffer(b''.join(bytes(row['vector']) for row in rows),
-                                      dtype='<f2').reshape(len(rows), dimension).astype(numpy.float32)
-            scores = matrix @ probe
-            best = numpy.argsort(-scores, kind='stable')[:max(1, min(int(limit), 30))]
-            chosen = {ids[i]: float(scores[i]) for i in best}
+            allowed = numpy.fromiter((row['id'] for row in db.execute(
+                'SELECT d.id FROM documents d WHERE 1=1'
+                + ('' if all_versions else ' AND '+CURRENT_VERSION_FILTER)
+                + (' AND '+TAG_FILTER if tag else ''),
+                (tag.casefold(),) if tag else ())), dtype=numpy.int64)
+            rows = numpy.nonzero(numpy.isin(cached.documents, allowed))[0]
+            if not rows.size:
+                return []
+            scores = numpy.empty(cached.ids.size, dtype=numpy.float32)
+            buffer = numpy.empty((min(SCORE_BLOCK, cached.ids.size), dimension), dtype=numpy.float32)
+            for start in range(0, cached.ids.size, SCORE_BLOCK):  # contiguous blocks, filter applied after
+                block = cached.matrix[start:start+SCORE_BLOCK]
+                converted = buffer[:len(block)]
+                converted[...] = block
+                numpy.matmul(converted, probe, out=scores[start:start+len(block)])
+            scores, ids = scores[rows], cached.ids[rows]
+            order = numpy.lexsort((ids, -scores))[:limit]  # best score first, ties by chunk id
+            chosen = {int(ids[i]): float(scores[i]) for i in order}
             details = {row['chunk_id']: dict(row) for row in db.execute(
                 'SELECT c.id AS chunk_id,d.id AS document_id,d.title,d.category,c.ordinal,c.content '
                 'FROM chunks c JOIN documents d ON d.id=c.document_id WHERE c.id IN ('
                 + ','.join('?' * len(chosen)) + ')', tuple(chosen))}
-        return [{**details[chunk_id], 'score': score} for chunk_id, score in chosen.items()]
+        return [{**details[chunk_id], 'score': score} for chunk_id, score in chosen.items() if chunk_id in details]
 
 
 class Store(VectorIndex):
@@ -324,7 +445,8 @@ class Store(VectorIndex):
                       'email_imports','sources','import_jobs','import_items','import_item_errors',
                       'document_versions','email_attachments'}),
         9: frozenset(schema_contract) - {'chunk_vectors'},
-        CURRENT_SCHEMA_VERSION: frozenset(schema_contract),
+        10: frozenset(schema_contract),
+        CURRENT_SCHEMA_VERSION: frozenset(schema_contract),  # 11 changes only PostgreSQL
     }
     primary_keys = {
         'documents': ('id',), 'chunks': ('id',), 'ai_runs': ('id',),
@@ -372,6 +494,17 @@ class Store(VectorIndex):
         self.path = Path(path)
         if initialize:
             migrate_sqlite(self.path)
+            # WAL is stored in the file header and survives every later connection. Setting it in each
+            # connect() made two connections opened at the same moment fail with "database is locked":
+            # the mode switch takes a lock without waiting for the busy timeout.
+            db = sqlite3.connect(self.path, timeout=20)
+            try:
+                db.execute('PRAGMA journal_mode=WAL')
+            finally:
+                db.close()
+
+    def vector_identity(self):
+        return ('sqlite', str(self.path.resolve()))
 
     def health(self):
         """Validate schema and rolled-back writes without changing user data."""
@@ -481,7 +614,6 @@ class Store(VectorIndex):
         db.row_factory = sqlite3.Row
         db.execute('PRAGMA foreign_keys=ON')
         try:
-            db.execute('PRAGMA journal_mode=WAL')
             with db:
                 yield db
         finally:
@@ -531,9 +663,10 @@ class Store(VectorIndex):
             # Delete children while the parent is still visible to the FTS delete trigger.
             db.execute('DELETE FROM chunks WHERE document_id=?', (doc_id,))
             db.execute('DELETE FROM documents WHERE id=?', (doc_id,))
+            _bump_vector_generation(db)
 
     def search(self, query, limit=8, all_versions=False, tag=None):
-        words = list(dict.fromkeys(re.findall(r'\w+', query, re.UNICODE)))[:30]
+        words = search_words(query)
         if not words:
             return []
         fts = ' OR '.join('"'+w+'"' for w in words)
@@ -545,7 +678,7 @@ class Store(VectorIndex):
                   + ('' if all_versions else ' AND '+CURRENT_VERSION_FILTER)
                   + (' AND '+TAG_FILTER if tag else '') + '''
                   ORDER BY rank,c.id LIMIT ?''',
-                  (fts, *((tag.casefold(),) if tag else ()), max(1, min(limit, 30)))).fetchall()
+                  (fts, *((tag.casefold(),) if tag else ()), max(1, min(limit, CANDIDATE_LIMIT)))).fetchall()
             return [dict(r) for r in rows]
 
     def log(self, kind, question, answer, sources, model):
@@ -592,10 +725,12 @@ class PostgresStore(VectorIndex):
             'category':('text','text','NO',None,'NO'), 'filename':('text','text','YES',None,'NO'),
             'original':('bytea','bytea','YES',None,'NO'), 'content':('text','text','NO',None,'NO'),
             'sha256':('text','text','NO',None,'NO'),
-            'created_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO')},
+            'created_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO'),
+            'search_vector':('tsvector','tsvector','YES',None,'NO')},
         'chunks': {
             'id':('bigint','int8','NO',None,'YES'), 'document_id':('bigint','int8','NO',None,'NO'),
-            'ordinal':('integer','int4','NO',None,'NO'), 'content':('text','text','NO',None,'NO')},
+            'ordinal':('integer','int4','NO',None,'NO'), 'content':('text','text','NO',None,'NO'),
+            'search_vector':('tsvector','tsvector','YES',None,'NO')},
         'ai_runs': {
             'id':('bigint','int8','NO',None,'YES'), 'kind':('text','text','NO',None,'NO'),
             'question':('text','text','NO',None,'NO'), 'answer':('text','text','NO',None,'NO'),
@@ -712,7 +847,8 @@ class PostgresStore(VectorIndex):
     }
     required_indexes = {
         'chunks_document_id_idx': ('chunks','(document_id)'),
-        'chunks_search_idx': ('chunks',"using gin (to_tsvector('simple'::regconfig, content))"),
+        'chunks_search_idx': ('chunks','using gin (search_vector)'),
+        'documents_search_idx': ('documents','using gin (search_vector)'),
     }
 
     @staticmethod
@@ -732,6 +868,9 @@ class PostgresStore(VectorIndex):
         if initialize:
             with self.connect() as db:
                 migrate_postgres(db)
+
+    def vector_identity(self):
+        return ('postgresql',)+tuple(str(self.profile.get(name,'')) for name in ('host','port','database','username'))
 
     def health(self):
         """Validate the application schema and rollback a capability probe."""
@@ -917,28 +1056,36 @@ class PostgresStore(VectorIndex):
             row=db.execute('SELECT * FROM documents WHERE id=?',(doc_id,)).fetchone()
         if not row:
             raise ValueError('Dokument wurde nicht gefunden.')
-        return dict(row)
+        document=dict(row)
+        document.pop('search_vector',None)  # internal search column, same fields as SQLite
+        return document
 
     def delete(self,doc_id):
         with self.connect() as db:
             db.execute('DELETE FROM documents WHERE id=?',(doc_id,))
+            _bump_vector_generation(db)
 
     def search(self,query,limit=8,all_versions=False,tag=None):
-        words=list(dict.fromkeys(re.findall(r'\w+',query,re.UNICODE)))[:30]
+        words=search_words(query)
         if not words:
             return []
         expression=' OR '.join(words)
         with self.connect() as db:
-            rows=db.execute('''SELECT c.id AS chunk_id,d.id AS document_id,d.title,d.category,c.ordinal,c.content,
-                  -ts_rank_cd(to_tsvector('simple',d.title || ' ' || d.category || ' ' || c.content),
-                              websearch_to_tsquery('simple',?)) AS rank
-                  FROM chunks c JOIN documents d ON d.id=c.document_id
-                  WHERE (to_tsvector('simple',c.content) @@ websearch_to_tsquery('simple',?)
-                     OR to_tsvector('simple',d.title || ' ' || d.category) @@ websearch_to_tsquery('simple',?))'''
+            # Stored vectors (schema 11) and UNION instead of OR, so both branches use their GIN index.
+            # d.search_vector || c.search_vector equals to_tsvector of title, category and content in
+            # one string ('simple' keeps every word, positions continue), so the rank is unchanged.
+            rows=db.execute('''WITH q AS (SELECT websearch_to_tsquery('simple',?) AS q),
+                  hits AS (SELECT c.id FROM chunks c,q WHERE c.search_vector @@ q.q
+                           UNION SELECT c.id FROM documents d JOIN chunks c ON c.document_id=d.id,q
+                                 WHERE d.search_vector @@ q.q)
+                  SELECT c.id AS chunk_id,d.id AS document_id,d.title,d.category,c.ordinal,c.content,
+                  -ts_rank_cd(d.search_vector || c.search_vector,q.q) AS rank
+                  FROM hits h JOIN chunks c ON c.id=h.id JOIN documents d ON d.id=c.document_id,q
+                  WHERE 1=1'''
                   + ('' if all_versions else ' AND '+CURRENT_VERSION_FILTER)
                   + (' AND '+TAG_FILTER if tag else '') + '''
-                  ORDER BY rank,c.id LIMIT ?''',(expression,expression,expression,
-                                                 *((tag.casefold(),) if tag else ()),max(1,min(limit,30)))).fetchall()
+                  ORDER BY rank,c.id LIMIT ?''',(expression,
+                                                 *((tag.casefold(),) if tag else ()),max(1,min(limit,CANDIDATE_LIMIT)))).fetchall()
         return [dict(row) for row in rows]
 
     def log(self,kind,question,answer,sources,model):
@@ -1190,6 +1337,7 @@ class Embedder:
         self.provider, self.key = provider, key
         self.model = _vector_model(model or EMBEDDING_PROVIDERS[provider]['model'])
         self.transport = transport or urllib.request.urlopen
+        self.timeout = 120  # background embedding; a search sets a shorter limit
 
     def embed(self, texts, query=False):
         """One vector per text, in order; ``query`` adds the model's search instruction."""
@@ -1209,7 +1357,7 @@ class Embedder:
                                          data=json.dumps({'model': self.model, 'input': batch}).encode(),
                                          headers=headers)
         try:
-            with self.transport(request, timeout=120) as response:
+            with self.transport(request, timeout=self.timeout) as response:
                 result = json.load(response)
         except urllib.error.HTTPError as error:
             messages = {401: 'API-Schlüssel ungültig oder widerrufen.',
@@ -1315,7 +1463,8 @@ class AI:
         question = question.strip()
         if not question or len(question) > 4000:
             raise ValueError('Frage muss zwischen 1 und 4.000 Zeichen enthalten.')
-        sources = self.store.search(question, limit=8)
+        from retrieval import Retriever, as_sources
+        sources = as_sources(Retriever(self.store).search(question, limit=8))  # same path as the search list
         if not sources:
             return 'Keine passenden Quellen gefunden. Suchbegriffe aus deinen Dokumenten verwenden.', []
         answer = self.generate(question, sources)

@@ -19,6 +19,34 @@ class KnowledgeTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    def test_connections_opened_at_the_same_moment_do_not_fail(self):
+        # Hybrid search opens a full-text connection beside the main one. With the journal mode set
+        # in every connect(), about one round in twenty failed with "database is locked".
+        import threading
+        errors = []
+        for number in range(120):
+            store = Store(self.root / f'parallel-{number}.db')
+            barrier = threading.Barrier(2)
+
+            def read():
+                barrier.wait()
+                try:
+                    with store.connect() as db:
+                        db.execute('SELECT count(*) FROM settings').fetchone()
+                except sqlite3.OperationalError as error:
+                    errors.append(str(error))
+            threads = [threading.Thread(target=read) for _ in range(2)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+        self.assertEqual(errors, [])
+        db = sqlite3.connect(self.root / 'parallel-0.db')
+        try:
+            self.assertEqual(db.execute('PRAGMA journal_mode').fetchone()[0], 'wal')
+        finally:
+            db.close()
+
     def test_store_original_and_deduplicate(self):
         doc_id,created = self.store.add('A','Ein Text',filename='a.txt',original=b'Ein Text')
         self.assertTrue(created)

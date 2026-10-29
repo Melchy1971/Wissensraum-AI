@@ -71,40 +71,55 @@ def ranked_documents(hits, limit=10):
     return seen
 
 
-def fulltext_rankings(corpus, questions):
-    """Rank documents with today's product search on a throw-away SQLite store."""
-    with tempfile.TemporaryDirectory() as folder:
-        store = Store(Path(folder) / 'eval.db')
-        by_row = {}
-        for doc in corpus:
-            row_id, created = store.add(doc['title'], doc['content'], doc['category'])
-            if not created:
-                raise ValueError(f'{doc["id"]}: Inhalt doppelt im Korpus')
-            by_row[row_id] = doc['id']
-        rankings, seconds = {}, []
-        for item in questions:
-            started = time.perf_counter()
-            rows = store.search(item['question'], limit=30)
-            seconds.append(time.perf_counter() - started)
-            rankings[item['id']] = ranked_documents(by_row[row['document_id']] for row in rows)
-        return rankings, seconds, {}
+METHODS = ('fulltext', 'vector', 'hybrid')
 
 
-def vector_rankings(corpus, questions, vectors):
-    """Rank documents by cosine similarity of question and chunk vectors (exact, all chunks)."""
-    dimension = vectors['dimension']
-    chunk_vectors = [(doc_id, decode_vector(vectors['chunks'][key]['vector'], dimension))
-                     for key, doc_id, _ in corpus_chunks(corpus)]
-    rankings, seconds, top = {}, [], {}
+def method_rankings(store, questions, question_vector, model, name):
+    """Document rankings of full text, vector and hybrid search through the product paths.
+
+    ``question_vector(item)`` supplies the question's vector, ``name(document_id)`` the key the
+    questions use for documents. Times: full text alone; vector including the question vector;
+    hybrid including both lists and the fusion, as the gate counts it.
+    """
+    from retrieval import CANDIDATE_LIMIT, rrf
+    rankings = {method: {} for method in METHODS}
+    seconds = {method: [] for method in METHODS}
+    top = {}
     for item in questions:
-        query = decode_vector(vectors['questions'][item['id']]['vector'], dimension)
         started = time.perf_counter()
-        scored = sorted(((sum(a * b for a, b in zip(query, vector)), doc_id) for doc_id, vector in chunk_vectors),
-                        reverse=True)
-        seconds.append(time.perf_counter() - started)
-        rankings[item['id']] = ranked_documents(doc_id for _, doc_id in scored)
-        top[item['id']] = round(scored[0][0], 4)
-    return rankings, seconds, top
+        rows = store.search(item['question'], limit=CANDIDATE_LIMIT)
+        fulltext_time = time.perf_counter() - started
+        started = time.perf_counter()
+        hits = store.vector_search(model, question_vector(item), limit=CANDIDATE_LIMIT)
+        vector_time = time.perf_counter() - started
+        started = time.perf_counter()
+        fused = rrf(rows, hits, limit=10)
+        fusion_time = time.perf_counter() - started
+        rankings['fulltext'][item['id']] = ranked_documents(name(row['document_id']) for row in rows)
+        rankings['vector'][item['id']] = ranked_documents(name(hit['document_id']) for hit in hits)
+        rankings['hybrid'][item['id']] = [name(entry['document_id']) for entry in fused]
+        seconds['fulltext'].append(fulltext_time)
+        seconds['vector'].append(vector_time)
+        seconds['hybrid'].append(fulltext_time + vector_time + fusion_time)
+        top[item['id']] = round(hits[0]['score'], 4) if hits else 0.0
+    return {method: (rankings[method], seconds[method], top if method == 'vector' else {}) for method in METHODS}
+
+
+def corpus_store(folder, corpus, vectors):
+    """The corpus in a throw-away SQLite store, with the checked-in vectors saved like the product does."""
+    store = Store(Path(folder) / 'eval.db')
+    by_row = {}
+    for doc in corpus:
+        row_id, created = store.add(doc['title'], doc['content'], doc['category'])
+        if not created:
+            raise ValueError(f'{doc["id"]}: Inhalt doppelt im Korpus')
+        by_row[row_id] = doc['id']
+    with store.connect() as db:
+        keys = {f'{by_row[row["document_id"]]}#{row["ordinal"]}': row['id']
+                for row in db.execute('SELECT id,document_id,ordinal FROM chunks')}
+    store.save_vectors(vectors['model'], {keys[key]: decode_vector(entry['vector'], vectors['dimension'])
+                                          for key, entry in vectors['chunks'].items()})
+    return store, by_row
 
 
 def percentile(values, share):
@@ -137,18 +152,19 @@ def score(questions, rankings, seconds, top):
 
 def evaluate():
     corpus, questions, vectors = load('corpus.json'), load('questions.json'), load('vectors.json')
+    with tempfile.TemporaryDirectory() as folder:
+        store, by_row = corpus_store(folder, corpus, vectors)
+        measured = method_rankings(
+            store, questions, lambda item: decode_vector(vectors['questions'][item['id']]['vector'],
+                                                         vectors['dimension']),
+            vectors['model'], by_row.__getitem__)
     return {'model': vectors['model'], 'documents': len(corpus),
             'chunks': sum(1 for _ in corpus_chunks(corpus)), 'questions': len(questions),
-            'fulltext': score(questions, *fulltext_rankings(corpus, questions)),
-            'vector': score(questions, *vector_rankings(corpus, questions, vectors))}
+            **{method: score(questions, *measured[method]) for method in METHODS}}
 
 
 def store_rankings(store, questions, embedder, model):
-    """Rank documents with the product's own search paths on an existing store.
-
-    Documents are identified by file name (title when there is none). The vector timing includes
-    the question vector, as the P95 target of the gate requires.
-    """
+    """Own questions on an existing store; documents are identified by file name, else title."""
     names = {}
 
     def name(document_id):
@@ -156,18 +172,8 @@ def store_rankings(store, questions, embedder, model):
             doc = store.get(document_id)
             names[document_id] = doc.get('filename') or doc['title']
         return names[document_id]
-    fulltext, fulltext_seconds, vector, vector_seconds, top = {}, [], {}, [], {}
-    for item in questions:
-        started = time.perf_counter()
-        rows = store.search(item['question'], limit=30)
-        fulltext_seconds.append(time.perf_counter() - started)
-        fulltext[item['id']] = ranked_documents(name(row['document_id']) for row in rows)
-        started = time.perf_counter()
-        hits = store.vector_search(model, embedder.embed([item['question']], query=True)[0], limit=30)
-        vector_seconds.append(time.perf_counter() - started)
-        vector[item['id']] = ranked_documents(name(hit['document_id']) for hit in hits)
-        top[item['id']] = round(hits[0]['score'], 4) if hits else 0.0
-    return (fulltext, fulltext_seconds, {}), (vector, vector_seconds, top)
+    return method_rankings(store, questions, lambda item: embedder.embed([item['question']], query=True)[0],
+                           model, name)
 
 
 def evaluate_own(db_path, questions_path, model):
@@ -184,15 +190,15 @@ def evaluate_own(db_path, questions_path, model):
               'chunks_with_vector': done, 'missing_sources': missing,
               'questions_without_source': [q['id'] for q in questions if q not in usable]}
     if usable:
-        fulltext, vector = store_rankings(store, usable, Embedder('ollama', model), model)
-        result.update(fulltext=score(usable, *fulltext), vector=score(usable, *vector))
+        measured = store_rankings(store, usable, Embedder('ollama', model), model)
+        result.update({method: score(usable, *measured[method]) for method in METHODS})
     return result
 
 
 def report(result):
     lines = [(f'Evaluationsdatensatz: {result["documents"]} Dokumente, {result["chunks"]} Abschnitte, '
               f'{result["questions"]} Fragen, Modell {result["model"]}'), '']
-    names = {'fulltext': 'Volltext (heute)', 'vector': 'Vektor (exakt)'}
+    names = {'fulltext': 'Volltext', 'vector': 'Vektor (exakt)', 'hybrid': 'Hybrid (RRF k=60)'}
     rows = [key for key in result['fulltext'] if key not in ('missed',)]
     lines.append('| Kennzahl | ' + ' | '.join(names.values()) + ' |')
     lines.append('|---|' + '---:|' * len(names))

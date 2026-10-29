@@ -15,7 +15,8 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import PostgresStore, Store
-from migrations import (CURRENT_SCHEMA_VERSION, POSTGRES_LEGACY_COLUMNS,
+from migrations import (CURRENT_SCHEMA_VERSION, POSTGRES_COLUMN_VERSIONS, POSTGRES_GENERATED_COLUMNS,
+                        POSTGRES_LEGACY_COLUMNS,
                         POSTGRES_LEGACY_CONSTRAINTS, SQLITE_MIGRATIONS, _database_file_lock, migrate_postgres,
                         migrate_sqlite, restore_sqlite)
 
@@ -150,6 +151,12 @@ SQLITE_HISTORICAL_MIGRATIONS = (
             PRIMARY KEY(run_id, document_id)
         )""",
     )),
+    (10, (
+        """CREATE TABLE chunk_vectors (
+            chunk_id INTEGER PRIMARY KEY REFERENCES chunks(id) ON DELETE CASCADE,
+            model TEXT NOT NULL, dimension INTEGER NOT NULL, vector BLOB NOT NULL
+        )""",
+    )),
 )
 
 
@@ -259,6 +266,18 @@ class FakePostgres:
             return FakeResult(rows=[{'version': version} for version in self.history])
         if normalized.startswith('CREATE TABLE IF NOT EXISTS '):
             self.tables.add(normalized.split()[5])
+        if normalized.startswith('ALTER TABLE ') and ' ADD COLUMN search_vector ' in normalized:
+            table = normalized.split()[2]
+            self.columns.append({'table_name': table, 'column_name': 'search_vector', 'data_type': 'tsvector',
+                                 'is_nullable': 'YES', 'is_identity': 'NO', 'column_default': None,
+                                 'identity_generation': None,
+                                 'generation_expression': POSTGRES_GENERATED_COLUMNS[(table, 'search_vector')]})
+        if normalized.startswith('DROP INDEX '):
+            self.indexes = [row for row in self.indexes if row['index_name'] != normalized.split()[2]]
+        if normalized.startswith('CREATE INDEX ') and 'USING GIN (search_vector)' in normalized:
+            name, table = normalized.split()[2], normalized.split()[4]
+            self.indexes.append({'table_name': table, 'index_name': name, 'index_definition':
+                                 f'CREATE INDEX {name} ON wissensraum.{table} USING gin (search_vector)'})
         if 'FROM information_schema.tables' in normalized:
             return FakeResult(rows=[{'table_name': name} for name in sorted(self.visible_tables())])
         # Like PostgreSQL, report metadata only for tables that currently exist.
@@ -614,12 +633,15 @@ class PostgresMigrationTests(unittest.TestCase):
         }
         columns = []
         for item in POSTGRES_LEGACY_COLUMNS:
+            if item[:2] in POSTGRES_COLUMN_VERSIONS:
+                continue  # added by its migration (FakePostgres.execute)
             table, column, data_type, nullable, identity = item[:5]
             default = item[5] if len(item) > 5 else defaults.get((table, column))
             generation = item[6] if len(item) > 6 else ('ALWAYS' if identity == 'YES' else None)
             columns.append({'table_name':table, 'column_name':column, 'data_type':data_type,
                             'is_nullable':nullable, 'is_identity':identity,
-                            'column_default':default, 'identity_generation':generation})
+                            'column_default':default, 'identity_generation':generation,
+                            'generation_expression':None})
         constraints = [
             {'table_name':'documents','constraint_type':'p','columns':['id'],
              'referenced_table':None,'referenced_columns':[],'delete_action':' '},

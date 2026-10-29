@@ -563,6 +563,25 @@ class InterfaceTests(unittest.TestCase):
         panel.deactivate()
         self.assertIn('ist aus. 1 von 1',panel.status.get())
 
+    def test_search_shows_hybrid_status_and_falls_back_to_full_text(self):
+        from test_retrieval import WordEmbedder, embed_all
+        window=self.window
+        WordEmbedder.offline=False
+        window.store.add('Wartungsplan','Die Therme bekommt jährlich eine Wartung.')
+        window.retriever.embedder=WordEmbedder
+        window.query.set('Wartung'); window.refresh(); self.wait_until_idle(window)
+        self.assertIn('Volltextsuche',window.status.get())
+        embed_all(window.store)
+        window.query.set('Heizung'); window.refresh(); self.wait_until_idle(window)
+        self.assertEqual(window.tree.get_children(),(str(window.store.list()[0]['id']),))
+        self.assertIn('Hybride Suche',window.status.get())
+        self.assertNotIn('rrf',window.status.get().lower())
+        WordEmbedder.offline=True
+        window.query.set('Wartung im März'); window.refresh(); self.wait_until_idle(window)
+        self.assertIn('Volltext-Fallback – semantisches Modell nicht erreichbar',window.status.get())
+        self.assertEqual(len(window.tree.get_children()),1)
+        WordEmbedder.offline=False
+
     def test_database_profile_is_stored_without_password(self):
         window=self.window
         values={'host':'db.example.test','port':'5432','database':'wissen_test','username':'test_user',

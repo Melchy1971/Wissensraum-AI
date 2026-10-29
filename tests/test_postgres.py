@@ -159,6 +159,54 @@ class PostgresStoreTests(unittest.TestCase):
         PostgresStore(self.profile, self.password)
         self._assert_source_fixture_backfilled()
 
+    def test_version_10_gets_stored_search_vectors_with_unchanged_rank_on_real_postgresql(self):
+        with self._raw_connect() as connection:
+            with connection.transaction():
+                connection.execute('SELECT pg_advisory_xact_lock(%s)', (MIGRATION_LOCK_ID,))
+                connection.execute('CREATE SCHEMA wissensraum')
+                connection.execute('SET LOCAL search_path TO wissensraum')
+                for target, statements in POSTGRES_MIGRATIONS:
+                    if target <= 10:
+                        for statement in statements:
+                            connection.execute(statement)
+                connection.execute('''CREATE TABLE schema_migrations (
+                    version INTEGER PRIMARY KEY,
+                    applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+                for target in range(1, 11):
+                    connection.execute('INSERT INTO schema_migrations(version) VALUES(%s)', (target,))
+                document = connection.execute(
+                    "INSERT INTO documents(title,category,content,sha256) VALUES('Heizung Wartung','Haus',"
+                    "'Die Therme braucht jährlich eine Wartung, die Wartung kostet 120 Euro.','x') RETURNING id"
+                ).fetchone()[0]
+                connection.execute("INSERT INTO chunks(document_id,ordinal,content) VALUES(%s,0,"
+                                   "'Die Therme braucht jährlich eine Wartung, die Wartung kostet 120 Euro.')",
+                                   (document,))
+                connection.execute("INSERT INTO document_versions(document_id,lineage_id,version) "
+                                   "VALUES(%s,%s,1)", (document, document))
+        store = PostgresStore(self.profile, self.password)
+        with store.connect() as db:
+            self.assertEqual([row['version'] for row in db.execute(
+                'SELECT version FROM schema_migrations ORDER BY version')], list(range(1, 12)))
+            old = db.execute("""SELECT -ts_rank_cd(to_tsvector('simple',d.title || ' ' || d.category || ' ' || c.content),
+                                websearch_to_tsquery('simple','Wartung OR Haus')) AS rank
+                                FROM chunks c JOIN documents d ON d.id=c.document_id""").fetchone()['rank']
+        hits = store.search('Wann ist die Wartung im Haus?')
+        self.assertEqual([hit['document_id'] for hit in hits], [document])
+        self.assertEqual(hits[0]['rank'], old)  # same rank as the parsed expression before schema 11
+        self.assertEqual([hit['document_id'] for hit in store.search('Heizung')], [document])  # title only
+        self.assertNotIn('search_vector', store.get(document))
+        store.add('Neu', 'Ein Kamin ohne Wartung.')
+        self.assertEqual(len(store.search('Kamin')), 1)  # generated on insert
+
+    def test_plain_search_vector_column_is_rejected_on_real_postgresql(self):
+        PostgresStore(self.profile, self.password)
+        with self._raw_connect() as connection:
+            with connection.transaction():
+                connection.execute('SET LOCAL search_path TO wissensraum')
+                connection.execute('ALTER TABLE chunks ALTER COLUMN search_vector DROP EXPRESSION')
+        with self.assertRaisesRegex(ValueError, 'inkompatibel'):
+            PostgresStore(self.profile, self.password)
+
     def test_add_records_one_source_per_document_on_real_postgresql(self):
         store = PostgresStore(self.profile, self.password)
         note, _ = store.add('Notiz', 'PG Notiz')
@@ -380,6 +428,25 @@ class PostgresStoreTests(unittest.TestCase):
     def test_chunk_vectors_on_real_postgresql(self):
         from test_vectors import check_vector_contract
         check_vector_contract(self, PostgresStore(self.profile, self.password))
+
+    def test_hybrid_retrieval_on_real_postgresql(self):
+        from test_retrieval import check_hybrid_contract
+        check_hybrid_contract(self, PostgresStore(self.profile, self.password))
+
+    def test_vector_cache_sees_a_change_by_another_connection_on_real_postgresql(self):
+        from retrieval import Retriever
+        from test_retrieval import WordEmbedder, embed_all
+        first = PostgresStore(self.profile, self.password)
+        first.add('Heizung', 'Wartung der Therme')
+        embed_all(first)
+        retriever = Retriever(first, WordEmbedder)
+        before = retriever.search('Rente', mode='vector').results[0]['vector_score']
+        other = PostgresStore(self.profile, self.password)  # stands for a second application process
+        chunk_id = other.pending_vectors('anderes-modell')[0]['chunk_id']
+        other.save_vectors('m', {chunk_id: WordEmbedder('ollama', 'm').embed(['Rente'])[0]})
+        after = retriever.search('Rente', mode='vector').results[0]['vector_score']
+        self.assertLess(before, 0.5)
+        self.assertGreater(after, 0.9)
 
     def test_rules_tags_and_reverted_runs_on_real_postgresql(self):
         from test_rules import import_and_rules_scenario

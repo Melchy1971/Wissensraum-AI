@@ -1,6 +1,7 @@
 """Command-line interface for automation and headless use."""
 import argparse
 import json
+import sys
 from pathlib import Path
 from core import Store, import_document
 from migrations import restore_sqlite
@@ -126,6 +127,9 @@ def main(argv=None):
         sub.add_argument('query')
         if name == 'search':
             sub.add_argument('--tag',help='nur Dokumente mit diesem Tag')
+            sub.add_argument('--mode',choices=('fulltext','vector','hybrid'),
+                             help='Standard: hybrid, wenn die semantische Suche aktiv ist, sonst Volltext')
+            sub.add_argument('--diagnose',action='store_true',help='Ränge, Rohwerte und Laufzeiten mit ausgeben')
     summary = commands.add_parser('summarize')
     summary.add_argument('id',type=int)
     backup = commands.add_parser('backup')
@@ -256,7 +260,16 @@ def main(argv=None):
                 _log_event(logger,'command_completed',metadata=metadata)
                 return 1 if any(result.status == 'FAIL' for result in results) else 0
             elif args.command == 'search':
-                result = store.search(args.query,tag=args.tag)
+                from retrieval import Retriever
+                retrieval = Retriever(store).search(args.query,tag=args.tag,mode=args.mode)
+                print(retrieval.status,file=sys.stderr)
+                diagnosis = ('fulltext_rank','vector_rank','fulltext_score','vector_score','rrf_score')
+                result = [{key:value for key,value in row.items() if args.diagnose or key not in diagnosis}
+                          for row in retrieval.results]
+                if args.diagnose:
+                    result = {'modus':retrieval.mode,'status':retrieval.status,'vektoren':list(retrieval.vectors),
+                              'laufzeit_ms':{name:round(1000*value,2) for name,value in retrieval.timings.items()},
+                              'treffer':result}
             elif args.command == 'backup':
                 store.backup(args.target)
                 result = {'backup':str(args.target)}

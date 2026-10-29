@@ -9,7 +9,7 @@ import uuid
 from contextlib import closing, contextmanager
 from pathlib import Path
 
-CURRENT_SCHEMA_VERSION = 10
+CURRENT_SCHEMA_VERSION = 11
 # Unversioned PostgreSQL schemas predate schema_migrations and match version 4.
 POSTGRES_LEGACY_SCHEMA_VERSION = 4
 # ponytail: source_type is validated in application code (core.SOURCE_TYPES), not by a
@@ -182,6 +182,9 @@ SQLITE_MIGRATIONS = (
             model TEXT NOT NULL, dimension INTEGER NOT NULL, vector BLOB NOT NULL
         )""",
     )),
+    # Version 11 changes only PostgreSQL (stored search vectors); SQLite keeps its FTS5 index and
+    # takes the version number so that both backends share one schema version.
+    (11, ()),
 )
 
 
@@ -336,7 +339,26 @@ POSTGRES_MIGRATIONS = (
             model TEXT NOT NULL, dimension INTEGER NOT NULL, vector BYTEA NOT NULL
         )""",
     )),
+    # Release 2.1, step 7.3: stored search vectors. ts_rank_cd parsed every hit again, about
+    # 1.3 s per query at 50,000 chunks; the stored vector is parsed once on write.
+    (11, (
+        "ALTER TABLE chunks ADD COLUMN search_vector tsvector "
+        "GENERATED ALWAYS AS (to_tsvector('simple',content)) STORED",
+        "ALTER TABLE documents ADD COLUMN search_vector tsvector "
+        "GENERATED ALWAYS AS (to_tsvector('simple',title || ' ' || category)) STORED",
+        'DROP INDEX chunks_search_idx',
+        'CREATE INDEX chunks_search_idx ON chunks USING GIN (search_vector)',
+        'CREATE INDEX documents_search_idx ON documents USING GIN (search_vector)',
+    )),
 )
+
+# Columns added to an existing table by a later migration: (table, column) -> version.
+POSTGRES_COLUMN_VERSIONS = {('chunks', 'search_vector'): 11, ('documents', 'search_vector'): 11}
+# Generated columns and their expression as PostgreSQL reports it (whitespace-insensitive).
+POSTGRES_GENERATED_COLUMNS = {
+    ('chunks', 'search_vector'): "to_tsvector('simple'::regconfig, content)",
+    ('documents', 'search_vector'): "to_tsvector('simple'::regconfig, ((title || ' '::text) || category))",
+}
 
 POSTGRES_APPLICATION_TABLES = {
     'documents', 'chunks', 'ai_runs', 'settings', 'email_accounts', 'email_imports'
@@ -560,6 +582,8 @@ POSTGRES_LEGACY_COLUMNS = {
     ('chunk_vectors','model','text','NO','NO',None,None),
     ('chunk_vectors','dimension','integer','NO','NO',None,None),
     ('chunk_vectors','vector','bytea','NO','NO',None,None),
+    ('chunks','search_vector','tsvector','YES','NO',None,None),
+    ('documents','search_vector','tsvector','YES','NO',None,None),
 }
 
 POSTGRES_LEGACY_CONSTRAINTS = {
@@ -880,7 +904,7 @@ def _validate_postgres_schema(db, version, legacy=False):
         prefix = 'Legacy-' if legacy else ''
         raise ValueError(f'{prefix}PostgreSQL-Schema ist unvollständig oder inkompatibel.')
     columns = db.execute("""SELECT table_name, column_name, data_type, is_nullable,
-+        is_identity, column_default, identity_generation
++        is_identity, column_default, identity_generation, generation_expression
 +        FROM information_schema.columns
 +        WHERE table_schema='wissensraum'
 +          AND table_name IN (""".replace('\n+', '\n') + _APPLICATION_TABLE_LIST + """)
@@ -893,7 +917,14 @@ def _validate_postgres_schema(db, version, legacy=False):
         for row in columns
     }
     expected_columns = {column for column in POSTGRES_LEGACY_COLUMNS
-                        if column[0] in expected_tables}
+                        if column[0] in expected_tables
+                        and POSTGRES_COLUMN_VERSIONS.get(column[:2], 0) <= version}
+    generated = {(_value(row, 'table_name'), _value(row, 'column_name', 1)):
+                 ''.join(str(_value(row, 'generation_expression', 7)).lower().split())
+                 for row in columns if _value(row, 'generation_expression', 7)}
+    expected_generated = {key: ''.join(expression.lower().split())
+                          for key, expression in POSTGRES_GENERATED_COLUMNS.items()
+                          if POSTGRES_COLUMN_VERSIONS[key] <= version}
 
     constraints = db.execute("""SELECT rel.relname AS table_name, con.contype AS constraint_type,
         ARRAY(SELECT att.attname FROM unnest(con.conkey) WITH ORDINALITY AS key(attnum, ord)
@@ -922,18 +953,23 @@ def _validate_postgres_schema(db, version, legacy=False):
 
     indexes = db.execute("""SELECT tablename AS table_name, indexname AS index_name,
         indexdef AS index_definition FROM pg_catalog.pg_indexes
-        WHERE schemaname='wissensraum' AND tablename='chunks'""").fetchall()
+        WHERE schemaname='wissensraum' AND tablename IN ('chunks','documents')""").fetchall()
     index_definitions = {
         _value(row, 'index_name', 1): str(_value(row, 'index_definition', 2) or '').lower()
         for row in indexes
     }
     document_index = ''.join(index_definitions.get('chunks_document_id_idx', '').split())
     search_index = index_definitions.get('chunks_search_idx', '')
-    indexes_valid = (version < 1 or
-                     ('(document_id)' in document_index
-                      and 'using gin' in search_index and 'to_tsvector' in search_index))
+    title_index = index_definitions.get('documents_search_idx', '')
+    if version >= 11:
+        search_valid = ('using gin (search_vector)' in search_index
+                        and 'using gin (search_vector)' in title_index)
+    else:
+        search_valid = 'using gin' in search_index and 'to_tsvector' in search_index
+    indexes_valid = version < 1 or ('(document_id)' in document_index and search_valid)
     if (actual_columns != expected_columns
             or actual_constraints != expected_constraints
+            or generated != expected_generated
             or not indexes_valid):
         prefix = 'Legacy-' if legacy else ''
         raise ValueError(f'{prefix}PostgreSQL-Schema ist unvollständig oder inkompatibel.')

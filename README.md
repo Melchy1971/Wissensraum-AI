@@ -48,7 +48,7 @@ Python 3.11 bis 3.13 mit Tkinter voraussetzen, anschließend `sh start.sh` ausf�
 | Herkunft | Tabelle `sources` mit genau einer Quelle je Dokument: Quelltyp (`note`, `file`, `pst`, `imap`, `graph`), Konto-ID bei IMAP/Graph und Fundort (relativer Pfad, PST-Name, `imap:<Ordner>:<UID>`, `graph:<ID>`). Bei Dubletten bleibt die erste Quelle erhalten. |
 | Notizen | Titel, frei wählbarer Bereich, Inhalt |
 | Dubletten | SHA-256 über den extrahierten, außen getrimmten Text; identischer Text wird einmal gespeichert |
-| Suche | Volltext über Titel, Bereich und Abschnitte; SQLite mit BM25-Rangfolge, PostgreSQL mit `ts_rank_cd` |
+| Suche | Volltext über Titel, Bereich und Abschnitte (SQLite BM25, PostgreSQL `ts_rank_cd`); mit aktivierter semantischer Suche hybrid aus Volltext und Vektorsuche (Reciprocal Rank Fusion) |
 | KI-Fragen | Höchstens acht passende Textabschnitte, Antwort mit [Q1]-Quellenverweisen |
 | Zusammenfassung | Ausgewähltes Dokument bis 24.000 Zeichen |
 | Verlauf | Erfolgreiche KI-Antworten und unveränderliche Quellenkopien in SQL |
@@ -56,7 +56,7 @@ Python 3.11 bis 3.13 mit Tkinter voraussetzen, anschließend `sh start.sh` ausf�
 | Automatisierung | CLI für Import, Suche, Fragen, Zusammenfassung, Sicherung |
 | Design | Telekom-Magenta als Akzentfarbe, Hell-/Dunkelmodus und eigenes Logo im Kopfbereich |
 
-Die Suche ist lexikalisch: Begriffe müssen im Dokument vorkommen. Synonyme, echte semantische Suche und Vektor-Embeddings sind in Version 1 nicht implementiert. Bei Mehrwortfragen werden Suchbegriffe mit ODER verknüpft. Häufige Wörter können dadurch irrelevante Treffer erzeugen. Höchstens 30 Texttreffer werden in der Dokumentensuche angezeigt; mehrere Treffer aus demselben Dokument werden zusammengeführt.
+Ohne semantische Suche ist die Suche lexikalisch: Begriffe müssen im Dokument vorkommen. Bei Mehrwortfragen werden die Suchbegriffe mit ODER verknüpft; häufige deutsche und englische Füllwörter (der, die, ist, wie, für, the, is …) werden vorher entfernt, damit sie nicht fast jedes Dokument treffen. Besteht eine Anfrage nur aus Füllwörtern, wird mit ihnen gesucht. Mit aktivierter semantischer Suche werden Volltext und Vektorsuche verbunden, siehe **Hybride Suche**. Höchstens 30 Dokumente werden in der Dokumentensuche angezeigt; mehrere Treffer aus demselben Dokument werden zusammengeführt.
 
 Die KI erhält die acht bestbewerteten Abschnitte, keine vollständige Gesamtauswertung des Bestands. Ein relevanter Abschnitt kann außerhalb dieser Auswahl liegen. Quellenverweise werden auf gültige Nummern geprüft; das prüft nicht, ob die Aussage tatsächlich aus der Quelle folgt. Antworten ohne Quellenmarkierung erhalten einen ausdrücklichen Prüfhinweis. Aussagen müssen anhand der angezeigten Textstellen geprüft werden.
 
@@ -76,7 +76,8 @@ Grenzen: 50 MB lokale Originaldatei und je E-Mail-Anhang, Dateiinhalt passend zu
 | `tags`, `document_tags` | Tags und ihre Zuordnung zu Dokumenten; Groß- und Kleinschreibung zählt beim Vergleich nicht (Schema 9) |
 | `rules` | Regeln für Bereich und Tags in fester Reihenfolge (Schema 9) |
 | `rule_runs`, `rule_run_changes` | Bestätigte Anwendungen auf vorhandene Dokumente mit vorherigem Bereich und hinzugefügten Tags, für die Rücknahme (Schema 9) |
-| `chunk_vectors` | Ein Vektor je Textabschnitt mit Modell und Dimension, L2-normiert als float16; SQLite `BLOB`, PostgreSQL `BYTEA`; wird mit dem Abschnitt gelöscht. Ein Modellwechsel macht vorhandene Vektoren ungültig (Schema 10, Release 2.1 in Arbeit, noch nicht an Import und Suche angebunden) |
+| `chunk_vectors` | Ein Vektor je Textabschnitt mit Modell und Dimension, L2-normiert als float16; SQLite `BLOB`, PostgreSQL `BYTEA`; wird mit dem Abschnitt gelöscht. Ein Modellwechsel macht vorhandene Vektoren ungültig (Schema 10). Genutzt von der hybriden Suche |
+| Suchvektoren (PostgreSQL) | Gespeicherte, automatisch berechnete Spalten `chunks.search_vector` und `documents.search_vector` mit GIN-Index (Schema 11); SQLite nutzt weiter FTS5 |
 
 `schema.sql` dokumentiert das SQLite-Schema. Die ausführbare Schema-Historie liegt in den geordneten, versionierten SQLite- und PostgreSQL-Migrationen in `migrations.py`. SQLite speichert die Version in `PRAGMA user_version`, PostgreSQL in `wissensraum.schema_migrations`. Beide Backends haben denselben fachlichen Speicherumfang, verwenden aber unterschiedliche Volltexttechnik. SQL-Werte werden parametrisiert gebunden. KI-Ausgaben werden niemals als SQL oder Programmcode ausgeführt.
 
@@ -85,8 +86,12 @@ flowchart TD
     A[Datei, PST, E-Mail oder Notiz] --> B[Textextraktion und Dublettenprüfung]
     B --> C[(SQLite oder PostgreSQL: Originale und Textabschnitte)]
     D[Frage] --> E[Volltextsuche]
+    D --> V[Vektorsuche, falls aktiviert]
     C --> E
-    E --> F[Ausgewählte Quellen an aktive KI]
+    C --> V
+    E --> R[Fusion RRF]
+    V --> R
+    R --> F[Ausgewählte Quellen an aktive KI]
     F --> G[Antwort und Quellenprüfung]
     G --> H[(SQLite oder PostgreSQL: KI-Verlauf)]
 ```
@@ -111,7 +116,7 @@ Dokumentimport und Suche benötigen keine API. Bei Fragen werden Frage und ausge
 
 Die SQLite-Datei ist nicht durch die Anwendung verschlüsselt. Sie enthält auch importierte E-Mail-Texte und die jeweiligen Originalnachrichten. Betriebssystemkonto und Laufwerksverschlüsselung schützen lokale Daten. PostgreSQL verwendet das getrennte Schema `wissensraum`. Für entfernte PostgreSQL-Verbindungen erzwingt die Anwendung TLS; nur lokale Verbindungen zu `localhost` oder `127.0.0.1` dürfen ausdrücklich mit `sslmode=disable` betrieben werden. Die Anwendung bleibt eine Einzelplatzanwendung und enthält keine Benutzer- oder Mandantentrennung.
 
-**Sicherung:** Bei SQLite erstellt „Datenbank sichern“ eine vollständige Datenbankkopie einschließlich Originalen und KI-Verlauf. **Wiederherstellung (SQLite):** „Sicherung wiederherstellen“ unter **Einstellungen → Datenbank** wählt eine Sicherungsdatei und verlangt zur Bestätigung den exakten Dateinamen der aktiven Datenbank. Die Sicherung wird nur gelesen. Ihre Kopie wird vorab auf Integrität, unterstützte Schemaversion (1 bis 10) und exakte Schemastruktur geprüft. Danach legt die Anwendung den aktuellen Stand als geprüfte Datei `wissen.db.pre-restore-<Zeitstempel>-<Kennung>.bak` ab und spielt die Sicherung unter der Migrationssperre über die SQLite-Backup-API ein. Anschließend werden Integrität, Schema und alle Dokument-Prüfsummen mit der Sicherung verglichen. Bei einer Abweichung wird der vorherige Stand automatisch zurückgespielt. Ältere Schemaversionen werden danach regulär auf Schema 5 migriert. Ist die aktuelle Datenbank selbst nicht lesbar, wird sie nicht überschrieben: Datei samt `-wal`/`-shm` umbenennen und die Wiederherstellung erneut ausführen. Gleiches über die CLI: `python cli.py restore sicherung.db --confirm wissen.db`. Bei aktivem PostgreSQL öffnet die lokale Sicherungsschaltfläche derzeit noch den Dateidialog und meldet anschließend, dass diese Sicherungsart nicht unterstützt wird. PostgreSQL wird außerhalb der Anwendung gesichert, siehe **PostgreSQL-Sicherung und -Wiederherstellung**. Schlüsseldatei separat sichern.
+**Sicherung:** Bei SQLite erstellt „Datenbank sichern“ eine vollständige Datenbankkopie einschließlich Originalen und KI-Verlauf. **Wiederherstellung (SQLite):** „Sicherung wiederherstellen“ unter **Einstellungen → Datenbank** wählt eine Sicherungsdatei und verlangt zur Bestätigung den exakten Dateinamen der aktiven Datenbank. Die Sicherung wird nur gelesen. Ihre Kopie wird vorab auf Integrität, unterstützte Schemaversion (1 bis 11) und exakte Schemastruktur geprüft. Danach legt die Anwendung den aktuellen Stand als geprüfte Datei `wissen.db.pre-restore-<Zeitstempel>-<Kennung>.bak` ab und spielt die Sicherung unter der Migrationssperre über die SQLite-Backup-API ein. Anschließend werden Integrität, Schema und alle Dokument-Prüfsummen mit der Sicherung verglichen. Bei einer Abweichung wird der vorherige Stand automatisch zurückgespielt. Ältere Schemaversionen werden danach regulär auf die aktuelle Schemaversion migriert. Ist die aktuelle Datenbank selbst nicht lesbar, wird sie nicht überschrieben: Datei samt `-wal`/`-shm` umbenennen und die Wiederherstellung erneut ausführen. Gleiches über die CLI: `python cli.py restore sicherung.db --confirm wissen.db`. Bei aktivem PostgreSQL öffnet die lokale Sicherungsschaltfläche derzeit noch den Dateidialog und meldet anschließend, dass diese Sicherungsart nicht unterstützt wird. PostgreSQL wird außerhalb der Anwendung gesichert, siehe **PostgreSQL-Sicherung und -Wiederherstellung**. Schlüsseldatei separat sichern.
 
 ### PostgreSQL-Sicherung und -Wiederherstellung
 
@@ -153,6 +158,7 @@ python cli.py vectors --run          # alle Abschnitte ohne Vektor jetzt einbett
 python cli.py list --all-versions
 python cli.py list --tag Rechnung
 python cli.py search "Freigabe" --tag Rechnung
+python cli.py search "Wann ist die Wartung fällig?" --mode hybrid --diagnose
 python cli.py tags
 python cli.py rules
 python cli.py rule-add "Rechnungen" --extension pdf --path-pattern Rechnungen --category Finanzen --tags "Rechnung, Steuer"
@@ -216,7 +222,7 @@ Das Skript migriert Testdatenbanken der Schemaversionen 1 bis 4, bricht eine Mig
 
 **HTTP 429:** API-Guthaben, Abrechnung und Projektlimits prüfen. Der Test dieser Auslieferung ist daran gescheitert. Die Anwendung stellt API-Limits nicht selbst um und wiederholt kostenpflichtige Anfragen nicht automatisch.
 
-**Keine Treffer:** Konkrete Begriffe aus dem Dokument verwenden. Diese Version enthält keine semantische Suche.
+**Keine Treffer:** Konkrete Begriffe aus dem Dokument verwenden oder die semantische Suche aktivieren. Zeigt die Statuszeile „Volltext-Fallback“, war Ollama nicht erreichbar; die Liste enthält dann nur Volltexttreffer.
 
 **PDF ohne Text oder Bild:** Dafür ist die optionale Texterkennung nötig (siehe „Texterkennung (OCR)“). Ohne sie landet die Datei als „kein lesbarer Text“ in Quarantäne.
 
@@ -254,7 +260,7 @@ Neu eingegebene Schlüssel werden mit `keyring` in einem nativen Betriebssystem-
 
 **Schlüssel entfernen** löscht den von der Anwendung verwalteten Schlüssel und deaktiviert den Anbieter auch für extern vorhandene Schlüssel. Umgebungsvariablen und ursprüngliche Dateien bleiben erhalten. Das entfernt keine Zugangsdaten beim Anbieter und widerruft keinen API-Schlüssel. Einen neuen Wert eingeben und speichern, um den Anbieter wieder zu aktivieren.
 
-SQLite- und PostgreSQL-Schemata 1 bis 9 werden beim Öffnen über geordnete Migrationen auf Schema 10 erweitert; vorhandene Dokumente, Suchindex und KI-Verlauf bleiben erhalten. Ein kompatibles älteres PostgreSQL-Bestandsschema ohne Versionsmetadaten wird erst nach vollständiger Strukturprüfung als Version 4 übernommen und danach auf 10 migriert. Alte Programmversionen können eine auf Version 5 bis 10 aktualisierte Datenbank nicht mehr öffnen. Migration 5 legt `sources` an und leitet die Herkunft vorhandener Dokumente ab: ohne Dateinamen `note`, mit Eintrag in `email_imports` `imap` bzw. `graph` (bei mehreren Einträgen der früheste), Bereich „E-Mail · PST · …“ `pst`, übrige E-Mails nach Endung `.json` `graph`, sonst `imap` (dann ohne Konto und Fundort), alles andere `file` mit dem gespeicherten Dateinamen. Migration 6 legt die leeren Tabellen `import_jobs`, `import_items` und `import_item_errors` an; vorhandene Daten werden nicht verändert. Migration 7 legt `document_versions` an und trägt jedes vorhandene Dokument als Version 1 einer eigenen Versionskette ein. Migration 8 legt die leere Tabelle `email_attachments` an. Vor einem SQLite-Downgrade die validierte Vor-Migrationssicherung verwenden; für PostgreSQL ist weiterhin ein externer, geprüfter Backup-/Restore-Prozess erforderlich.
+SQLite- und PostgreSQL-Schemata 1 bis 10 werden beim Öffnen über geordnete Migrationen auf Schema 11 erweitert; vorhandene Dokumente, Suchindex und KI-Verlauf bleiben erhalten. Ein kompatibles älteres PostgreSQL-Bestandsschema ohne Versionsmetadaten wird erst nach vollständiger Strukturprüfung als Version 4 übernommen und danach auf 11 migriert. Alte Programmversionen können eine auf Version 5 bis 11 aktualisierte Datenbank nicht mehr öffnen. Migration 5 legt `sources` an und leitet die Herkunft vorhandener Dokumente ab: ohne Dateinamen `note`, mit Eintrag in `email_imports` `imap` bzw. `graph` (bei mehreren Einträgen der früheste), Bereich „E-Mail · PST · …“ `pst`, übrige E-Mails nach Endung `.json` `graph`, sonst `imap` (dann ohne Konto und Fundort), alles andere `file` mit dem gespeicherten Dateinamen. Migration 6 legt die leeren Tabellen `import_jobs`, `import_items` und `import_item_errors` an; vorhandene Daten werden nicht verändert. Migration 7 legt `document_versions` an und trägt jedes vorhandene Dokument als Version 1 einer eigenen Versionskette ein. Migration 8 legt die leere Tabelle `email_attachments` an. Migration 11 ändert nur PostgreSQL: Sie ergänzt die berechneten Spalten `search_vector` in `chunks` und `documents` und ersetzt den Volltextindex. Dabei schreibt PostgreSQL beide Tabellen einmal neu und sperrt sie für diese Zeit; bei einem großen Bestand auf dem VPS vorher eine pg_dump-Sicherung anlegen und den Start in einem ruhigen Moment ausführen. Unter SQLite ändert Migration 11 nur die Versionsnummer, die übliche geprüfte Sicherung vor der Migration entsteht trotzdem. Vor einem SQLite-Downgrade die validierte Vor-Migrationssicherung verwenden; für PostgreSQL ist weiterhin ein externer, geprüfter Backup-/Restore-Prozess erforderlich.
 
 Die Anbieteradapter werden mit kontrollierten API-Antworten getestet. Claude, Gemini und Ollama wurden in dieser Entwicklungsumgebung nicht mit echten Zugängen bzw. einem lokalen Modell live geprüft. Der vorherige OpenAI-Live-Test erhielt HTTP 429. Modellvorschläge sind konfigurierbare Vorgaben und keine Zusicherung der Verfügbarkeit.
 
@@ -311,7 +317,17 @@ Die Synchronisation läuft nur, solange die Anwendung geöffnet ist. Es gibt kei
 
 ### Semantische Suche vorbereiten (Release 2.1, Schritt 7.2b)
 
-Unter **Einstellungen → KI-Anbieter → Semantische Suche** berechnet die Anwendung für jeden Textabschnitt einen Vektor mit einem lokalen Ollama-Modell, Standard `qwen3-embedding:0.6b` (vorher einmal `ollama pull qwen3-embedding:0.6b`). Die Funktion ist aus, bis sie aktiviert wird. **Aktivieren** prüft einmal, ob Ollama mit dem Modell antwortet. Danach arbeitet ein Timer, solange die Anwendung geöffnet ist: alle 30 Sekunden höchstens 256 Abschnitte im Hintergrund, neue Importe werden automatisch erfasst. Gesendet werden nur die Abschnittstexte und nur an Ollama auf diesem Rechner. Ist Ollama nicht erreichbar, bleibt die Aktivierung bestehen, der nächste Versuch folgt nach fünf Minuten. Ein anderes Modell berechnet alle Vektoren neu. **Deaktivieren** behält vorhandene Vektoren. Für große Bestände rechnet `python cli.py vectors --run` alles in einem Durchgang. Gemessen auf dem Entwicklungsrechner: 81 Abschnitte in 15 Sekunden. Die Suche nutzt die Vektoren noch nicht, das folgt mit Schritt 7.3. Ein Cloud-Anbieter für Vektoren ist nicht auswählbar, weil er Inhalte übertragen würde.
+Unter **Einstellungen → KI-Anbieter → Semantische Suche** berechnet die Anwendung für jeden Textabschnitt einen Vektor mit einem lokalen Ollama-Modell, Standard `qwen3-embedding:0.6b` (vorher einmal `ollama pull qwen3-embedding:0.6b`). Die Funktion ist aus, bis sie aktiviert wird. **Aktivieren** prüft einmal, ob Ollama mit dem Modell antwortet. Danach arbeitet ein Timer, solange die Anwendung geöffnet ist: alle 30 Sekunden höchstens 256 Abschnitte im Hintergrund, neue Importe werden automatisch erfasst. Gesendet werden nur die Abschnittstexte und nur an Ollama auf diesem Rechner. Ist Ollama nicht erreichbar, bleibt die Aktivierung bestehen, der nächste Versuch folgt nach fünf Minuten. Ein anderes Modell berechnet alle Vektoren neu. **Deaktivieren** behält vorhandene Vektoren. Für große Bestände rechnet `python cli.py vectors --run` alles in einem Durchgang. Gemessen auf dem Entwicklungsrechner: 81 Abschnitte in 15 Sekunden. Ein Cloud-Anbieter für Vektoren ist nicht auswählbar, weil er Inhalte übertragen würde.
+
+### Hybride Suche (Release 2.1, Schritt 7.3)
+
+Ist die semantische Suche aktiviert und hat der Bestand Vektoren, verbinden **Dokumente & Suche**, **Wissen befragen** und `cli.py search` Volltext und Vektorsuche. Beide Listen liefern je höchstens 50 Abschnitte, je Liste zählt nur der beste Abschnitt eines Dokuments. Die Fusion addiert für jedes Dokument 1/(60 + Rang) aus beiden Listen (Reciprocal Rank Fusion, k = 60, ohne Gewichtung); bei Gleichstand entscheidet die kleinere Dokumentnummer. Angezeigt wird der Abschnitt aus der Liste, in der das Dokument besser steht. Filter für aktuelle Version, Tag und gelöschte Dokumente gelten in beiden Listen gleich.
+
+Die Statuszeile nennt das Verfahren: „Volltextsuche“ (semantische Suche aus oder noch keine Vektoren), „Hybride Suche“, „Hybride Suche – Vektorbestand unvollständig“ (noch nicht alle Abschnitte eingebettet) oder „Volltext-Fallback – semantisches Modell nicht erreichbar“ (Ollama antwortet nicht innerhalb von 15 Sekunden). Ist ein gespeicherter Vektor beschädigt oder passt seine Dimension nicht, sucht die Anwendung mit Volltext weiter („Volltext-Fallback – Vektorbestand nicht lesbar, wird neu geladen“) und lädt die Vektoren bei der nächsten Suche neu. Die Liste zeigt keine Rohwerte der Bewertung; `cli.py search --diagnose` gibt Ränge, Werte, Status und Laufzeiten aus, `--mode fulltext|vector|hybrid` erzwingt ein Verfahren.
+
+Die Frage wird mit `qwen3-embedding` und einer Suchanweisung an Ollama auf diesem Rechner geschickt. Die letzten 100 Frage-Vektoren bleiben im Arbeitsspeicher, sie werden weder protokolliert noch in der Datenbank gespeichert. Die Vektoren des Bestands hält die Anwendung als float16-Matrix im Arbeitsspeicher, bei 58.000 Abschnitten rund 114 MiB. Neue, geänderte oder gelöschte Vektoren erkennt sie bei jeder Suche über einen Generationszähler in der Datenbank, unter PostgreSQL auch Änderungen eines zweiten Rechners. Die erste Suche nach dem Start lädt die Matrix, bei diesem Bestand in 0,5 bis 0,6 Sekunden (SQLite) bzw. 1,6 Sekunden (PostgreSQL).
+
+Messen: `python tests/bench/benchmark.py` erzeugt einen synthetischen Referenzbestand mit 10.000 Dokumenten und rund 58.000 Abschnitten in einem temporären Ordner und misst kalte und warme Suchen (Median, P90, P95, P99, Maximum je Stufe). `--ollama` holt die Frage-Vektoren vom lokalen Ollama, `--postgres` nutzt die PostgreSQL-Testdatenbank aus den `PGTEST_*`-Variablen (nur `*_test` mit `PGTEST_ALLOW_DESTRUCTIVE=1`, das Schema wird vorher und nachher gelöscht).
 
 ### Texterkennung (OCR, Release 2.0, Schritt 6.4)
 

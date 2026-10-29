@@ -526,7 +526,8 @@ class DatabaseSettingsTests(unittest.TestCase):
                 if 'pg_indexes' in query:
                     return FakeResult([
                         ('chunks_document_id_idx','chunks','CREATE INDEX chunks_document_id_idx ON wissensraum.chunks (document_id)'),
-                        ('chunks_search_idx','chunks',"CREATE INDEX chunks_search_idx ON wissensraum.chunks USING gin (to_tsvector('simple'::regconfig, content))"),
+                        ('chunks_search_idx','chunks','CREATE INDEX chunks_search_idx ON wissensraum.chunks USING gin (search_vector)'),
+                        ('documents_search_idx','documents','CREATE INDEX documents_search_idx ON wissensraum.documents USING gin (search_vector)'),
                     ])
                 if 'pg_get_serial_sequence' in query:
                     rows=(sequence_rows if sequence_rows is not None else [

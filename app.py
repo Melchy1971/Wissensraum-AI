@@ -17,6 +17,7 @@ import rules
 from rules_view import RulesPage
 from sync_view import SyncPanel
 from vector_view import VectorPanel
+from retrieval import Retriever
 from settings import Settings, SystemVault, PROVIDERS
 from database import DatabaseSettings, resolve_sqlite_path
 from diagnostics import DiagnosticResult, format_diagnostics, health_overview, run_diagnostics
@@ -145,6 +146,7 @@ class App(tk.Tk if tk is not None else object):
         self.minsize(920, 650)
         self.configure(bg='#f3f4f0')
         self.store=store
+        self.retriever=Retriever(store)  # one per window: keeps the small cache of question vectors
         self._operational_logger=None
         self._operational_logging_closed=False
         self.vault=vault
@@ -409,24 +411,26 @@ class App(tk.Tk if tk is not None else object):
             tag = self.tag_filter.get()
             tag = None if tag == ALL_TAGS else tag.rsplit(' (',1)[0]
             if query:
-                found = self.store.search(query,30,tag=tag)
-                ids = list(dict.fromkeys(r['document_id'] for r in found))
-                rows = [self.store.get(i) for i in ids]
-            else:
-                rows = self.store.list(tag=tag)
-            with self.store.connect() as db:
-                tags = rules.tags_by_document(db)
-                counts = rules.tag_counts(db)
-            self.tag_box.configure(values=[ALL_TAGS]+[f'{name} ({count})' for name,count in counts])
-            self.tree.delete(*self.tree.get_children())
-            for r in rows:
-                self.tree.insert('', 'end', iid=str(r['id']),values=(r['title'],r['category'],
-                                                                     ', '.join(tags.get(r['id'],[]))))
-            suffix = ' · maximal 30 Texttreffer' if query else ''
-            suffix += f' · Tag {tag}' if tag else ''
-            self.status.set(f'{len(rows)} Dokumente angezeigt{suffix}')
+                # The question vector comes from Ollama and the first search loads the vector matrix:
+                # both run in the worker thread so the window stays responsive.
+                self.work(lambda:self.retriever.search(query,limit=30,tag=tag),
+                          lambda retrieval:self.show_rows([self.store.get(r['document_id']) for r in retrieval.results],
+                                                          f' · {retrieval.status}'+(f' · Tag {tag}' if tag else '')))
+                return
+            self.show_rows(self.store.list(tag=tag),f' · Tag {tag}' if tag else '')
         except Exception as e:
             messagebox.showerror('Suche fehlgeschlagen',str(e),parent=self)
+
+    def show_rows(self,rows,suffix):
+        with self.store.connect() as db:
+            tags = rules.tags_by_document(db)
+            counts = rules.tag_counts(db)
+        self.tag_box.configure(values=[ALL_TAGS]+[f'{name} ({count})' for name,count in counts])
+        self.tree.delete(*self.tree.get_children())
+        for r in rows:
+            self.tree.insert('', 'end', iid=str(r['id']),values=(r['title'],r['category'],
+                                                                 ', '.join(tags.get(r['id'],[]))))
+        self.status.set(f'{len(rows)} Dokumente angezeigt{suffix}')
 
     def show_document(self):
         if self.tree.selection():
