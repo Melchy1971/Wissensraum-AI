@@ -8,13 +8,70 @@
 
 **Repository:** `Melchy1971/Wissensraum-AI`
 
-**Geprüfte Codebasis:** Letzter produktcodewirksamer Stand `3cb3aaa` (29.10.2026, Importgrenze 50 MB und seitenweise OCR, Schemaversion 10). Lokales Matrix-Gate `tests/local_ci.py`: 7 von 7 Jobs grün an `5ca9021`, `4ef9545`, `6e1a9e3`, `ebd2475`, `72f0fbf`, `7b85460` und `3cb3aaa` (D-015, GitHub Actions ohne Budget). Vorheriger Abnahmestand `84f9ecf`: CI-Lauf [40185408996](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40185408996): alle sieben Jobs grün. Release 2.0 wurde am 26.10.2026 mit eigenen Daten abgenommen; nachfolgende Commits bis zu dieser Planaktualisierung betreffen ausschließlich README und Masterplan.
+**Geprüfte Codebasis:** Letzter produktcodewirksamer Stand `d7decfe` (29.10.2026, Schritt 7.3 hybride Suche, Schemaversion 11). Lokales Matrix-Gate `tests/local_ci.py`: 7 von 7 Jobs grün an `5ca9021`, `4ef9545`, `6e1a9e3`, `ebd2475`, `72f0fbf`, `7b85460`, `3cb3aaa` und `d7decfe` (D-015, GitHub Actions ohne Budget). Vorheriger Abnahmestand `84f9ecf`: CI-Lauf [40185408996](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40185408996): alle sieben Jobs grün. Release 2.0 wurde am 26.10.2026 mit eigenen Daten abgenommen; nachfolgende Commits bis zu dieser Planaktualisierung betreffen ausschließlich README und Masterplan.
 
 **Ablage:** Einziger Masterplan ist diese Datei `masterplan.md`. Die frühere Kopie `docs/masterplan.md` wurde am 22.10.2026 entfernt.
 
-**Status:** Phasen- und Testplan · Release 1.9 freigegeben, Release 2.0 abgenommen 26.10.2026, Phasen 0 bis 6 ✅ · Release 2.0.1 (Soll-Umfang von Phase 6, D-013) abgenommen 26.10.2026, Phase 7 (Release 2.1) in Arbeit: 7.1 Evaluationsdatensatz 🟡, 7.2a Vektorspeicher und Embedding-Adapter 🟡, 7.2b Einbettung im Hintergrund 🟡, noch nicht freigegeben
+**Status:** Phasen- und Testplan · Release 1.9 freigegeben, Release 2.0 abgenommen 26.10.2026, Phasen 0 bis 6 ✅ · Release 2.0.1 (Soll-Umfang von Phase 6, D-013) abgenommen 26.10.2026, Phase 7 (Release 2.1) in Arbeit: 7.1 Evaluationsdatensatz 🟡, 7.2a Vektorspeicher und Embedding-Adapter ✅, 7.2b Einbettung im Hintergrund ✅, 7.3 hybride Suche 🟡 (MRR-Kriterium auf eigenen Fragen verfehlt), noch nicht freigegeben
 
 **Legende:** ✅ vollständig implementiert und gesamtes Gate nachweislich bestanden · 🟡 implementiert oder teilweise geprüft, aber noch nicht vollständig abgenommen · ❌ Gate fehlgeschlagen oder Freigabe blockiert · ⬜ geplant und noch nicht begonnen
+
+## Aktualisierung 29.10.2026 (Abend) – Phase 7, Schritt 7.3 hybride Suche 🟡
+
+**Umfang (`d7decfe`, Entscheidung D-018):** Neues Modul `retrieval.py` mit einem einzigen Suchweg für Dokumentensuche, „Wissen befragen“ und `cli.py search`. Reciprocal Rank Fusion mit k = 60, Rang ab 1, je höchstens 50 Kandidaten aus Volltext und Vektorsuche, je Liste nur der beste Abschnitt eines Dokuments, höchstens 10 Dokumente, Gleichstand nach `document_id`. Jedes Ergebnis enthält Dokument, Titel, Bereich, besten Abschnitt, `fulltext_rank`, `vector_rank`, beide Rohwerte nur zur Diagnose, `rrf_score` und `retrieval_method`. Modi `fulltext`, `vector`, `hybrid`; Fallback auf Volltext, wenn die semantische Suche aus ist, keine Vektoren vorliegen, Ollama nicht innerhalb von 15 s antwortet oder ein Vektor beschädigt ist. Statustexte in der Oberfläche: „Volltextsuche“, „Hybride Suche“, „Hybride Suche – Vektorbestand unvollständig“, „Volltext-Fallback – semantisches Modell nicht erreichbar“, zusätzlich „Volltext-Fallback – Vektorbestand nicht lesbar, wird neu geladen“. Keine Rohwerte in der Liste. CLI `search --mode` und `--diagnose`.
+
+- Frage-Vektor mit `qwen3-embedding` und Suchanweisung, LRU-Zwischenspeicher mit 100 Einträgen im Arbeitsspeicher, keine Protokollierung, keine Speicherung in der Datenbank.
+- Vektorcache: eine float16-Matrix je Datenbank und Modell (C-zusammenhängend) mit Abschnitts- und Dokumentnummern. Schlüssel aus Datenbankidentität, Modell, Generationstoken `vectors.generation` und höchster Abschnittsnummer mit Vektor, beides aus Indexzugriffen. Das Token wird in derselben Transaktion wie `save_vectors` und das Löschen erneuert. Filter für aktuelle Version, Tag und Löschung liest jede Suche frisch aus der Datenbank, auf Dokumentebene.
+- Bewertung in Blöcken zu 1.024 Zeilen mit wiederverwendetem float32-Puffer. numpy wandelt float16 ohne SIMD um; diese Umwandlung kostet rund 125 ms bei 58.000 Vektoren, die Multiplikation selbst 17 ms.
+- Volltextsuche ohne Füllwörter (Deutsch und Englisch, eine Liste für beide Backends); besteht die Anfrage nur aus Füllwörtern, wird mit ihnen gesucht.
+- Volltext läuft parallel zu Frage-Embedding und Vektorsuche (eigener Thread; Datenbank und numpy geben den GIL frei). Ein Fehler der Volltextsuche wird weiterhin zuerst gemeldet.
+- **Schema 11 (nur PostgreSQL):** gespeicherte, berechnete Spalten `chunks.search_vector` und `documents.search_vector` mit GIN-Index, Abfrage mit UNION statt OR. Gleiche Rangwerte wie vorher, im Test gegen den früheren Ausdruck geprüft. SQLite übernimmt nur die Versionsnummer. Die Schemaprüfung kennt jetzt Spalten, die eine spätere Migration ergänzt, und prüft den Berechnungsausdruck; eine nachträglich in eine normale Spalte umgewandelte `search_vector` wird abgelehnt.
+- `tests/eval/evaluate.py` misst Volltext, Vektor und Hybrid für den synthetischen Datensatz und für eigene Fragen. `tests/bench/benchmark.py` erzeugt den Referenzbestand (10.000 Dokumente, 57.992 Abschnitte, 1.024 Dimensionen, fester Seed) und misst kalt und warm.
+
+**Befund unterwegs:** Die erste Messung verfehlte das Zeitziel deutlich. SQLite: P95 567 ms ohne Frage-Embedding, verursacht durch einen Tabellenscan für den Cache-Schlüssel (56 ms), den Filter je Abschnitt statt je Dokument (168 ms) und einen zweiten Tabellenscan für den Vektorstand (60 ms). PostgreSQL: P95 5,9 s, weil die OR-Verknüpfung von Text- und Titelsuche den GIN-Index umging und jeder der 58.000 Abschnitte neu zerlegt wurde; mit UNION 1,8 s, mit gespeicherten Suchvektoren 549 ms, mit paralleler Volltextsuche 266 ms. Im Postgres-Pfad von `vector_counts` fand der Benchmark einen Zugriff über Spaltennummer, den die Vertragstests nicht abdeckten; behoben.
+
+**Evaluation synthetisch (54 beantwortbare, 8 Ausschlussfragen):**
+
+| Kennzahl | Volltext | Vektor exakt | Hybrid |
+|---|---:|---:|---:|
+| Recall@1 | 0,537 | 0,759 | 0,704 |
+| Recall@3 | 0,611 | 0,926 | 0,852 |
+| Recall@10 | 0,630 | 1,000 | 0,963 |
+| MRR | 0,573 | 0,855 | 0,781 |
+| Recall@10 wortgleich | 1,000 | 1,000 | 1,000 |
+| Recall@10 Umschreibung | 0,412 | 1,000 | 0,941 |
+
+Kriterium erfüllt: Recall@10 0,963 ≥ 0,85, wortgleich nicht schlechter als Volltext. Hybrid liegt bei Recall@1 und MRR unter der reinen Vektorsuche; kein Wert für k (1 bis 120), Kandidatenzahl (5 bis 50) oder Vektorgewicht bis 3 erreichte die Vektorwerte.
+
+**Evaluation eigene Fragen (30, Messkopie der eigenen Datenbank plus README, Masterplan und drei private PDF-Dokumente: 26 Dokumente, 220 Abschnitte, alle eingebettet; Kopie danach gelöscht):**
+
+| Kennzahl | Volltext | Vektor exakt | Hybrid |
+|---|---:|---:|---:|
+| Recall@1 | 0,600 | 0,633 | 0,633 |
+| Recall@3 | 0,867 | 0,933 | 0,867 |
+| Recall@10 | 0,967 | 0,967 | 1,000 |
+| MRR | 0,746 | 0,787 | 0,783 |
+| P95 | 8 ms | 85 ms | 92 ms (mit Frage-Vektor) |
+
+**Kriterium verfehlt:** Recall@1 gleich, MRR 0,004 unter der Vektorsuche. Die Differenz ist eine einzelne Frage (e15: Vektor Rang 1, Volltext nicht unter den ersten 10, Hybrid Rang 4). Nach Entscheidung des Product Owners als verfehlt gewertet, die Parameter werden nicht an diese 30 Fragen angepasst. Hybrid findet als einziges Verfahren alle 30 Hauptquellen unter den ersten 10.
+
+**Benchmark (Referenzbestand, 100 warme Suchen mit 40 verschiedenen Fragen, davon 12 sechsmal; P95):**
+
+| Lauf | Cache | Laden | Kalt gesamt | Warm Median | Warm P95 | Warm Max |
+|---|---:|---:|---:|---:|---:|---:|
+| SQLite, Linux 2 Kerne, synthetische Frage-Vektoren | 114,2 MiB | 468 ms | 758 ms | 199 ms | 249 ms | 282 ms |
+| PostgreSQL 18.6, Linux 2 Kerne, synthetisch | 114,2 MiB | 1.395 ms | 1.516 ms | 213 ms | 266 ms | 298 ms |
+| SQLite, Windows, Frage-Vektoren von Ollama (E2E, inkl. Frage-Embedding) | 114,2 MiB | 643 ms | 1.213 ms | 162 ms | 255 ms | 342 ms |
+
+Ziele: warme Suche einschließlich Frage-Embedding P95 unter 2 s erfüllt (255 ms, Frage-Embedding P95 112 ms bei 40 % neuen Fragen); Retrieval ohne Frage-Embedding P95 unter 500 ms erfüllt (SQLite 249 ms, PostgreSQL 266 ms); Speicher unter 200 MiB erfüllt (114,2 MiB). Der kalte Lauf ist getrennt ausgewiesen. In keinem warmen Lauf wurde die Matrix neu geladen, Volltext-Fallbacks 0.
+
+**Invalidierung nachgewiesen** (`tests/test_retrieval.py`, `tests/test_postgres.py`): neue Vektoren, überschriebener Vektor bei gleicher Anzahl, Löschen mit Generationswechsel in derselben Transaktion, andere Datenbankdatei, Vektoren ohne Generation (Stand 7.2), falsche Dimension mit Fallback und Neuladen, Modellwechsel; unter PostgreSQL erkennt die Suche die Änderung einer zweiten Verbindung. Mutationsproben: ohne Generationswechsel beim Löschen, ohne Füllwortfilter-Rückfall, ohne Prüfung des Berechnungsausdrucks, Volltext nacheinander statt parallel: alle schlagen fehl.
+
+**Nachweise:** 18 neue Tests (`tests/test_retrieval.py` mit gemeinsamem Vertrag für beide Backends, PostgreSQL-Fälle für hybride Suche, Cache über eine zweite Verbindung, Migration 10 → 11 mit unverändertem Rang und manipulierte Suchspalte, Oberflächentest für Status und Fallback, gleichzeitige SQLite-Verbindungen): 529 Tests. Lokales Matrix-Gate an `d7decfe`: 7 von 7 Jobs grün (`local-ci-gate-d7decfe.md`). Linux 3.11, 3.12, 3.13: je 529 bestanden, 24 übersprungen (22 ohne PostgreSQL-Testdienst, 2 Windows-Pfadfälle). Windows 3.11.9, 3.12.10, 3.13.8: je 529 bestanden, 28 übersprungen (22 ohne PostgreSQL-Testdienst, 3 ohne `sh`, 2 Dateiersatz bei geöffneter Datei, 1 POSIX-Symlink), keine Wiederholung. PostgreSQL 18.6: 25 von 25 ohne Übersprung. Migration einer Kopie der eigenen SQLite-Datenbank: Version 10 → 11, 21 Dokumente mit identischen Hashes, 81 Abschnitte, geprüfte Sicherung `pre-migration-v10`, WAL erhalten, Gesundheitsprüfung bestanden, Original unverändert, Kopie danach gelöscht. Die PostgreSQL-Migration ist nur gegen die Wegwerfdatenbank geprüft, nicht gegen den VPS.
+
+**Gefunden und behoben:** Zwei gleichzeitig geöffnete SQLite-Verbindungen scheiterten in etwa einem von zwanzig Fällen mit „database is locked“, weil `connect()` bei jeder Verbindung `PRAGMA journal_mode=WAL` setzte und dieser Wechsel nicht auf das Zeitlimit wartet. Der Fehler bestand schon vorher (Oberfläche und Hintergrund-Einbettung), die parallele Volltextsuche machte ihn unter Windows sichtbar. WAL wird jetzt einmal beim Öffnen des Stores gesetzt; der neue Test scheiterte am alten Code in 3 von 3 Läufen.
+
+**Status:** 7.2 ✅ (Gate an `d7decfe`), 7.3 🟡 (alle Punkte umgesetzt, Zeit- und Speicherziele erfüllt, Kriterium „MRR auf eigenen Fragen mindestens wie Vektor“ um 0,004 verfehlt), 7.1 🟡 (eigene Fragen integriert; der Bestand ist mit 26 Dokumenten zu klein, damit Recall@10 trennt), Phase 7 🟡.
 
 ## Aktualisierung 29.10.2026 (Vormittag) – Importgrenze 50 MB und seitenweise OCR, alle 30 eigenen Fragen gemessen
 
@@ -56,7 +113,7 @@ Alle Abweichungen der Vektorsuche auf Platz 1 betreffen README-Fragen, bei denen
 
 **Offen:** die zwei privaten PDF-Dokumente importieren; Bestand vergrößern, damit Recall@10 trennt.
 
-## Aktualisierung 28.10.2026 (Abend) – Phase 7, Schritt 7.2b Einbettung im Hintergrund 🟡
+## Aktualisierung 28.10.2026 (Abend) – Phase 7, Schritt 7.2b Einbettung im Hintergrund ✅ (abgenommen 29.10.2026 an `d7decfe`)
 
 **Umfang (`72f0fbf`):** `vector_sync.py` mit `VectorSync`: standardmäßig aus, Aktivierung prüft einmal das lokale Ollama-Modell. Der Timer der geöffneten Anwendung startet alle 30 Sekunden in einem Hintergrund-Thread einen Lauf über höchstens 256 Abschnitte ohne Vektor; neue Importe und der Bestand werden so schrittweise erfasst. Ein Fehlschlag behält die Aktivierung, neuer Versuch nach fünf Minuten, bereits gespeicherte Chargen bleiben. Gesendet werden nur Abschnittstexte an Ollama auf diesem Rechner; OpenAI ist bewusst nicht auswählbar, weil es Inhalte überträgt. Einstellungsseite „KI-Anbieter“ mit Bereich „Semantische Suche“ (Modell, Aktivieren, Deaktivieren, Fortschritt), CLI `vectors [--activate|--deactivate|--run]`. `save_vectors` überspringt Abschnitte, die während eines Laufs gelöscht wurden, statt die ganze Charge abzubrechen. Die Suche nutzt die Vektoren noch nicht.
 
@@ -64,13 +121,13 @@ Alle Abweichungen der Vektorsuche auf Platz 1 betreffen README-Fragen, bei denen
 
 **Grenze:** Bei der gemessenen Rate von etwa 0,15 Sekunden je Abschnitt braucht ein Bestand von 50.000 Abschnitten rund zwei Stunden Rechenzeit, über den Timer verteilt auf mehrere Sitzungen. Für große Bestände ist `vectors --run` vorgesehen.
 
-## Aktualisierung 28.10.2026 (Abend) – Phase 7, Schritt 7.2a Vektorspeicher und Embedding-Adapter 🟡
+## Aktualisierung 28.10.2026 (Abend) – Phase 7, Schritt 7.2a Vektorspeicher und Embedding-Adapter ✅ (abgenommen 29.10.2026 an `d7decfe`)
 
 **Umfang (`ebd2475`):** Migration 10 legt `chunk_vectors` an, für SQLite mit `BLOB`, für PostgreSQL mit `BYTEA`: ein Vektor je Abschnitt mit Modell und Dimension, Löschung mit dem Abschnitt. `VectorIndex` in `core.py` gilt für beide Stores: `pending_vectors(model)` liefert Abschnitte ohne Vektor dieses Modells, ein Vektor eines anderen Modells zählt als fehlend. `save_vectors` prüft Endlichkeit, Dimension und Länge und speichert L2-normiert als float16. `vector_search` sucht exakt mit numpy und beachtet Versions- und Tagfilter wie die Volltextsuche. `Embedder` spricht Ollama (`qwen3-embedding:0.6b`, Abfrage-Präfix laut Modellkarte) und OpenAI (`text-embedding-3-small`) über die bestehende Anbietergrenze an. Neue Abhängigkeit `numpy==2.3.4`. Schemaverträge, `schema.sql` und Testfixtures folgen Version 10. Die eingefrorenen historischen Fixtures hatten Version 9 nicht enthalten, sie ist ergänzt. Import, Suche und Oberfläche sind noch nicht angebunden.
 
 **Nachweise:** 5 neue Tests (`tests/test_vectors.py` mit gemeinsamem Vertrag für beide Backends, PostgreSQL-Fall in `tests/test_postgres.py`): 500 Tests. Lokales Matrix-Gate an `ebd2475`: 7 von 7 Jobs grün. Migration einer Kopie der eigenen SQLite-Datenbank: Version 9 → 10, 17 Dokumente mit identischen Hashes, 34 Abschnitte, geprüfte Sicherung `pre-migration-v9`, Gesundheitsprüfung bestanden, Original unverändert. Adapter gegen lokales Ollama 0.40.4: 1.024 Dimensionen.
 
-**Grenze:** `vector_search` liest bei jeder Anfrage alle Vektoren des Modells aus der Datenbank, bei 50.000 Abschnitten etwa 100 MB. Die P95-Messung und ein Zwischenspeicher folgen in Schritt 7.3.
+**Grenze:** `vector_search` liest bei jeder Anfrage alle Vektoren des Modells aus der Datenbank, bei 50.000 Abschnitten etwa 100 MB. Die P95-Messung und ein Zwischenspeicher folgen in Schritt 7.3. **Erledigt mit 7.3:** Vektorcache im Arbeitsspeicher, P95 gemessen.
 
 ## Aktualisierung 28.10.2026 (Nachmittag) – Phase 7, Schritt 7.1 Evaluationsdatensatz 🟡
 
@@ -626,9 +683,9 @@ Frühere Zwischenstände: Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33
 
 **Muss-Umfang:**
 
-- Embedding-Schnittstelle mit wählbarem Anbieter und lokalem Modell 🟡 Adapter für Ollama und OpenAI vorhanden (7.2a); in den Einstellungen und der CLI ist lokales Ollama mit frei wählbarem Modell aktivierbar (7.2b), OpenAI bewusst nicht auswählbar
-- `pgvector` für PostgreSQL; definierte lokale Strategie für SQLite 🟡 nach D-016 auf beiden Backends Byte-Spalte und exakte Suche mit numpy (7.2a); `pgvector` verschoben
-- hybride Fusion aus Volltext- und Vektorsuche
+- Embedding-Schnittstelle mit wählbarem Anbieter und lokalem Modell ✅ Adapter für Ollama und OpenAI vorhanden (7.2a); in den Einstellungen und der CLI ist lokales Ollama mit frei wählbarem Modell aktivierbar (7.2b), OpenAI bewusst nicht auswählbar
+- `pgvector` für PostgreSQL; definierte lokale Strategie für SQLite ✅ nach D-016 auf beiden Backends Byte-Spalte und exakte Suche mit numpy (7.2a); `pgvector` verschoben
+- hybride Fusion aus Volltext- und Vektorsuche 🟡 RRF umgesetzt (7.3, `d7decfe`), MRR-Kriterium auf den eigenen Fragen um 0,004 verfehlt
 - optionaler Reranker
 - konfigurierbare Chunk-Strategie nach Dokumenttyp
 - Anzeige von Dokument, Abschnitt, Fundstelle, Retrieval-Score und Reranking-Score
@@ -641,7 +698,7 @@ Frühere Zwischenstände: Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33
 - mindestens 95 % der beantworteten Testfragen enthalten die erwartete Hauptquelle
 - 100 % der Tatsachenantworten enthalten mindestens einen gültigen Quellenverweis
 - unbelegte Antworten werden sichtbar markiert und nicht als gesichert dargestellt
-- Retrieval-P95 unter 2 Sekunden für den vereinbarten Referenzbestand
+- Retrieval-P95 unter 2 Sekunden für den vereinbarten Referenzbestand (7.3: erfüllt, siehe Benchmark vom 29.10.2026)
 
 **Gate:** Die Qualitätswerte werden automatisiert aus einem versionierten Evaluationsdatensatz erzeugt; Einzelbeispiele reichen nicht aus.
 
@@ -804,7 +861,7 @@ Erforderlicher Mindestumfang:
 | ✅ P1 | OCR | Erschließt gescannte Dokumente | In Release 2.0 umgesetzt und abgenommen |
 | ✅ P1 | Dokumentversionen und Importvorschau | Nachvollziehbare Änderungen und kontrollierter Import | In Release 2.0 umgesetzt und abgenommen |
 | 🟡 P1 | Evaluationsdatensatz: synthetischer Teil `tests/eval/` (`6e1a9e3`), 30 eigene Fragen lokal und messbar, eigener Bestand noch zu klein | Messbasis für RAG-Qualität | Eigene Fragen und erwartete Quellen des Product Owners |
-| P2 | Hybrid-RAG und Reranking | Höhere Treffergenauigkeit | Embedding-Entscheidung, Evaluation |
+| 🟡 P2 | Hybrid-RAG und Reranking: hybride Suche umgesetzt (`d7decfe`), MRR auf eigenen Fragen knapp unter Vektor; Reranking offen | Höhere Treffergenauigkeit | Evaluation mit größerem eigenem Bestand |
 | P2 | Dokumentstatus und Wissensorganisation | Datenqualität und Aktualität | Stabile Versionslogik |
 | P3 | Wissensgraph | Strukturierte Zusammenhänge | Stabile Quellen- und Versionslogik |
 | P3 | Release 3.0 Sicherheitskern und Mehrbenutzerbetrieb | Sichere Identitäten, Rollen und serverfähiges Bedrohungsmodell | Separates Architektur- und Sicherheits-Gate |
@@ -946,6 +1003,7 @@ Ein Arbeitspaket ist abgeschlossen, wenn:
 | D-015 | GitHub Actions hat kein Budget. Das lokale Matrix-Gate `tests/local_ci.py` ersetzt die Actions-Matrix mit denselben sieben Jobs (Windows und Linux × Python 3.11, 3.12, 3.13 sowie PostgreSQL 18); eine Phase gilt nur mit einem Protokoll `local-ci-gate-<commit>.md` mit 7 von 7 grünen Jobs am selben Commit als bestanden | Entschieden 28.10.2026 (Product Owner) |
 | D-016 | Abweichend von D-014 (3) speichert PostgreSQL Vektoren vorerst wie SQLite als Byte-Spalte (`BYTEA`) mit exakter Suche in numpy. Grund: gleicher Speichervertrag auf beiden Backends, keine Servervoraussetzung; `pgvector` würde ohne installierte Erweiterung den Start abbrechen. `pgvector` folgt als eigene Migration, sobald ein Index nötig ist | Entschieden 28.10.2026 (Product Owner) |
 | D-017 | Importgrenze für Dateien und E-Mail-Anhänge 50 MB statt 20 MB; Seiten ohne Textebene in PDFs mit Textebene werden per OCR erkannt | Entschieden 29.10.2026 (Product Owner) |
+| D-018 | Hybride Suche (7.3): RRF mit k = 60, je 50 Kandidaten, ohne Gewichtung; Füllwortfilter in der Volltextsuche beider Backends. Gate-Kriterium: synthetisch Recall@10 ≥ 0,85 und wortgleich nicht schlechter als Volltext, auf den eigenen Fragen Recall@1 und MRR mindestens wie die Vektorsuche; eine Verfehlung wird nicht durch Anpassen an die eigenen Fragen ausgeglichen. PostgreSQL erhält mit Schema 11 gespeicherte Suchvektoren (`search_vector`, GIN), SQLite nur die Versionsnummer | Entschieden 29.10.2026 (Product Owner) |
 
 ## 14. Hauptrisiken
 
