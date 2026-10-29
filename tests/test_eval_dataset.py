@@ -47,5 +47,39 @@ class EvaluationDatasetTests(unittest.TestCase):
         self.assertEqual(result['fulltext']['recall@10[wortgleich]'], 1.0)
 
 
+class OwnQuestionTests(unittest.TestCase):
+    def test_own_questions_use_product_search_and_report_missing_sources(self):
+        import json
+        import tempfile
+        from unittest.mock import patch
+
+        from core import Store
+
+        class Fake:
+            def __init__(self, provider, model):
+                pass
+
+            def embed(self, texts, query=False):
+                return [[1.0, 0.0] if 'Heizung' in text else [0.0, 1.0] for text in texts]
+        with tempfile.TemporaryDirectory() as folder:
+            db = Path(folder) / 'kopie.db'
+            store = Store(db)
+            store.add('Heizung', 'Wartung der Heizung im März', filename='heizung.md')
+            store.add('Auto', 'Teilkasko für den Wagen', filename='auto.pdf')
+            store.save_vectors('m', {row['chunk_id']: Fake(0, 0).embed([row['content']])[0]
+                                     for row in store.pending_vectors('m')})
+            questions = Path(folder) / 'fragen.json'
+            questions.write_text(json.dumps([
+                {'id': 'e1', 'type': 'eigen', 'question': 'Wann war die Heizung dran?', 'expected': ['heizung.md']},
+                {'id': 'e2', 'type': 'eigen', 'question': 'Was deckt die Kasko?', 'expected': ['auto.pdf']},
+                {'id': 'e3', 'type': 'eigen', 'question': 'Rente?', 'expected': ['fehlt.pdf']}]), encoding='utf-8')
+            with patch('core.Embedder', Fake):
+                result = evaluate.evaluate_own(db, questions, 'm')
+        self.assertEqual((result['missing_sources'], result['questions_without_source']), (['fehlt.pdf'], ['e3']))
+        self.assertEqual((result['vector']['answerable'], result['vector']['recall@1']), (2, 1.0))
+        self.assertEqual(result['chunks_with_vector'], 2)
+        self.assertIn('fulltext', result)
+
+
 if __name__ == '__main__':
     unittest.main()

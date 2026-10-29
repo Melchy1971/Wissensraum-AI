@@ -130,7 +130,8 @@ def score(questions, rankings, seconds, top):
     result['missed'] = [q['id'] for q in answerable if q['expected'][0] not in rankings[q['id']][:10]]
     if top:
         result['top_similarity_answerable_min'] = min(top[q['id']] for q in answerable)
-        result['top_similarity_excluded_max'] = max(top[q['id']] for q in excluded)
+        if excluded:
+            result['top_similarity_excluded_max'] = max(top[q['id']] for q in excluded)
     return result
 
 
@@ -140,6 +141,52 @@ def evaluate():
             'chunks': sum(1 for _ in corpus_chunks(corpus)), 'questions': len(questions),
             'fulltext': score(questions, *fulltext_rankings(corpus, questions)),
             'vector': score(questions, *vector_rankings(corpus, questions, vectors))}
+
+
+def store_rankings(store, questions, embedder, model):
+    """Rank documents with the product's own search paths on an existing store.
+
+    Documents are identified by file name (title when there is none). The vector timing includes
+    the question vector, as the P95 target of the gate requires.
+    """
+    names = {}
+
+    def name(document_id):
+        if document_id not in names:
+            doc = store.get(document_id)
+            names[document_id] = doc.get('filename') or doc['title']
+        return names[document_id]
+    fulltext, fulltext_seconds, vector, vector_seconds, top = {}, [], {}, [], {}
+    for item in questions:
+        started = time.perf_counter()
+        rows = store.search(item['question'], limit=30)
+        fulltext_seconds.append(time.perf_counter() - started)
+        fulltext[item['id']] = ranked_documents(name(row['document_id']) for row in rows)
+        started = time.perf_counter()
+        hits = store.vector_search(model, embedder.embed([item['question']], query=True)[0], limit=30)
+        vector_seconds.append(time.perf_counter() - started)
+        vector[item['id']] = ranked_documents(name(hit['document_id']) for hit in hits)
+        top[item['id']] = round(hits[0]['score'], 4) if hits else 0.0
+    return (fulltext, fulltext_seconds, {}), (vector, vector_seconds, top)
+
+
+def evaluate_own(db_path, questions_path, model):
+    """Own questions against an existing database (a copy: opening it migrates the schema)."""
+    from core import Embedder
+    store = Store(db_path)
+    questions = json.loads(Path(questions_path).read_text(encoding='utf-8'))
+    with store.connect() as db:
+        known = {row['filename'] or row['title'] for row in db.execute('SELECT title,filename FROM documents')}
+    missing = sorted({source for q in questions for source in q['expected'] if source not in known})
+    usable = [q for q in questions if set(q['expected']) <= known]
+    done, total = store.vector_counts(model)
+    result = {'model': model, 'documents': len(known), 'chunks': total, 'questions': len(questions),
+              'chunks_with_vector': done, 'missing_sources': missing,
+              'questions_without_source': [q['id'] for q in questions if q not in usable]}
+    if usable:
+        fulltext, vector = store_rankings(store, usable, Embedder('ollama', model), model)
+        result.update(fulltext=score(usable, *fulltext), vector=score(usable, *vector))
+    return result
 
 
 def report(result):
@@ -155,14 +202,25 @@ def report(result):
             lines.append(f'| {key} | ' + ' | '.join(values) + ' |')
     for method, name in names.items():
         lines.append(f'\n{name}, Hauptquelle nicht unter den ersten 10: {", ".join(result[method]["missed"]) or "keine"}')
+    if result.get('missing_sources'):
+        lines.append('\nNicht im Bestand, Fragen nicht gemessen: ' + ', '.join(result['missing_sources'])
+                     + ' (' + ', '.join(result['questions_without_source']) + ')')
     return '\n'.join(lines)
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description='Retrieval-Basislinie aus dem versionierten Datensatz')
     parser.add_argument('--json', action='store_true')
+    parser.add_argument('--own', type=Path, help='eigene Fragen (JSON, nicht im Repository)')
+    parser.add_argument('--db', type=Path, help='mit --own: Kopie einer SQLite-Datenbank mit Vektoren')
+    parser.add_argument('--model', default='qwen3-embedding:0.6b')
     args = parser.parse_args(argv)
-    result = evaluate()
+    if args.own and not args.db:
+        parser.error('--own braucht --db')
+    result = evaluate_own(args.db, args.own, args.model) if args.own else evaluate()
+    if args.own and 'fulltext' not in result:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return
     print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else report(result))
 
 
