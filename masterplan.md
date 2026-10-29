@@ -12,11 +12,31 @@
 
 **Ablage:** Einziger Masterplan ist diese Datei `masterplan.md`. Die frühere Kopie `docs/masterplan.md` wurde am 22.10.2026 entfernt.
 
-**Status:** Phasen- und Testplan · Release 1.9 freigegeben, Release 2.0 abgenommen 26.10.2026, Phasen 0 bis 6 ✅ · Release 2.0.1 (Soll-Umfang von Phase 6, D-013) abgenommen 26.10.2026, Phase 7 (Release 2.1) in Arbeit: 7.1 Evaluationsdatensatz 🟡, 7.2a Vektorspeicher und Embedding-Adapter ✅, 7.2b Einbettung im Hintergrund ✅, 7.3 hybride Suche 🟡 (MRR-Kriterium auf eigenen Fragen verfehlt), noch nicht freigegeben
+**Status:** Phasen- und Testplan · Release 1.9 freigegeben, Release 2.0 abgenommen 26.10.2026, Phasen 0 bis 6 ✅ · Release 2.0.1 (Soll-Umfang von Phase 6, D-013) abgenommen 26.10.2026, Phase 7 (Release 2.1) in Arbeit: 7.1 Evaluationsdatensatz ✅, 7.2a Vektorspeicher und Embedding-Adapter ✅, 7.2b Einbettung im Hintergrund ✅, 7.3 hybride Suche ✅, Phase 7 noch nicht freigegeben (Reranker, Antwortkennzeichnung, Chunk-Strategie, Fundstellenanzeige offen)
 
 **Legende:** ✅ vollständig implementiert und gesamtes Gate nachweislich bestanden · 🟡 implementiert oder teilweise geprüft, aber noch nicht vollständig abgenommen · ❌ Gate fehlgeschlagen oder Freigabe blockiert · ⬜ geplant und noch nicht begonnen
 
-## Aktualisierung 29.10.2026 (Abend) – Phase 7, Schritt 7.3 hybride Suche 🟡
+## Aktualisierung 29.10.2026 (Nachmittag) – Phase 7, Schritte 7.1 und 7.3 abgenommen ✅
+
+**Anlass:** 7.3 verfehlte das MRR-Kriterium auf 26 Dokumenten um 0,004 (eine Frage). 7.1 war offen, weil der eigene Bestand zu klein war, damit Recall@10 trennt. Auf Entscheidung des Product Owners wurde der Bestand vergrößert und der Fragenkatalog erweitert. Der Code bleibt `d7decfe` (Gate 7 von 7), geändert ist nur der Messbestand.
+
+**Messbestand (Messkopie, nur lokal, danach gelöscht):** Kopie der eigenen Datenbank (21 Dokumente) plus README, Masterplan und drei Ordner aus den eigenen Dokumenten: 232 Dokumente, 1.450 Abschnitte, alle eingebettet. Ordner mit Code und Bibliotheken (`node_modules`, `.git`, `venv`, `dist`, `build`) wurden ausgelassen, sie hätten rund 45.000 Dateien fremden Texts eingebracht. **Fragen:** 70 eigene Fragen des Product Owners zu 44 verschiedenen Dokumenten (30 bisherige, 40 neue), lokal in `data/eval-eigene-fragen.json`, keine Ausschlussfragen.
+
+| Kennzahl | Volltext | Vektor exakt | Hybrid |
+|---|---:|---:|---:|
+| Recall@1 | 0,471 | 0,514 | 0,586 |
+| Recall@3 | 0,686 | 0,829 | 0,771 |
+| Recall@10 | 0,829 | 0,943 | 0,929 |
+| MRR | 0,603 | 0,680 | 0,706 |
+| P95 mit Frage-Vektor | 10 ms | 80 ms | 85 ms |
+
+**Kriterium D-018 erfüllt:** Hybrid ist bei Recall@1 und MRR mindestens so gut wie die Vektorsuche, auch getrennt betrachtet: bisherige 30 Fragen R@1 0,600 gegen 0,567, MRR 0,747 gegen 0,716; neue 40 Fragen R@1 0,575 gegen 0,475, MRR 0,675 gegen 0,653. Recall@10 trennt jetzt (0,829 / 0,943 / 0,929) und liegt für Hybrid über 0,85.
+
+**Grenzen:** Hybrid ist nicht durchweg besser. Gegenüber der Vektorsuche verbessert es 14 Fragen und verschlechtert 15; es bringt öfter die Hauptquelle auf Platz 1, verliert aber bei Recall@3 (neue Fragen 0,700 gegen 0,825) und Recall@10. Zwei Fragen (e11, e12) findet kein Verfahren unter den ersten 10. Die eigenen Fragen sind nicht versioniert und enthalten keine Ausschlussfragen; Ausschlussfälle prüft weiter nur der synthetische Teil.
+
+**Status:** 7.1 ✅, 7.2 ✅, 7.3 ✅ (Gate an `d7decfe`, Kriterien auf dem erweiterten Bestand erfüllt). Phase 7 🟡: offen sind optionaler Reranker, Antwort kennzeichnen oder verweigern bei schwacher Quellenlage, Chunk-Strategie je Dokumenttyp, Anzeige von Fundstelle und Scores.
+
+## Aktualisierung 29.10.2026 (Mittag) – Phase 7, Schritt 7.3 hybride Suche (zunächst 🟡, abgenommen siehe oben)
 
 **Umfang (`d7decfe`, Entscheidung D-018):** Neues Modul `retrieval.py` mit einem einzigen Suchweg für Dokumentensuche, „Wissen befragen“ und `cli.py search`. Reciprocal Rank Fusion mit k = 60, Rang ab 1, je höchstens 50 Kandidaten aus Volltext und Vektorsuche, je Liste nur der beste Abschnitt eines Dokuments, höchstens 10 Dokumente, Gleichstand nach `document_id`. Jedes Ergebnis enthält Dokument, Titel, Bereich, besten Abschnitt, `fulltext_rank`, `vector_rank`, beide Rohwerte nur zur Diagnose, `rrf_score` und `retrieval_method`. Modi `fulltext`, `vector`, `hybrid`; Fallback auf Volltext, wenn die semantische Suche aus ist, keine Vektoren vorliegen, Ollama nicht innerhalb von 15 s antwortet oder ein Vektor beschädigt ist. Statustexte in der Oberfläche: „Volltextsuche“, „Hybride Suche“, „Hybride Suche – Vektorbestand unvollständig“, „Volltext-Fallback – semantisches Modell nicht erreichbar“, zusätzlich „Volltext-Fallback – Vektorbestand nicht lesbar, wird neu geladen“. Keine Rohwerte in der Liste. CLI `search --mode` und `--diagnose`.
 
@@ -129,7 +149,7 @@ Alle Abweichungen der Vektorsuche auf Platz 1 betreffen README-Fragen, bei denen
 
 **Grenze:** `vector_search` liest bei jeder Anfrage alle Vektoren des Modells aus der Datenbank, bei 50.000 Abschnitten etwa 100 MB. Die P95-Messung und ein Zwischenspeicher folgen in Schritt 7.3. **Erledigt mit 7.3:** Vektorcache im Arbeitsspeicher, P95 gemessen.
 
-## Aktualisierung 28.10.2026 (Nachmittag) – Phase 7, Schritt 7.1 Evaluationsdatensatz 🟡
+## Aktualisierung 28.10.2026 (Nachmittag) – Phase 7, Schritt 7.1 Evaluationsdatensatz ✅ (abgenommen 29.10.2026, siehe oben)
 
 **Umfang:** Synthetischer Teil des Evaluationsdatensatzes nach D-014 (1). `tests/eval/corpus.json` mit 100 Dokumenten, davon 80 thematische Nachbarn als Störer. `tests/eval/questions.json` mit 62 Fragen: 20 wortgleich, 34 umschrieben, 8 Ausschlussfragen ohne Antwort im Korpus. `tests/eval/vectors.json` mit den Vektoren von `qwen3-embedding:0.6b` (Ollama 0.40.4, 1.024 Dimensionen, float16, L2-normiert) für alle 100 Abschnitte und 62 Fragen, je Vektor mit SHA-256 des Textes. Fragen erhalten die Instruktion aus der Modellkarte, Dokumente nicht. `tests/eval/build_vectors.py` erzeugt die Datei neu, `tests/eval/evaluate.py` misst. Kein Produktcode geändert. 3 neue Tests in `tests/test_eval_dataset.py`: 495 Tests.
 
@@ -685,12 +705,12 @@ Frühere Zwischenstände: Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33
 
 - Embedding-Schnittstelle mit wählbarem Anbieter und lokalem Modell ✅ Adapter für Ollama und OpenAI vorhanden (7.2a); in den Einstellungen und der CLI ist lokales Ollama mit frei wählbarem Modell aktivierbar (7.2b), OpenAI bewusst nicht auswählbar
 - `pgvector` für PostgreSQL; definierte lokale Strategie für SQLite ✅ nach D-016 auf beiden Backends Byte-Spalte und exakte Suche mit numpy (7.2a); `pgvector` verschoben
-- hybride Fusion aus Volltext- und Vektorsuche 🟡 RRF umgesetzt (7.3, `d7decfe`), MRR-Kriterium auf den eigenen Fragen um 0,004 verfehlt
+- hybride Fusion aus Volltext- und Vektorsuche ✅ RRF (7.3, `d7decfe`), auf 70 eigenen Fragen bei Recall@1 und MRR vor der Vektorsuche
 - optionaler Reranker
 - konfigurierbare Chunk-Strategie nach Dokumenttyp
 - Anzeige von Dokument, Abschnitt, Fundstelle, Retrieval-Score und Reranking-Score
 - Antwort verweigern oder kennzeichnen, wenn die Quellenlage nicht ausreicht
-- Evaluationsdatensatz mit Fragen, erwarteten Quellen und Ausschlussfällen 🟡 synthetischer Teil vorhanden (Schritt 7.1); 30 eigene Fragen des Product Owners lokal, alle 30 auf einer Messkopie messbar; der eigene Bestand ist für Recall@10 zu klein
+- Evaluationsdatensatz mit Fragen, erwarteten Quellen und Ausschlussfällen ✅ synthetischer Teil mit Ausschlussfragen (Schritt 7.1); 70 eigene Fragen des Product Owners zu 44 Dokumenten lokal, gemessen auf 232 Dokumenten
 
 **Test und Abnahme:**
 
@@ -860,8 +880,8 @@ Erforderlicher Mindestumfang:
 | ✅ P1 | E-Mail-Anhänge mit Freigabe | Schließt wesentliche Inhaltslücke | In Release 2.0 umgesetzt und abgenommen |
 | ✅ P1 | OCR | Erschließt gescannte Dokumente | In Release 2.0 umgesetzt und abgenommen |
 | ✅ P1 | Dokumentversionen und Importvorschau | Nachvollziehbare Änderungen und kontrollierter Import | In Release 2.0 umgesetzt und abgenommen |
-| 🟡 P1 | Evaluationsdatensatz: synthetischer Teil `tests/eval/` (`6e1a9e3`), 30 eigene Fragen lokal und messbar, eigener Bestand noch zu klein | Messbasis für RAG-Qualität | Eigene Fragen und erwartete Quellen des Product Owners |
-| 🟡 P2 | Hybrid-RAG und Reranking: hybride Suche umgesetzt (`d7decfe`), MRR auf eigenen Fragen knapp unter Vektor; Reranking offen | Höhere Treffergenauigkeit | Evaluation mit größerem eigenem Bestand |
+| ✅ P1 | Evaluationsdatensatz: synthetischer Teil `tests/eval/` (`6e1a9e3`), 70 eigene Fragen lokal, Messbestand 232 Dokumente | Messbasis für RAG-Qualität | Abgenommen 29.10.2026 |
+| 🟡 P2 | Hybrid-RAG und Reranking: hybride Suche abgenommen (`d7decfe`, 7.3 ✅); Reranking offen | Höhere Treffergenauigkeit | Messbarer Gewinn gegenüber RRF |
 | P2 | Dokumentstatus und Wissensorganisation | Datenqualität und Aktualität | Stabile Versionslogik |
 | P3 | Wissensgraph | Strukturierte Zusammenhänge | Stabile Quellen- und Versionslogik |
 | P3 | Release 3.0 Sicherheitskern und Mehrbenutzerbetrieb | Sichere Identitäten, Rollen und serverfähiges Bedrohungsmodell | Separates Architektur- und Sicherheits-Gate |
