@@ -44,6 +44,15 @@ class OcrWithoutTesseractTests(unittest.TestCase):
         self.assertEqual(result.status, 'PASS')
         self.assertIn('optional', result.message)
 
+    def test_mixed_and_short_text_pdfs_import_as_before_without_ocr(self):
+        from PIL import Image
+        mixed = fx.mixed_pdf('Deckblatt mit Textebene', Image.new('L', (400, 300), 255))
+        with patch.dict(os.environ, {'WISSENSRAUM_OCR': '0'}):
+            _, text, _, _ = extract_document('teil.pdf', mixed)
+            self.assertEqual(text, '[Seite 1]\nDeckblatt mit Textebene\n\n[Seite 2]\n')
+            _, text, _, _ = extract_document('kurz.pdf', fx.pdf_with_text('Hallo'))
+            self.assertEqual(text, '[Seite 1]\nHallo')
+
     def test_status_messages_for_each_state(self):
         missing = {'available': False, 'reason': 'packages', 'version': '', 'languages': [],
                    'message': 'OCR-Erweiterung nicht installiert.'}
@@ -117,6 +126,19 @@ class OcrRecognitionTests(unittest.TestCase):
         tiff = fx.image_bytes(first, 'TIFF', save_all=True, append_images=[second], compression='tiff_lzw')
         _, text, _, _ = extract_document('scan.tiff', tiff)
         self.assertRecognized(text, fx.OCR_GERMAN + fx.OCR_ENGLISH)
+
+    def test_pages_without_text_layer_in_a_text_pdf_are_recognized(self):
+        from core import OcrDeferred
+        pdf = fx.mixed_pdf('Deckblatt mit Textebene', fx.text_page(fx.OCR_GERMAN))
+        with self.assertRaises(OcrDeferred) as deferred:  # the preview only learns that OCR is needed
+            extract_document('teil.pdf', pdf, allow_ocr=False)
+        self.assertEqual(deferred.exception.pages, 1)
+        _, text, _, stored = extract_document('teil.pdf', pdf)
+        first, second = text.split('[Seite 2]\n')
+        self.assertEqual(first, '[Seite 1]\nDeckblatt mit Textebene\n\n')
+        self.assertTrue(second.startswith(ocr.MARKER + '\n'))
+        self.assertRecognized(second, fx.OCR_GERMAN)
+        self.assertEqual(stored, pdf)
 
     def test_blank_scan_stays_quarantined_and_broken_image_is_damaged(self):
         for name, data, reason in (('leer.png', fx.blank_png(), 'no_text'), ('leer.pdf', fx.blank_pdf(), 'no_text'),

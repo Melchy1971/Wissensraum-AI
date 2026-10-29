@@ -52,6 +52,7 @@ def imap_refusal(error):
 MAX_MESSAGE_TEXT_BYTES = 25*1024*1024
 # Transfer encoding (base64) makes a part about a third larger than the decoded file.
 MAX_ATTACHMENT_ENCODED_BYTES = MAX_DOCUMENT_BYTES*4//3+4096
+ATTACHMENT_TOO_LARGE = f'Anhang überschreitet das Limit von {MAX_DOCUMENT_BYTES // (1024*1024)} MB.'
 
 
 from formats import attachment_line  # noqa: E402,F401
@@ -865,7 +866,7 @@ class Importer:
                     raise ValueError('Anhang wurde nicht gefunden.')
                 name=mail_structure.attachment_name(leaf)
                 if leaf['size']>MAX_ATTACHMENT_ENCODED_BYTES:  # rejected before any download
-                    raise ImportRejected('too_large','Anhang überschreitet das Limit von 20 MB.')
+                    raise ImportRejected('too_large',ATTACHMENT_TOO_LARGE)
                 data=self._imap_attachment(client,uid,structure,leaf)
                 return self._job_attachment(name,data,leaf['content_type'],account['id'],key+'#'+section,
                                             self._email_document(account['id'],key),account['label'],recovering)
@@ -894,7 +895,7 @@ class Importer:
                 if detail.get('@odata.type')!='#microsoft.graph.fileAttachment' or 'contentBytes' not in detail:
                     raise ImportRejected('unsupported','Weitergeleitete Elemente und Verweise werden nicht unterstützt.')
                 if int(detail.get('size') or 0)>MAX_ATTACHMENT_ENCODED_BYTES:
-                    raise ImportRejected('too_large','Anhang überschreitet das Limit von 20 MB.')
+                    raise ImportRejected('too_large',ATTACHMENT_TOO_LARGE)
                 data=base64.b64decode(detail['contentBytes'],validate=True)
                 return self._job_attachment(name,data,detail.get('contentType') or '',account['id'],
                                             key+'#'+attachment_id,self._email_document(account['id'],key),
@@ -926,7 +927,7 @@ class Importer:
                     name=attachment_name(attachment) or f'Anhang-{int(index)+1}'
                     size=int(getattr(attachment,'size',0) or 0)
                     if size>MAX_DOCUMENT_BYTES:  # rejected before reading
-                        raise ImportRejected('too_large','Anhang überschreitet das Limit von 20 MB.')
+                        raise ImportRejected('too_large',ATTACHMENT_TOO_LARGE)
                     data=attachment.read_buffer(size) if size else b''
                     email_document_id=self._pst_email_document(key)
                     return self._job_attachment(name,bytes(data),attachment_content_type(attachment,name),'',

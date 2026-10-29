@@ -137,24 +137,30 @@ def image_pages(data):
         raise _rejected('damaged', 'Bild ist beschädigt oder nicht lesbar.') from None
 
 
-def pdf_text(data):
-    """Render each page of a PDF without text layer and recognize it."""
+def pdf_page_texts(data, indices=None):
+    """Recognized text of the given 0-based pages (all pages when ``indices`` is None), in order."""
     import pypdfium2
     try:
         document = pypdfium2.PdfDocument(data)
     except Exception:
         raise _rejected('damaged', 'PDF ist beschädigt oder nicht lesbar.') from None
     try:
-        if len(document) > MAX_OCR_PAGES:
+        indices = range(len(document)) if indices is None else list(indices)
+        if len(indices) > MAX_OCR_PAGES:
             raise _rejected('limits', f'PDF hat für die Texterkennung mehr als {MAX_OCR_PAGES} Seiten.')
         pages = []
-        for index in range(len(document)):
+        for index in indices:
             page = document[index]
             width, height = page.get_size()
             scale = RENDER_DPI / 72
             if width * scale * height * scale > MAX_OCR_PIXELS:
                 raise _rejected('limits', 'PDF-Seite ist für die Texterkennung zu groß.')
             pages.append(_recognize(page.render(scale=scale).to_pil()))
-        return _labelled(pages)
+        return pages
     finally:
         document.close()
+
+
+def pdf_text(data):
+    """Render each page of a PDF without text layer and recognize it."""
+    return _labelled(pdf_page_texts(data))

@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import import_fixtures as fx
-from core import Store
+from core import MAX_DOCUMENT_BYTES, Store
 from import_jobs import ImportJobs
 from importer import Importer, MailAccounts
 from mail_fakes import FakeGraph, FakeImapServer, FakePstArchive, graph_attachment, mail
@@ -234,7 +234,7 @@ class MailJobTests(unittest.TestCase):
 
     def test_pst_job_rejects_oversized_attachment_before_reading(self):
         archive, path = self.pst()
-        archive.items[0].attachments[1].size = 21 * 1024 * 1024
+        archive.items[0].attachments[1].size = MAX_DOCUMENT_BYTES + 1
         job_id = self.importer.create_pst_job(self.jobs, path, [], {'2100': ['1']})
         self.jobs.run(job_id)
         self.assertEqual([(item['status'], item['reason']) for item in self.jobs.items(job_id)],

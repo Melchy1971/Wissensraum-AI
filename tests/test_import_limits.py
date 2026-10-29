@@ -55,10 +55,16 @@ class ImportLimitTests(unittest.TestCase):
     def test_file_size_limit_is_checked_before_reading(self):
         path = self.folder / 'gross.pdf'
         with path.open('wb') as file:
-            file.truncate(20 * 1024 * 1024 + 1)  # sparse, never read
+            file.truncate(50 * 1024 * 1024 + 1)  # sparse, never read
         with self.assertRaises(ImportRejected) as raised:
             import_document(path)
         self.assertEqual(raised.exception.reason, 'too_large')
+        self.assertEqual(str(raised.exception), 'Datei überschreitet das Limit von 50 MB.')
+        # A file below the limit is read and judged by its content, not rejected for its size.
+        path.write_bytes(b'%PDF-1.4 kaputt' + b'\0' * (36 * 1024 * 1024))
+        with self.assertRaises(ImportRejected) as raised:
+            import_document(path)
+        self.assertEqual(raised.exception.reason, 'damaged')
 
     def test_decompression_and_page_limits(self):
         self.assertRejected('limits', 'bombe.docx', fx.zip_bomb_docx())

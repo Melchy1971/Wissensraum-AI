@@ -823,7 +823,7 @@ class App(tk.Tk if tk is not None else object):
         ttk.Label(frame,text='Importierte Inhalte werden als durchsuchbare Dokumente in der aktiven SQL-Datenbank gespeichert.',wraplength=900).pack(anchor='w',pady=(5,14))
         local=ttk.LabelFrame(frame,text='Lokale Dokumente',padding=14)
         local.pack(fill='x',pady=(0,10))
-        ttk.Label(local,text='TXT, Markdown, PDF, DOCX, HTML, RTF, XLSX, PPTX, EML, mit OCR auch Bilder · maximal 20 MB je Datei · '
+        ttk.Label(local,text='TXT, Markdown, PDF, DOCX, HTML, RTF, XLSX, PPTX, EML, mit OCR auch Bilder · maximal 50 MB je Datei · '
                   'Importe laufen als Auftrag und lassen sich abbrechen und fortsetzen').pack(anchor='w')
         local_buttons=ttk.Frame(local)
         local_buttons.pack(anchor='w',pady=(8,0))

@@ -185,6 +185,18 @@ def scanned_pdf(pages):
     return output.getvalue()
 
 
+def mixed_pdf(text, scanned_page):
+    """First page with a text layer, second page only an image (a partly scanned document)."""
+    import io
+    from pypdf import PdfReader, PdfWriter
+    writer = PdfWriter()
+    writer.add_page(PdfReader(io.BytesIO(pdf_with_text(text))).pages[0])
+    writer.add_page(PdfReader(io.BytesIO(scanned_pdf([scanned_page]))).pages[0])
+    output = io.BytesIO()
+    writer.write(output)
+    return output.getvalue()
+
+
 def blank_png(width=200, height=120):
     """A valid, readable image without any text."""
     from PIL import Image

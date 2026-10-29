@@ -954,7 +954,8 @@ class PostgresStore(VectorIndex):
         raise ValueError('PostgreSQL-Sicherungen werden auf dem VPS mit pg_dump erstellt; die lokale SQLite-Sicherung ist hierfür nicht anwendbar.')
 
 
-MAX_DOCUMENT_BYTES = 20*1024*1024
+MAX_DOCUMENT_BYTES = 50*1024*1024
+TOO_LARGE_MESSAGE = f'Datei überschreitet das Limit von {MAX_DOCUMENT_BYTES // (1024*1024)} MB.'
 MAX_DOCUMENT_CHARACTERS = 2_000_000
 MAX_PDF_PAGES = 2000
 MAX_DOCX_ENTRIES = 10_000
@@ -1011,7 +1012,7 @@ class OcrDeferred(Exception):
 def import_document(path, allow_ocr=True):
     path = Path(path)
     if path.stat().st_size > MAX_DOCUMENT_BYTES:
-        raise ImportRejected('too_large', 'Datei überschreitet das Limit von 20 MB.')
+        raise ImportRejected('too_large', TOO_LARGE_MESSAGE)
     if path.suffix.lower() not in SUPPORTED_DOCUMENT_SUFFIXES | IMAGE_SUFFIXES:
         extract_document(path.name, b'')  # raises the matching quarantine reason
     return extract_document(path.name, path.read_bytes(), allow_ocr)
@@ -1027,7 +1028,7 @@ def extract_document(name, data, allow_ocr=True):
             raise ImportRejected('no_text', 'Bild enthält keinen lesbaren Text; dafür ist die optionale '
                                             'Texterkennung (OCR) nötig.')
         if len(data) > MAX_DOCUMENT_BYTES:
-            raise ImportRejected('too_large', 'Datei überschreitet das Limit von 20 MB.')
+            raise ImportRejected('too_large', TOO_LARGE_MESSAGE)
         if not allow_ocr:
             raise OcrDeferred(ocr.image_pages(data))
         text = ocr.image_text(data)
@@ -1037,7 +1038,7 @@ def extract_document(name, data, allow_ocr=True):
     if suffix not in SUPPORTED_DOCUMENT_SUFFIXES:
         raise ImportRejected('unsupported', f'Unterstützt werden {SUPPORTED_FORMATS_TEXT}.')
     if len(data) > MAX_DOCUMENT_BYTES:
-        raise ImportRejected('too_large', 'Datei überschreitet das Limit von 20 MB.')
+        raise ImportRejected('too_large', TOO_LARGE_MESSAGE)
     import formats
     title = Path(name).stem or name
     if suffix in ('.txt', '.md'):
@@ -1064,18 +1065,30 @@ def extract_document(name, data, allow_ocr=True):
                 raise ImportRejected('encrypted', 'Verschlüsselte PDFs werden nicht unterstützt.')
             if len(reader.pages) > MAX_PDF_PAGES:
                 raise ImportRejected('limits', f'PDF hat mehr als {MAX_PDF_PAGES} Seiten.')
-            text = '\n\n'.join(f'[Seite {i+1}]\n{p.extract_text() or ""}' for i, p in enumerate(reader.pages))
+            pages = [p.extract_text() or '' for p in reader.pages]
         except ImportRejected:
             raise
         except Exception:
             raise ImportRejected('damaged', 'PDF ist beschädigt oder nicht lesbar.') from None
-        if not re.sub(r'\[Seite \d+\]', '', text).strip():
+        if not any(page.strip() for page in pages):  # unchanged path, so stored scans stay duplicates
             if not ocr.available():
                 raise ImportRejected('no_text', 'PDF enthält keinen lesbaren Text; dafür ist die optionale '
                                                 'Texterkennung (OCR) nötig.')
             if not allow_ocr:
                 raise OcrDeferred(len(reader.pages))
             text = ocr.pdf_text(data)  # scanned PDF: recognize the rendered pages
+        else:
+            # ponytail: only pages without any text layer count as scanned. Ceiling: a scanned page
+            # that carries a stamped page number keeps just that number. Upgrade path: compare the
+            # text layer with the ink coverage of the rendered page.
+            scanned = [i for i, page in enumerate(pages) if not page.strip()]
+            if scanned and ocr.available():  # mixed PDF: recognize only the pages without text layer
+                if not allow_ocr:
+                    raise OcrDeferred(len(scanned))
+                for index, recognized in zip(scanned, ocr.pdf_page_texts(data, scanned)):
+                    if recognized.strip():
+                        pages[index] = ocr.MARKER + '\n' + recognized.strip()
+            text = '\n\n'.join(f'[Seite {i+1}]\n{page}' for i, page in enumerate(pages))
     else:  # .docx
         formats.office_container(data, '.docx')
         from docx import Document

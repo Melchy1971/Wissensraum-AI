@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import import_fixtures as fx
 import mail_structure
-from core import Store
+from core import MAX_DOCUMENT_BYTES, Store
 from importer import Importer, MailAccounts
 from mail_fakes import (FakeGraph, FakeImapServer, FakePstArchive, graph_attachment, mail)
 from test_settings import FakeVault
@@ -193,7 +193,7 @@ class AttachmentReleaseTests(unittest.TestCase):
 
     def test_oversized_attachment_is_rejected_before_download(self):
         account_id = self.imap_account()
-        big = b'%PDF-1.4\n' + b'0' * (21 * 1024 * 1024)
+        big = b'%PDF-1.4\n' + b'0' * (MAX_DOCUMENT_BYTES + 1024 * 1024)
         server = FakeImapServer({7: mail('Groß', 'Text', [('gross.pdf', 'application/pdf', big)])})
         report = self.importer.import_imap_ids(account_id, 'INBOX', ['7'], server.client, attachments={'7': ['2']})
         self.assertEqual(report['quarantine'], [{'name': 'gross.pdf', 'reason': 'too_large'}])
