@@ -8,13 +8,33 @@
 
 **Repository:** `Melchy1971/Wissensraum-AI`
 
-**Geprüfte Codebasis:** Letzter codewirksamer Stand `72f0fbf` (28.10.2026, Schritt 7.2b, Schemaversion 10). Lokales Matrix-Gate `tests/local_ci.py`: 7 von 7 Jobs grün an `5ca9021`, `4ef9545`, `6e1a9e3`, `ebd2475` und `72f0fbf` (D-015, GitHub Actions ohne Budget). Vorheriger Abnahmestand `84f9ecf`: CI-Lauf [40185408996](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40185408996): alle sieben Jobs grün. Release 2.0 wurde am 26.10.2026 mit eigenen Daten abgenommen; nachfolgende Commits bis zu dieser Planaktualisierung betreffen ausschließlich README und Masterplan.
+**Geprüfte Codebasis:** Letzter produktcodewirksamer Stand `72f0fbf` (28.10.2026, Schritt 7.2b, Schemaversion 10), danach `7b85460` nur Messwerkzeug. Lokales Matrix-Gate `tests/local_ci.py`: 7 von 7 Jobs grün an `5ca9021`, `4ef9545`, `6e1a9e3`, `ebd2475`, `72f0fbf` und `7b85460` (D-015, GitHub Actions ohne Budget). Vorheriger Abnahmestand `84f9ecf`: CI-Lauf [40185408996](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40185408996): alle sieben Jobs grün. Release 2.0 wurde am 26.10.2026 mit eigenen Daten abgenommen; nachfolgende Commits bis zu dieser Planaktualisierung betreffen ausschließlich README und Masterplan.
 
 **Ablage:** Einziger Masterplan ist diese Datei `masterplan.md`. Die frühere Kopie `docs/masterplan.md` wurde am 22.10.2026 entfernt.
 
 **Status:** Phasen- und Testplan · Release 1.9 freigegeben, Release 2.0 abgenommen 26.10.2026, Phasen 0 bis 6 ✅ · Release 2.0.1 (Soll-Umfang von Phase 6, D-013) abgenommen 26.10.2026, Phase 7 (Release 2.1) in Arbeit: 7.1 Evaluationsdatensatz 🟡, 7.2a Vektorspeicher und Embedding-Adapter 🟡, 7.2b Einbettung im Hintergrund 🟡, noch nicht freigegeben
 
 **Legende:** ✅ vollständig implementiert und gesamtes Gate nachweislich bestanden · 🟡 implementiert oder teilweise geprüft, aber noch nicht vollständig abgenommen · ❌ Gate fehlgeschlagen oder Freigabe blockiert · ⬜ geplant und noch nicht begonnen
+
+## Aktualisierung 29.10.2026 – Phase 7, Schritt 7.1 eigene Fragen 🟡
+
+**Umfang (`7b85460`):** Der Product Owner hat 30 eigene Fragen mit erwarteter Quelle geliefert: 15 zu zwei privaten PDF-Dokumenten, 8 zu `masterplan.md`, 7 zu `README.md`. Die Fragen liegen nur lokal in `data/eval-eigene-fragen.json` (durch `.gitignore` ausgeschlossen), weil sie private Inhalte betreffen. `tests/eval/evaluate.py --own <Fragen> --db <Kopie>` misst sie über die Produktsuche und `vector_search` auf gespeicherten Vektoren, die Zeit der Vektorsuche schließt den Frage-Vektor ein. Fragen ohne Quelle im Bestand werden ausgewiesen und nicht mitgezählt. 1 neuer Test: 509 Tests.
+
+**Befund Bestand:** Keines der vier erwarteten Dokumente war im Bestand (21 Dokumente, überwiegend E-Mails). Für die Messung wurden `README.md` und `masterplan.md` in eine Kopie der eigenen Datenbank importiert (23 Dokumente, 186 Abschnitte, alle eingebettet), die Kopie wurde danach gelöscht. Die zwei privaten PDF-Dokumente sind nicht importiert, ihre 15 Fragen bleiben ungemessen.
+
+**Ergebnis der 15 messbaren Fragen:**
+
+| Kennzahl | Volltext | Vektor exakt |
+|---|---:|---:|
+| Recall@1 | 0,933 | 0,667 |
+| Recall@3 | 1,000 | 1,000 |
+| Recall@10 | 1,000 | 1,000 |
+| MRR | 0,967 | 0,833 |
+| P95 | 5 ms | 363 ms (mit Frage-Vektor über Ollama) |
+
+Alle Abweichungen der Vektorsuche auf Platz 1 betreffen README-Fragen, bei denen `masterplan.md` vor `README.md` liegt. Der Masterplan beschreibt dieselben Funktionen; bei diesen Fragen sind zwei Quellen plausibel. Bei 23 Dokumenten ist Recall@10 nicht aussagekräftig. Eine Abnahme nach Phase-7-Gate ist mit diesem Stand nicht möglich.
+
+**Offen:** die zwei privaten PDF-Dokumente importieren; Bestand vergrößern, damit Recall@10 trennt.
 
 ## Aktualisierung 28.10.2026 (Abend) – Phase 7, Schritt 7.2b Einbettung im Hintergrund 🟡
 
@@ -593,7 +613,7 @@ Frühere Zwischenstände: Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33
 - konfigurierbare Chunk-Strategie nach Dokumenttyp
 - Anzeige von Dokument, Abschnitt, Fundstelle, Retrieval-Score und Reranking-Score
 - Antwort verweigern oder kennzeichnen, wenn die Quellenlage nicht ausreicht
-- Evaluationsdatensatz mit Fragen, erwarteten Quellen und Ausschlussfällen 🟡 synthetischer Teil vorhanden (Schritt 7.1), eigene Fragen des Product Owners fehlen
+- Evaluationsdatensatz mit Fragen, erwarteten Quellen und Ausschlussfällen 🟡 synthetischer Teil vorhanden (Schritt 7.1); 30 eigene Fragen des Product Owners liegen lokal vor, 15 davon messbar, für 15 fehlen die Quelldokumente im Bestand
 
 **Test und Abnahme:**
 
@@ -763,7 +783,7 @@ Erforderlicher Mindestumfang:
 | ✅ P1 | E-Mail-Anhänge mit Freigabe | Schließt wesentliche Inhaltslücke | In Release 2.0 umgesetzt und abgenommen |
 | ✅ P1 | OCR | Erschließt gescannte Dokumente | In Release 2.0 umgesetzt und abgenommen |
 | ✅ P1 | Dokumentversionen und Importvorschau | Nachvollziehbare Änderungen und kontrollierter Import | In Release 2.0 umgesetzt und abgenommen |
-| 🟡 P1 | Evaluationsdatensatz: synthetischer Teil `tests/eval/` (`6e1a9e3`), 20 bis 30 eigene Fragen offen | Messbasis für RAG-Qualität | Eigene Fragen und erwartete Quellen des Product Owners |
+| 🟡 P1 | Evaluationsdatensatz: synthetischer Teil `tests/eval/` (`6e1a9e3`), 30 eigene Fragen lokal, zwei Quelldokumente noch nicht importiert | Messbasis für RAG-Qualität | Eigene Fragen und erwartete Quellen des Product Owners |
 | P2 | Hybrid-RAG und Reranking | Höhere Treffergenauigkeit | Embedding-Entscheidung, Evaluation |
 | P2 | Dokumentstatus und Wissensorganisation | Datenqualität und Aktualität | Stabile Versionslogik |
 | P3 | Wissensgraph | Strukturierte Zusammenhänge | Stabile Quellen- und Versionslogik |
