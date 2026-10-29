@@ -8,13 +8,33 @@
 
 **Repository:** `Melchy1971/Wissensraum-AI`
 
-**Geprüfte Codebasis:** Letzter produktcodewirksamer Stand `72f0fbf` (28.10.2026, Schritt 7.2b, Schemaversion 10), danach `7b85460` nur Messwerkzeug. Lokales Matrix-Gate `tests/local_ci.py`: 7 von 7 Jobs grün an `5ca9021`, `4ef9545`, `6e1a9e3`, `ebd2475`, `72f0fbf` und `7b85460` (D-015, GitHub Actions ohne Budget). Vorheriger Abnahmestand `84f9ecf`: CI-Lauf [40185408996](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40185408996): alle sieben Jobs grün. Release 2.0 wurde am 26.10.2026 mit eigenen Daten abgenommen; nachfolgende Commits bis zu dieser Planaktualisierung betreffen ausschließlich README und Masterplan.
+**Geprüfte Codebasis:** Letzter produktcodewirksamer Stand `3cb3aaa` (29.10.2026, Importgrenze 50 MB und seitenweise OCR, Schemaversion 10). Lokales Matrix-Gate `tests/local_ci.py`: 7 von 7 Jobs grün an `5ca9021`, `4ef9545`, `6e1a9e3`, `ebd2475`, `72f0fbf`, `7b85460` und `3cb3aaa` (D-015, GitHub Actions ohne Budget). Vorheriger Abnahmestand `84f9ecf`: CI-Lauf [40185408996](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40185408996): alle sieben Jobs grün. Release 2.0 wurde am 26.10.2026 mit eigenen Daten abgenommen; nachfolgende Commits bis zu dieser Planaktualisierung betreffen ausschließlich README und Masterplan.
 
 **Ablage:** Einziger Masterplan ist diese Datei `masterplan.md`. Die frühere Kopie `docs/masterplan.md` wurde am 22.10.2026 entfernt.
 
 **Status:** Phasen- und Testplan · Release 1.9 freigegeben, Release 2.0 abgenommen 26.10.2026, Phasen 0 bis 6 ✅ · Release 2.0.1 (Soll-Umfang von Phase 6, D-013) abgenommen 26.10.2026, Phase 7 (Release 2.1) in Arbeit: 7.1 Evaluationsdatensatz 🟡, 7.2a Vektorspeicher und Embedding-Adapter 🟡, 7.2b Einbettung im Hintergrund 🟡, noch nicht freigegeben
 
 **Legende:** ✅ vollständig implementiert und gesamtes Gate nachweislich bestanden · 🟡 implementiert oder teilweise geprüft, aber noch nicht vollständig abgenommen · ❌ Gate fehlgeschlagen oder Freigabe blockiert · ⬜ geplant und noch nicht begonnen
+
+## Aktualisierung 29.10.2026 (Vormittag) – Importgrenze 50 MB und seitenweise OCR, alle 30 eigenen Fragen gemessen
+
+**Anlass:** Bei der Messung der eigenen Fragen lehnte der Import das 36-MB-Vertrags-PDF des Product Owners ab (Grenze 20 MB). Die Codeprüfung zeigte zudem, dass OCR nur lief, wenn ein PDF auf keiner Seite Text hatte; einzelne gescannte Seiten in einem PDF mit Textebene fielen ohne Meldung weg.
+
+**Änderung (`3cb3aaa`, Entscheidung D-017):** Grenze für Dateien und E-Mail-Anhänge 50 MB statt 20 MB; die Meldungen leiten sich aus `MAX_DOCUMENT_BYTES` ab. In PDFs mit Textebene werden Seiten ganz ohne Textebene per OCR erkannt und je Seite mit `[OCR · Tesseract]` markiert; die Vorschau meldet die Zahl dieser Seiten. Vollständig gescannte PDFs behalten den bisherigen Weg, damit gespeicherte Scans Dubletten bleiben. Ohne Tesseract bleibt das Verhalten unverändert. Ein erster Entwurf mit einer Schwelle von 20 Zeichen je Seite überschrieb kurze echte Textseiten und wurde vor dem Commit verworfen (vom bestehenden Test `test_versions` aufgedeckt). Grenze: Eine gescannte Seite mit eingestempelter Seitenzahl behält nur diese Zahl.
+
+**Nachweise:** 2 neue Tests (gemischtes PDF mit echter OCR, gemischtes und kurzes PDF ohne OCR), Grenztests auf 50 MB nachgezogen: 511 Tests. Der neue OCR-Test scheitert am vorherigen Code. Lokales Matrix-Gate an `3cb3aaa`: 7 von 7 Jobs grün. windows-3.11 lief dabei erstmals mit python.org 3.11.9 statt mit dem uv-Build (siehe Restpunkte vom 28.10.2026). Echter Import auf einer Messkopie: Vertrag mit 13 Seiten und 29.981 Zeichen jetzt importiert (alle Seiten mit Textebene, keine OCR nötig).
+
+**Eigene Fragen, alle 30 (Messkopie mit 26 Dokumenten, 218 Abschnitten, alle eingebettet; Kopie danach gelöscht):**
+
+| Kennzahl | Volltext | Vektor exakt |
+|---|---:|---:|
+| Recall@1 | 0,533 | 0,633 |
+| Recall@3 | 0,867 | 0,933 |
+| Recall@10 | 1,000 | 0,933 |
+| MRR | 0,711 | 0,783 |
+| P95 | 6 ms | 68 ms mit Frage-Vektor |
+
+Vertragsfragen (8): Vektor 7 von 8 auf Platz 1, Volltext 4 von 8. Projektfragen (15): Volltext bei Recall@1 besser. Zwei Fragen zum Infomaterial findet die Vektorsuche gar nicht, weil die gesuchten Begriffe im extrahierten Text des Infomaterials fehlen (5 Seiten, alle mit Textebene); ob die Information in Bildern steht oder fehlt, ist offen. Beide Verfahren ergänzen sich, das stützt die Fusion in Schritt 7.3. Bei 26 Dokumenten ist Recall@10 nicht aussagekräftig.
 
 ## Aktualisierung 29.10.2026 – Phase 7, Schritt 7.1 eigene Fragen 🟡
 
@@ -102,7 +122,7 @@ Alle Abweichungen der Vektorsuche auf Platz 1 betreffen README-Fragen, bei denen
 
 **Bekannte Restpunkte:**
 
-- Windows mit Python 3.11 auf dem Entwicklungsrechner: in jedem Lauf einige Tests (in den Gate-Läufen bisher 3 bis 13) mit WinError 145 beim Löschen des Temp-Ordners nach bestandenem Prüfteil, auch mit eigenem, vom Virenscan ausgenommenem Temp-Ordner. Unter 3.12 und 3.13 nie. Das Gate wiederholt genau diese Tests einmal und protokolliert sie; jeder andere Fehler bleibt rot. Am `0c441e0` schlug zusätzlich `test_diagnostics.DiagnosticTests.test_sqlite_v1_health_executes_real_write_at_custom_path_and_rolls_it_back` fehl, weil eine fremde Datei `LEGACY.DB-SHM.tmp` im Temp-Ordner lag; im bisher einzigen Lauf mit eigenem Temp-Ordner nicht aufgetreten. Ursache offen.
+- Windows mit Python 3.11 auf dem Entwicklungsrechner: in jedem Lauf einige Tests (in den Gate-Läufen bisher 3 bis 13) mit WinError 145 beim Löschen des Temp-Ordners nach bestandenem Prüfteil, auch mit eigenem, vom Virenscan ausgenommenem Temp-Ordner. Unter 3.12 und 3.13 nie. Das Gate wiederholt genau diese Tests einmal und protokolliert sie; jeder andere Fehler bleibt rot. Am `0c441e0` schlug zusätzlich `test_diagnostics.DiagnosticTests.test_sqlite_v1_health_executes_real_write_at_custom_path_and_rolls_it_back` fehl, weil eine fremde Datei `LEGACY.DB-SHM.tmp` im Temp-Ordner lag; im bisher einzigen Lauf mit eigenem Temp-Ordner nicht aufgetreten. Ursache am 29.10.2026 eingegrenzt: Der Fehler hängt am Windows-Build von python-build-standalone (über uv installiert), nicht an Python 3.11. Gegenversuch mit uvs Python 3.13.13: 6 Fehler in einem Lauf; python.org-Builds 3.12.10 und 3.13.8: in keinem Lauf. Der Job windows-3.11 nutzt seit `3cb3aaa` python.org 3.11.9 (letzter Windows-Installer der Reihe 3.11), wie ihn auch `start_windows.bat` bei Nutzern verwendet: 0 Fehler, 0 Wiederholungen. Der erste Lauf an `3cb3aaa` mit dem uv-Build war rot, weil auch die Wiederholung an WinError 145 scheiterte; sein Ergebnis liegt unter `.local-ci/logs/3cb3aaa/windows-3.11-uv-build.json`.
 - Das Nicht-Lesen von Anhangsinhalt ist mit Attrappen geprüft, nicht gegen eine echte PST-Datei mit libpff.
 - `.github/workflows/tests.yml` kompiliert sieben Module nicht (`content_types.py`, `formats.py`, `mail_sync.py`, `pst_archive.py`, `rules.py`, `rules_view.py`, `sync_view.py`). Das lokale Gate kompiliert alle eingecheckten Python-Dateien. Die Workflow-Datei war für die Agentenwerkzeuge schreibgeschützt, die Korrektur `python -m compileall -q -l . tests` steht aus.
 
@@ -613,7 +633,7 @@ Frühere Zwischenstände: Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33
 - konfigurierbare Chunk-Strategie nach Dokumenttyp
 - Anzeige von Dokument, Abschnitt, Fundstelle, Retrieval-Score und Reranking-Score
 - Antwort verweigern oder kennzeichnen, wenn die Quellenlage nicht ausreicht
-- Evaluationsdatensatz mit Fragen, erwarteten Quellen und Ausschlussfällen 🟡 synthetischer Teil vorhanden (Schritt 7.1); 30 eigene Fragen des Product Owners liegen lokal vor, 15 davon messbar, für 15 fehlen die Quelldokumente im Bestand
+- Evaluationsdatensatz mit Fragen, erwarteten Quellen und Ausschlussfällen 🟡 synthetischer Teil vorhanden (Schritt 7.1); 30 eigene Fragen des Product Owners lokal, alle 30 auf einer Messkopie messbar; der eigene Bestand ist für Recall@10 zu klein
 
 **Test und Abnahme:**
 
@@ -783,7 +803,7 @@ Erforderlicher Mindestumfang:
 | ✅ P1 | E-Mail-Anhänge mit Freigabe | Schließt wesentliche Inhaltslücke | In Release 2.0 umgesetzt und abgenommen |
 | ✅ P1 | OCR | Erschließt gescannte Dokumente | In Release 2.0 umgesetzt und abgenommen |
 | ✅ P1 | Dokumentversionen und Importvorschau | Nachvollziehbare Änderungen und kontrollierter Import | In Release 2.0 umgesetzt und abgenommen |
-| 🟡 P1 | Evaluationsdatensatz: synthetischer Teil `tests/eval/` (`6e1a9e3`), 30 eigene Fragen lokal, zwei Quelldokumente noch nicht importiert | Messbasis für RAG-Qualität | Eigene Fragen und erwartete Quellen des Product Owners |
+| 🟡 P1 | Evaluationsdatensatz: synthetischer Teil `tests/eval/` (`6e1a9e3`), 30 eigene Fragen lokal und messbar, eigener Bestand noch zu klein | Messbasis für RAG-Qualität | Eigene Fragen und erwartete Quellen des Product Owners |
 | P2 | Hybrid-RAG und Reranking | Höhere Treffergenauigkeit | Embedding-Entscheidung, Evaluation |
 | P2 | Dokumentstatus und Wissensorganisation | Datenqualität und Aktualität | Stabile Versionslogik |
 | P3 | Wissensgraph | Strukturierte Zusammenhänge | Stabile Quellen- und Versionslogik |
@@ -925,6 +945,7 @@ Ein Arbeitspaket ist abgeschlossen, wenn:
 | D-014 | Festlegungen für Release 2.1: (1) Evaluationsdatensatz aus zwei Teilen, etwa 60 synthetische Fragen mit eingecheckten Vektoren des Referenzmodells für die CI und 20 bis 30 eigene Fragen des Product Owners mit erwarteter Quelle für die Abnahme; (2) Referenzmodell Qwen3-Embedding 0.6B lokal über Ollama (Apache 2.0, 1.024 Dimensionen), OpenAI text-embedding-3-small wählbar; Modell und Dimension je Vektor gespeichert, Modellwechsel erzwingt Neuberechnung; (3) SQLite: exakter Vergleich aller Vektoren (BLOB, numpy), PostgreSQL: pgvector; (4) Fusion Reciprocal Rank Fusion mit k = 60 aus je 50 Volltext- und Vektortreffern; (5) Reranker als Schnittstelle, erste Variante über die aktive Chat-KI, standardmäßig aus, Nutzen wird gemessen; (6) Messung: Recall@10 ≥ 0,85, Hauptquelle in ≥ 95 % der beantworteten Fragen, P95 der Suche einschließlich Frage-Vektor ohne KI-Antwort unter 2 s bei 10.000 Dokumenten und etwa 50.000 Abschnitten auf SQLite, automatisch aus dem versionierten Datensatz | Entschieden 26.10.2026 (Product Owner) |
 | D-015 | GitHub Actions hat kein Budget. Das lokale Matrix-Gate `tests/local_ci.py` ersetzt die Actions-Matrix mit denselben sieben Jobs (Windows und Linux × Python 3.11, 3.12, 3.13 sowie PostgreSQL 18); eine Phase gilt nur mit einem Protokoll `local-ci-gate-<commit>.md` mit 7 von 7 grünen Jobs am selben Commit als bestanden | Entschieden 28.10.2026 (Product Owner) |
 | D-016 | Abweichend von D-014 (3) speichert PostgreSQL Vektoren vorerst wie SQLite als Byte-Spalte (`BYTEA`) mit exakter Suche in numpy. Grund: gleicher Speichervertrag auf beiden Backends, keine Servervoraussetzung; `pgvector` würde ohne installierte Erweiterung den Start abbrechen. `pgvector` folgt als eigene Migration, sobald ein Index nötig ist | Entschieden 28.10.2026 (Product Owner) |
+| D-017 | Importgrenze für Dateien und E-Mail-Anhänge 50 MB statt 20 MB; Seiten ohne Textebene in PDFs mit Textebene werden per OCR erkannt | Entschieden 29.10.2026 (Product Owner) |
 
 ## 14. Hauptrisiken
 
