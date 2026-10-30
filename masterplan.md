@@ -12,9 +12,38 @@
 
 **Ablage:** Einziger Masterplan ist diese Datei `masterplan.md`. Die frühere Kopie `docs/masterplan.md` wurde am 22.10.2026 entfernt.
 
-**Status:** Phasen- und Testplan · Release 1.9 freigegeben, Release 2.0 abgenommen 26.10.2026, Phasen 0 bis 6 ✅ · Release 2.0.1 (Soll-Umfang von Phase 6, D-013) abgenommen 26.10.2026, Phase 7 (Release 2.1) in Arbeit: 7.1 Evaluationsdatensatz ✅, 7.2a Vektorspeicher und Embedding-Adapter ✅, 7.2b Einbettung im Hintergrund ✅, 7.3 hybride Suche ✅, 7.4 Quellenabsicherung 🟡 (mit `qwen3:8b` synthetisch erfüllt, eigene Ausschlussfragen False Accept 5,0 %, auf eigenen Fragen False Reject 17,1 %), Phase 7 noch nicht freigegeben (Chunk-Strategie, Fundstellenanzeige offen)
+**Status:** Phasen- und Testplan · Release 1.9 freigegeben, Release 2.0 abgenommen 26.10.2026, Phasen 0 bis 6 ✅ · Release 2.0.1 (Soll-Umfang von Phase 6, D-013) abgenommen 26.10.2026, Phase 7 (Release 2.1) in Arbeit: 7.1 Evaluationsdatensatz ✅, 7.2a Vektorspeicher und Embedding-Adapter ✅, 7.2b Einbettung im Hintergrund ✅, 7.3 hybride Suche ✅, 7.4 Quellenabsicherung 🟡 (mit `qwen3:8b` synthetisch erfüllt, eigene Ausschlussfragen False Accept 1 von 20, auf eigenen Fragen False Reject 11 von 70, Ziel höchstens 7), Phase 7 noch nicht freigegeben (Chunk-Strategie, Fundstellenanzeige offen)
 
 **Legende:** ✅ vollständig implementiert und gesamtes Gate nachweislich bestanden · 🟡 implementiert oder teilweise geprüft, aber noch nicht vollständig abgenommen · ❌ Gate fehlgeschlagen oder Freigabe blockiert · ⬜ geplant und noch nicht begonnen
+
+## Aktualisierung 30.10.2026 (Nachmittag) – Phase 7, Schritt 7.4 Antwortkontext und Fehlerdiagnose 🟡
+
+**Umfang (`17aa5d2`):** `tests/eval/evaluate.py --json` liefert je Frage eine Diagnose ohne Dokumenttext: erwartete Hauptquelle und ihr Rang in der hybriden Suche, übergebene Abschnitte (Dokument-ID, Titel, Chunk-ID, Abschnitt, Treffer oder Nachbar), Quellenlage, Antwortstatus, zitierte Chunks, Antwortzeit, Fehlerklasse. Verweigerungsgründe getrennt: `modell_verweigert`, `ohne_quellenkennung`, `ungueltige_kennung`, `providerfehler`; im Gate zählen alle als False Reject. Neuer Antwortkontext `retrieval.answer_context` nur für `AI.ask`: Dokumentranking aus 7.3 unverändert, je Treffer der beste Abschnitt, danach in Rangfolge der direkte Vorgänger und Nachfolger aus `Store.adjacent_chunks` (SQLite und PostgreSQL, nur aktuelle Version, höchstens drei Abschnitte je Aufruf, parametrisiert), höchstens 12 Abschnitte, 3 je Dokument, 21.600 Zeichen, Dubletten und enthaltene Texte entfallen, Kennungen Q1 bis Qn in Dokument- und Lesereihenfolge. `as_sources` und die Suche sind unverändert, Recall und MRR synthetisch identisch und per Test festgeschrieben. Providerfehler als `ProviderError` mit Klasse (`timeout`, `unreachable`, `server`, `http`, `incomplete`, `empty`) und technischem Detail ohne Inhalt. Genau ein Retry bei `timeout`, `unreachable`, `server` und `incomplete`, mit identischer Anfrage; kein Retry bei HTTP 4xx, leerer Antwort, Verweigerung, Antwort ohne Kennung oder erfundener Kennung. Ollama: Tokenlimit 4.096 statt 1.600, Timeout 300 s.
+
+**Diagnose der 12 False Rejects an `c7ef78a`:** Hauptquelle nicht unter den acht Dokumenten e41; richtige Quelle, falscher Abschnitt e02, e08, e25; Modell übersieht vorhandenen Beleg e53; Antwort ohne Quellenkennung e15; Abbruch e17, e46; durch den Bestand nicht eindeutig beantwortbar e07, e12, e14, e60 (die gefragte Angabe steht in keinem Dokument des Messbestands, bei e60 spielte laut Spielplan eine andere Mannschaft). Ursache der Abbrüche: `done_reason=length` bei `eval_count=1600`, die Denkphase von `qwen3` verbrauchte das Tokenlimit; Kontext (4.975 und 5.380 Prompt-Token), Timeout und Speicher waren es nicht.
+
+**Prompt:** Die geforderte Präzisierung (Antwort zulässig, wenn ein Abschnitt die Frage beantwortet; sinngleiche Formulierungen gelten als Beleg; Zusammenführung mehrerer Abschnitte) wurde auf 32 Fragen (die 12 False Rejects, die 20 Ausschlussfragen) gemessen und nicht übernommen. False Accept stieg auf 7 von 20, mit zusätzlicher Einschränkung („verwandtes Thema, ähnliche Angabe zu anderem Gegenstand ist kein Beleg“) auf 6 von 20; dazu wurden e12, e14 und e60 beantwortet, obwohl der Bestand die Antwort nicht enthält. Mit dem bisherigen Prompt und demselben Kontext: 1 von 20. Der Prompt bleibt deshalb unverändert.
+
+**Messung eigene Fragen (`qwen3:8b`, Temperatur 0, 90 Fragen, Messkopie mit 1.492 Abschnitten):**
+
+| Kennzahl | `c7ef78a` | `17aa5d2` | ohne Nachbarn | Ziel |
+|---|---:|---:|---:|---:|
+| False Reject (von 70) | 12 | 11 | 12 | höchstens 7 |
+| False Accept (von 20) | 1 | 1 | 1 | höchstens 1 |
+| angenommene Antworten mit gültiger Quelle | 59 von 59 | 60 von 60 | 59 von 59 | 100 % |
+| Hauptquelle zitiert | 48 von 58 | 51 von 59 | 49 von 58 | mindestens 95 % |
+| Providerfehler | 2 | 0 | 0 | |
+| Antwortzeit P95 | 38 s | 137 s | 88 s | |
+
+„Ohne Nachbarn“ ist `17aa5d2` mit einem Abschnitt je Dokument (Ablation, nur lokal). False Rejects `17aa5d2`: e07, e08, e12, e14, e20, e22, e25, e27, e41, e53, e60, alle durch Modellverweigerung; False Accept e71. Gegenüber `c7ef78a` angenommen: e02, e15, e17, e46; neu verweigert: e20, e22, e27 (Hauptquelle auf Rang 1, richtiger Abschnitt übergeben). e20 und e22 werden auch ohne Nachbarn verweigert: Die Änderung folgt aus dem größeren Tokenlimit und Kontextfenster, nicht aus den Nachbarn. Ein zweiter vollständiger Lauf mit `17aa5d2` entfiel, weil das Kriterium im ersten verfehlt ist; die Reproduzierbarkeit zweier identischer Läufe ist für diesen Stand deshalb nicht nachgewiesen.
+
+**Synthetisch (`17aa5d2`, 86 Fragen):** False Accept 3,1 % (q70), False Reject 9,3 % (q22, q23, q28, q29, q50), 50 von 50 mit gültiger Quelle, Hauptquelle 49 von 49, P95 20,5 s. Recall@1/@3/@10 und MRR unverändert (hybrid 0,704 / 0,852 / 0,963 / 0,781).
+
+**Antwortzeit:** 12 Abschnitte und 4.096 Ausgabetoken brauchen ein Kontextfenster von 16.384 Token. Auf der RTX 3050 (8 GB) lagert Ollama dann 17 % des Modells auf die CPU aus; bis 8.192 Token läuft es vollständig auf der GPU.
+
+**Tests:** 7 neue Tests (Nachbar vor und nach dem Treffer, erster und letzter Abschnitt, kein fremdes Dokument, höchstens 3 je Dokument und 12 insgesamt, Dubletten, stabile Kennungen, Snapshot nur zitierter Texte, Prompt-Injection im Nachbarabschnitt, genau ein Retry je technischer Fehlerklasse, kein Retry nach Verweigerung, fehlender oder ungültiger Kennung); `adjacent_chunks` und `answer_context` im gemeinsamen Vertrag für SQLite und PostgreSQL; Retrieval-Werte festgeschrieben. Lokales Matrix-Gate an `17aa5d2`: 7 von 7 grün, je 550 Tests, Linux 25 und Windows 29 übersprungen (wie bisher), PostgreSQL 26 von 26.
+
+**Bewertung:** 7.4 bleibt 🟡. Verfehlt: False Reject eigene Fragen (11 statt höchstens 7) und Hauptquelle zitiert (86 % statt 95 %). Vier der elf False Rejects sind Fragen, die der Bestand nicht beantwortet (e07, e12, e14, e60); ihre Einstufung entscheidet der Product Owner. Auch ohne sie läge die Rate bei 7 von 66 (10,6 %). Die übrigen False Rejects sind Verweigerungen von `qwen3:8b` trotz übergebenem Beleg.
 
 ## Aktualisierung 30.10.2026 – Phase 7, Schritt 7.4 eigene Ausschlussfragen 🟡
 
@@ -801,7 +830,7 @@ Frühere Zwischenstände: Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33
 - optionaler Reranker: nicht erforderlich (7.4, D-019), Hybrid erreicht Recall@1 und MRR
 - konfigurierbare Chunk-Strategie nach Dokumenttyp
 - Anzeige von Dokument, Abschnitt, Fundstelle, Retrieval-Score und Reranking-Score
-- Antwort verweigern oder kennzeichnen, wenn die Quellenlage nicht ausreicht 🟡 umgesetzt (7.4, D-019); mit `qwen3:8b` synthetisch False Accept 3,1 % und False Reject 9,3 %, auf eigenen Fragen False Accept 5,0 % (20 Ausschlussfragen) und False Reject 17,1 %
+- Antwort verweigern oder kennzeichnen, wenn die Quellenlage nicht ausreicht 🟡 umgesetzt (7.4, D-019); mit `qwen3:8b` synthetisch False Accept 3,1 % und False Reject 9,3 %, auf eigenen Fragen False Accept 1 von 20 und False Reject 11 von 70 (`17aa5d2`)
 - Evaluationsdatensatz mit Fragen, erwarteten Quellen und Ausschlussfällen ✅ synthetischer Teil mit Ausschlussfragen (Schritt 7.1); 90 eigene Fragen des Product Owners lokal (70 beantwortbare zu 44 Dokumenten, 20 Ausschlussfragen)
 
 **Test und Abnahme:**
