@@ -27,21 +27,17 @@ Statusangaben im Masterplan dürfen nur aufgrund nachprüfbarer Ergebnisse geän
 
 ## 4. Aktueller Arbeitsschwerpunkt
 
-Der aktuelle Freigabeblocker steht in **Phase 4 – Versionierte Datenbankmigrationen** des Masterplans.
+Phasen 0 bis 6 sind abgenommen, Release 2.0 und 2.0.1 freigegeben. In Arbeit ist **Phase 7 – Release 2.1 Hybrid-RAG und Antwortqualität**. Den verbindlichen Stand je Schritt, die offenen Gate-Kriterien und die IDs verbleibender Fehlklassifikationen enthält `masterplan.md` (Abschnitte „Aktualisierung“ am Anfang und Phase 7).
 
-Der Hermes-Stand enthält bereits:
+Stand 30.10.2026:
 
-- geordnete SQLite- und PostgreSQL-Migrationen 1 bis 4
-- SQLite-Sicherung vor einer Versionsmigration
-- Sperren gegen parallele Migrationen
-- PostgreSQL-Advisory-Lock und `schema_migrations`
-- strikte Schema- und Historienprüfung
-- atomaren PostgreSQL-Schema-Reset
-- Schutz destruktiver PostgreSQL-Tests
+- 7.1 Evaluationsdatensatz, 7.2a und 7.2b Vektorspeicher und Einbettung, 7.3 hybride Suche sind ✅.
+- 7.4 Quellenabsicherung ist 🟡: umgesetzt und mit Gate 7 von 7 geprüft, aber das Kriterium False Reject auf den eigenen Fragen des Product Owners (höchstens 7 von 70) ist nicht erreicht.
+- Offen in Phase 7: Chunk-Strategie und Fundstellenanzeige.
 
-Diese Funktionen sind implementiert, aber noch nicht freigegeben. Der dokumentierte Prüfstand umfasst 89 Tests; 3 lokale Fehler und ein vollständig roter CI-Lauf blockieren die Abnahme. Die im Masterplan aufgeführten Fehler zuerst reproduzieren und an ihrer Ursache beheben. Phase 4 darf erst auf ✅ gesetzt werden, wenn ihr vollständiges Gate erfüllt ist.
+Eigene Fragen und Messkopien der Datenbank des Product Owners bleiben lokal (`data/` ist von Git ausgeschlossen). Messkopien nach der Messung löschen. Keine Fragetexte, Dokumenttexte oder privaten Dokumentnamen in Repository, Logs oder Berichte übernehmen, nur Frage-IDs.
 
-Ohne ausdrückliche Anweisung keine Arbeit aus Phase 5 oder später beginnen, solange Phase 4 rot ist.
+Ohne ausdrückliche Anweisung keine Arbeit aus einer späteren Phase beginnen, solange die laufende Phase nicht abgenommen ist.
 
 ## 5. Architektur und Zuständigkeiten
 
@@ -52,11 +48,21 @@ Ohne ausdrückliche Anweisung keine Arbeit aus Phase 5 oder später beginnen, so
 | `database.py` | Datenbankprofile, SQLite-/PostgreSQL-Auswahl und Verbindungen |
 | `migrations.py` | versionierte Migrationen, Sperren, Sicherung und Schema-Prüfung |
 | `importer.py` | Datei-, Ordner-, PST-, IMAP- und Microsoft-Graph-Import |
+| `import_jobs.py` | persistente, fortsetzbare Importaufträge |
+| `formats.py`, `ocr.py`, `pst_archive.py` | Textextraktion weiterer Formate, lokale Texterkennung, PST-Lesen |
+| `mail_structure.py`, `mail_sync.py`, `mail_cleanup.py` | IMAP-Struktur, Postfachsynchronisation, Bereinigung alter Originale |
+| `rules.py` | Regeln für Bereich und Tags |
+| `retrieval.py` | hybride Suche (Volltext und Vektor, RRF) und Antwortkontext für Fragen |
+| `evidence.py` | Bewertung der Quellenlage vor und Prüfung der Quellenverweise nach der KI-Antwort |
+| `vector_sync.py` | Einbettung der Abschnitte im Hintergrund |
+| `configuration.py`, `configuration_authority.py` | Konfigurationstransfer ohne Zugangsdaten |
+| `diagnostics.py`, `local_logging.py` | Startdiagnose und strukturiertes Betriebsprotokoll |
+| `*_view.py` | Einstellungsseiten der Oberfläche (Regeln, Synchronisation, semantische Suche) |
 | `settings.py` | KI-Anbieter, Modelle, Schlüsselquellen und sichere Ablage |
 | `design.py` | Hell-/Dunkelmodus, Branding und Logo-Normalisierung |
 | `cli.py` | Kommandozeilenschnittstelle für Kernfunktionen |
 | `schema.sql` | deklaratives Ausgangsschema; mit Migrationen konsistent halten |
-| `tests/` | Unit-, Integrations-, GUI- und PostgreSQL-Vertragstests |
+| `tests/` | Unit-, Integrations-, GUI- und PostgreSQL-Vertragstests; `tests/eval/` Evaluationsdatensatz und Messung; `tests/local_ci.py` lokales Matrix-Gate |
 
 Architekturregeln:
 

@@ -8,7 +8,7 @@
 
 **Repository:** `Melchy1971/Wissensraum-AI`
 
-**Geprüfte Codebasis:** Letzter produktcodewirksamer Stand `c7ef78a` (29.10.2026, Schritt 7.4 Quellenabsicherung, Schemaversion 11). Lokales Matrix-Gate `tests/local_ci.py`: 7 von 7 Jobs grün an `5ca9021`, `4ef9545`, `6e1a9e3`, `ebd2475`, `72f0fbf`, `7b85460`, `3cb3aaa`, `d7decfe` und `c7ef78a` (D-015, GitHub Actions ohne Budget). Vorheriger Abnahmestand `84f9ecf`: CI-Lauf [40185408996](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40185408996): alle sieben Jobs grün. Release 2.0 wurde am 26.10.2026 mit eigenen Daten abgenommen; nachfolgende Commits bis zu dieser Planaktualisierung betreffen ausschließlich README und Masterplan.
+**Geprüfte Codebasis:** Letzter produktcodewirksamer Stand `17aa5d2` (30.10.2026, Schritt 7.4 Antwortkontext und Fehlerdiagnose, Schemaversion 11). Lokales Matrix-Gate `tests/local_ci.py`: 7 von 7 Jobs grün an `5ca9021`, `4ef9545`, `6e1a9e3`, `ebd2475`, `72f0fbf`, `7b85460`, `3cb3aaa`, `d7decfe`, `c7ef78a` und `17aa5d2` (D-015, GitHub Actions ohne Budget). Vorheriger Abnahmestand `84f9ecf`: CI-Lauf [40185408996](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40185408996): alle sieben Jobs grün. Release 2.0 wurde am 26.10.2026 mit eigenen Daten abgenommen; nachfolgende Commits bis zu dieser Planaktualisierung betreffen ausschließlich README und Masterplan.
 
 **Ablage:** Einziger Masterplan ist diese Datei `masterplan.md`. Die frühere Kopie `docs/masterplan.md` wurde am 22.10.2026 entfernt.
 
