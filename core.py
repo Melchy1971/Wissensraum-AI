@@ -57,6 +57,18 @@ CURRENT_VERSION_FILTER = ('NOT EXISTS (SELECT 1 FROM document_versions mine JOIN
                           'ON newer.lineage_id=mine.lineage_id AND newer.version>mine.version '
                           'WHERE mine.document_id=d.id)')
 
+ADJACENT_SQL = ('SELECT c.id AS chunk_id,c.document_id,c.ordinal,c.content FROM chunks c '
+                'JOIN documents d ON d.id=c.document_id WHERE c.document_id=? AND c.ordinal BETWEEN ? AND ? AND '
+                + CURRENT_VERSION_FILTER + ' ORDER BY c.ordinal LIMIT 3')
+
+
+def _adjacent_chunks(store, document_id, ordinal, before, after):
+    """At most three sections around ``ordinal`` of one current document, in reading order."""
+    before, after = (max(0, min(int(value), 1)) for value in (before, after))
+    with store.connect() as db:
+        rows = db.execute(ADJACENT_SQL, (int(document_id), int(ordinal) - before, int(ordinal) + after)).fetchall()
+    return [dict(row) for row in rows]
+
 
 def _version_lineage(db, source):
     """Lineage of earlier documents from the same place, or None."""
@@ -681,6 +693,9 @@ class Store(VectorIndex):
                   (fts, *((tag.casefold(),) if tag else ()), max(1, min(limit, CANDIDATE_LIMIT)))).fetchall()
             return [dict(r) for r in rows]
 
+    def adjacent_chunks(self, document_id, ordinal, before=1, after=1):
+        return _adjacent_chunks(self, document_id, ordinal, before, after)
+
     def log(self, kind, question, answer, sources, model):
         with self.connect() as db:
             db.execute('INSERT INTO ai_runs(kind,question,answer,sources_json,model) VALUES(?,?,?,?,?)',
@@ -1088,6 +1103,9 @@ class PostgresStore(VectorIndex):
                                                  *((tag.casefold(),) if tag else ()),max(1,min(limit,CANDIDATE_LIMIT)))).fetchall()
         return [dict(row) for row in rows]
 
+    def adjacent_chunks(self,document_id,ordinal,before=1,after=1):
+        return _adjacent_chunks(self,document_id,ordinal,before,after)
+
     def log(self,kind,question,answer,sources,model):
         with self.connect() as db:
             db.execute('INSERT INTO ai_runs(kind,question,answer,sources_json,model) VALUES(?,?,?,?,?)',
@@ -1397,6 +1415,21 @@ def run_sources(sources_json):
     return stored.get('sources', []), {key: value for key, value in stored.items() if key != 'sources'}
 
 
+OLLAMA_PREDICT = 4096  # answer plus thinking phase of a local reasoning model
+OLLAMA_TIMEOUT = 300  # seconds; a local model answers more slowly than a cloud service
+RETRY_KINDS = ('timeout', 'unreachable', 'server', 'incomplete')  # technical and possibly transient; not http 4xx or empty
+
+
+class ProviderError(ValueError):
+    """Technical failure of an AI request; ``kind`` is timeout, unreachable, server, http, incomplete or empty.
+
+    ``detail`` names only technical facts (status code, stop reason, token count), never content.
+    """
+    def __init__(self, message, kind, detail=''):
+        super().__init__(message)
+        self.kind, self.detail = kind, detail
+
+
 class AI:
     def __init__(self, store, key, model='gpt-4.1-mini', transport=None, provider='openai'):
         from settings import PROVIDERS
@@ -1454,39 +1487,63 @@ class AI:
         else:
             payload={'model':self.model,'stream':False,
                      'messages':[{'role':'system','content':instructions},{'role':'user','content':user_input}],
-                     'options':{'num_predict':1600,'temperature':0,  # reproducible, close to the sources
-                                'num_ctx':ollama_context(instructions,user_input,1600)}}
+                     # temperature 0: reproducible, close to the sources; the token limit covers the
+                     # thinking phase of reasoning models (qwen3), which 1,600 tokens cut off
+                     'options':{'num_predict':OLLAMA_PREDICT,'temperature':0,
+                                'num_ctx':ollama_context(instructions,user_input,OLLAMA_PREDICT)}}
+        timeout = OLLAMA_TIMEOUT if self.provider == 'ollama' else 90
+        for attempt in (1, 2):  # one controlled retry after a clearly technical failure, never after a refusal
+            try:
+                answer = self._request(endpoint, headers, payload, timeout)
+                break
+            except ProviderError as error:
+                if attempt == 2 or error.kind not in RETRY_KINDS:
+                    raise
+        if check:
+            check_answer(answer, len(sources))  # empty answer or invented label: nothing is stored
+        return answer.strip()
+
+    def _request(self, endpoint, headers, payload, timeout):
+        """One request; the answer text or ``ProviderError``."""
         req=urllib.request.Request(endpoint,data=json.dumps(payload).encode(),headers=headers,method='POST')
         try:
-            with self.transport(req, timeout=90) as response:
+            with self.transport(req, timeout=timeout) as response:
                 result = json.load(response)
         except urllib.error.HTTPError as e:
             messages = {401:'API-Schlüssel ungültig oder widerrufen.',403:'Modellzugriff verweigert.',
                         429:'API-Limit oder Guthaben erreicht. Abrechnung und Limits prüfen.'}
-            raise ValueError(messages.get(e.code, f'KI-Dienst meldet HTTP {e.code}. Später erneut versuchen.')) from None
-        except (urllib.error.URLError, TimeoutError, OSError):
-            raise ValueError('KI-Dienst nicht erreichbar. Internetverbindung prüfen.') from None
+            raise ProviderError(messages.get(e.code, f'KI-Dienst meldet HTTP {e.code}. Später erneut versuchen.'),
+                                'server' if e.code >= 500 else 'http', f'HTTP {e.code}') from None
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            timed_out = isinstance(e, TimeoutError) or isinstance(getattr(e, 'reason', None), TimeoutError)
+            raise ProviderError('KI-Dienst nicht erreichbar. Internetverbindung prüfen.',
+                                'timeout' if timed_out else 'unreachable', type(e).__name__) from None
         if self.provider=='openai':
             if result.get('status') not in ('completed',None):
-                raise ValueError('KI-Antwort wurde nicht vollständig erzeugt. Anfrage eingrenzen.')
+                raise ProviderError('KI-Antwort wurde nicht vollständig erzeugt. Anfrage eingrenzen.', 'incomplete',
+                                    f'status={result.get("status")}')
             answer='\n'.join(c['text'] for item in result.get('output',[]) for c in item.get('content',[])
                              if c.get('type')=='output_text')
         elif self.provider=='anthropic':
             if result.get('stop_reason') not in ('end_turn','stop_sequence'):
-                raise ValueError('Claude-Antwort unvollständig oder abgelehnt.')
+                raise ProviderError('Claude-Antwort unvollständig oder abgelehnt.', 'incomplete',
+                                    f'stop_reason={result.get("stop_reason")}')
             answer='\n'.join(c['text'] for c in result.get('content',[]) if c.get('type')=='text')
         elif self.provider=='gemini':
             candidates=result.get('candidates',[])
             if not candidates or candidates[0].get('finishReason')!='STOP':
-                raise ValueError('Gemini-Antwort blockiert oder unvollständig.')
+                raise ProviderError('Gemini-Antwort blockiert oder unvollständig.', 'incomplete',
+                                    f'finishReason={candidates[0].get("finishReason") if candidates else None}')
             answer='\n'.join(p.get('text','') for p in candidates[0].get('content',{}).get('parts',[]) if not p.get('thought'))
         else:
+            detail = (f'done_reason={result.get("done_reason")} eval_count={result.get("eval_count")} '
+                      f'prompt_eval_count={result.get("prompt_eval_count")}')
             if not result.get('done') or result.get('done_reason') not in ('stop',None):
-                raise ValueError('Ollama-Antwort unvollständig.')
+                raise ProviderError('Ollama-Antwort unvollständig.', 'incomplete', detail)
             answer=result.get('message',{}).get('content','')
-        if check:
-            check_answer(answer, len(sources))  # empty answer or invented label: nothing is stored
-        return answer.strip()
+            if not answer.strip():
+                raise ProviderError('KI-Dienst lieferte keine Textantwort.', 'empty', detail)
+        return answer
 
     def model_name(self):
         return self.model if self.provider=='openai' else self.provider+'/'+self.model
@@ -1499,14 +1556,14 @@ class AI:
         from evidence import (INSUFFICIENT, REFUSAL, REFUSED, UNAVAILABLE_MESSAGE, UNVERIFIED, UNVERIFIED_MESSAGE,
                               WEAK, WEAK_ANSWER, WEAK_NOTICE, AnswerResult, Assessment, assess, check_answer,
                               unavailable)
-        from retrieval import Retriever, as_sources
+        from retrieval import Retriever, answer_context, as_sources
         try:
             retrieval = Retriever(self.store).search(question, limit=8)  # same path as the search list
         except Exception:  # database error or no usable search mode: no AI request, no internal details
             return AnswerResult(UNAVAILABLE_MESSAGE, [], unavailable(), 'unavailable', None)
         assessment = assess(retrieval, question)
-        sources = as_sources(retrieval)
-        hints = [{key: s[key] for key in ('document_id', 'chunk_id', 'title', 'ordinal')} for s in sources]
+        sources = answer_context(retrieval, self.store)  # hits, then their neighbouring sections
+        hints = [{key: s[key] for key in ('document_id', 'chunk_id', 'title', 'ordinal')} for s in as_sources(retrieval)]
         if assessment.state == INSUFFICIENT:  # nothing found: no AI request
             return self._record(question, AnswerResult(REFUSAL, hints, assessment, REFUSED, retrieval.mode), '')
         answer = self.generate(question, sources, assessment.state)

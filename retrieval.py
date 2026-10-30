@@ -173,3 +173,44 @@ def as_sources(retrieval):
     return [{'chunk_id': r['chunk_id'], 'document_id': r['document_id'], 'title': r['title'],
              'category': r['category'], 'ordinal': r['ordinal'], 'content': r['content']}
             for r in retrieval.results]
+
+
+CONTEXT_SECTIONS = 12  # sections in one AI request
+SECTIONS_PER_DOCUMENT = 3  # best passage plus the section before and after it
+CONTEXT_CHARS = CONTEXT_SECTIONS * 1800  # chunk size; with Ollama about 7,000 tokens of passage text
+
+
+def answer_context(retrieval, store, budget=CONTEXT_CHARS, limit=CONTEXT_SECTIONS, per_document=SECTIONS_PER_DOCUMENT):
+    """The passages for ``AI.ask``: the hits of step 7.3 and their neighbouring sections.
+
+    The document ranking stays as it is. First the best passage of every hit document, then, in
+    rank order, the section directly before and after it from the same current document, within
+    ``limit`` sections, ``per_document`` sections per document and ``budget`` characters. A
+    section already chosen, or one whose text equals or is contained in a chosen one, is dropped.
+    Sections of a document stay together in reading order, documents keep their rank, so the
+    labels Q1, Q2, ... follow from the retrieval result and each one names exactly one chunk.
+    """
+    hits = as_sources(retrieval)
+    chosen, counts, used = [], {}, 0
+
+    def add(source):
+        nonlocal used
+        text = ' '.join(source['content'].split())
+        if (len(chosen) >= limit or counts.get(source['document_id'], 0) >= per_document
+                or (chosen and used + len(source['content']) > budget)
+                or any(source['chunk_id'] == other['chunk_id'] or text in ' '.join(other['content'].split())
+                       for other in chosen)):
+            return
+        chosen.append(source)
+        counts[source['document_id']] = counts.get(source['document_id'], 0) + 1
+        used += len(source['content'])
+    for hit in hits:
+        add(hit)
+    for hit in hits:
+        for row in store.adjacent_chunks(hit['document_id'], hit['ordinal']):
+            if row['chunk_id'] != hit['chunk_id']:
+                add({'chunk_id': row['chunk_id'], 'document_id': hit['document_id'], 'title': hit['title'],
+                     'category': hit['category'], 'ordinal': row['ordinal'], 'content': row['content'],
+                     'neighbor_of': hit['chunk_id']})
+    rank = {hit['document_id']: number for number, hit in enumerate(hits)}
+    return sorted(chosen, key=lambda source: (rank[source['document_id']], source['ordinal']))

@@ -110,36 +110,59 @@ GROUPS = ('wortgleich', 'umschreibung', 'eigen', 'ausschluss')
 ACCEPTED = ('answered', 'weak_answer')  # shown as an answer, with at least one valid source
 
 
+REFUSAL_REASONS = {'refused': 'modell_verweigert', 'unverified': 'ohne_quellenkennung',
+                   'invalid_citation': 'ungueltige_kennung', 'error': 'providerfehler'}
+
+
 def evidence_outcomes(store, questions, question_vector, model, answer=None, name=lambda doc_id: doc_id):
     """Evidence state before the AI and, with ``answer(question, sources, state)``, the final outcome.
 
-    Uses the retrieval of ``AI.ask`` (hybrid, at most 8 documents) and the product's ``assess`` and
-    ``check_answer``. Without ``answer`` only the state before the AI is reported.
+    Uses the retrieval of ``AI.ask`` (hybrid, at most 8 documents), its answer context and the
+    product's ``assess`` and ``check_answer``. Without ``answer`` only the state before the AI is
+    reported. Each entry also carries a diagnosis (rank of the expected source, passed documents
+    and sections, error class, duration) without any document text.
     """
+    from core import ProviderError
     from evidence import INSUFFICIENT, InvalidCitation, assess, check_answer
-    from retrieval import CANDIDATE_LIMIT, HYBRID, STATUS_HYBRID, Retrieval, as_sources, rrf
+    from retrieval import CANDIDATE_LIMIT, HYBRID, STATUS_HYBRID, Retrieval, answer_context, rrf
     outcomes = {}
     for item in questions:
         rows = store.search(item['question'], limit=CANDIDATE_LIMIT)
         hits = store.vector_search(model, question_vector(item), limit=CANDIDATE_LIMIT)
+        ranking = [name(entry['document_id']) for entry in rrf(rows, hits, limit=CANDIDATE_LIMIT)]
         retrieval = Retrieval(rrf(rows, hits, limit=8), HYBRID, STATUS_HYBRID, {}, (1, 1))
         assessment = assess(retrieval, item['question'])
-        entry = {'state': assessment.state, 'reasons': list(assessment.reasons)}
+        sources = answer_context(retrieval, store)  # as in AI.ask
+        passed = [{'label': f'Q{number}', 'document_id': s['document_id'], 'document': name(s['document_id']),
+                   'title': s['title'], 'chunk_id': s['chunk_id'], 'section': s['ordinal'],
+                   'role': 'nachbar' if 'neighbor_of' in s else 'treffer'}
+                  for number, s in enumerate(sources, start=1)]
+        expected = item['expected'][0] if item['expected'] else None
+        entry = {'state': assessment.state, 'reasons': list(assessment.reasons), 'expected': expected,
+                 'expected_rank': ranking.index(expected) + 1 if expected in ranking else None,
+                 'expected_passed': any(p['document'] == expected for p in passed) if expected else None,
+                 'passed': passed}
         if assessment.state == INSUFFICIENT:
-            entry['status'] = 'refused'
+            entry.update(status='refused', reason='keine_treffer')
         elif answer:
-            sources = as_sources(retrieval)
             started = time.perf_counter()
             try:
                 status, cited = check_answer(answer(item['question'], sources, assessment.state), len(sources))
             except InvalidCitation:
                 status, cited = 'invalid_citation', ()
-            except ValueError:  # provider error or cut-off answer: no answer shown, counted separately
+            except ProviderError as error:  # transport, timeout, cut-off or empty answer: no answer shown
                 status, cited = 'error', ()
+                entry.update(error_kind=error.kind, error_detail=error.detail)
+            except ValueError:
+                status, cited = 'error', ()
+                entry.update(error_kind='other')
             if status == 'answered' and assessment.state == 'weak':
                 status = 'weak_answer'
             entry.update(status=status, seconds=round(time.perf_counter() - started, 2),
-                         cited=[name(sources[number - 1]['document_id']) for number in cited])
+                         cited=[name(sources[number - 1]['document_id']) for number in cited],
+                         cited_chunks=[sources[number - 1]['chunk_id'] for number in cited])
+            if status in REFUSAL_REASONS:
+                entry['reason'] = REFUSAL_REASONS[status]
         outcomes[item['id']] = entry
     return outcomes
 
@@ -178,7 +201,11 @@ def evidence_score(questions, outcomes):
         'answer_p95_ms': round(1000 * percentile([o['seconds'] for o in outcomes.values() if 'seconds' in o], 0.95), 1),
         'per_question': {q['id']: outcomes[q['id']]['status'] for q in questions},  # ids and status only
         'false_accepts': [q['id'] for q in excluded if accepted(q)],
-        'false_rejects': [q['id'] for q in answerable if not accepted(q)]})
+        'false_rejects': [q['id'] for q in answerable if not accepted(q)],
+        # technical errors count as false rejects for the gate but are shown apart from model refusals
+        'false_reject_causes': {cause: [q['id'] for q in answerable if outcomes[q['id']]['status'] == status]
+                                for status, cause in REFUSAL_REASONS.items()},
+        'diagnosis': {q['id']: outcomes[q['id']] for q in questions}})
     for group, data in by_group.items():
         members = [q for q in questions if q['type'] == group]
         data['accepted'] = sum(map(accepted, members))
@@ -323,7 +350,7 @@ def report(result):
                       f'| Ausschluss | {matrix["ausschluss"]["angenommen"]} | {matrix["ausschluss"]["verweigert"]} |', '']
             for key in ('precision_answerable', 'recall_answerable', 'false_accept_rate', 'false_reject_rate',
                         'accepted_with_source', 'main_source_cited', 'status', 'answer_p95_ms',
-                        'false_accepts', 'false_rejects'):
+                        'false_accepts', 'false_rejects', 'false_reject_causes'):
                 lines.append(f'- {key}: {evidence[key]}')
     if result.get('missing_sources'):
         lines.append('\nNicht im Bestand, Fragen nicht gemessen: ' + ', '.join(result['missing_sources'])

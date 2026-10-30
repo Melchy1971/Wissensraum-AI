@@ -45,6 +45,11 @@ class EvaluationDatasetTests(unittest.TestCase):
             self.assertTrue(0 <= metrics['recall@1'] <= metrics['recall@3'] <= metrics['recall@10'] <= 1)
         # Exact words must be found by today's search; this guards the harness, not a quality target.
         self.assertEqual(result['fulltext']['recall@10[wortgleich]'], 1.0)
+        # Retrieval values measured for step 7.3; the answer context of 7.4 must not change them.
+        for method, expected in (('vector', (0.759, 0.926, 1.0, 0.855)), ('hybrid', (0.704, 0.852, 0.963, 0.781)),
+                                 ('fulltext', (0.537, 0.611, 0.63, 0.573))):
+            self.assertEqual(tuple(result[method][key] for key in ('recall@1', 'recall@3', 'recall@10', 'mrr')),
+                             expected, method)
 
 
 class OwnQuestionTests(unittest.TestCase):
