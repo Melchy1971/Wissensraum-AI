@@ -12,9 +12,31 @@
 
 **Ablage:** Einziger Masterplan ist diese Datei `masterplan.md`. Die frühere Kopie `docs/masterplan.md` wurde am 22.10.2026 entfernt.
 
-**Status:** Phasen- und Testplan · Release 1.9 freigegeben, Release 2.0 abgenommen 26.10.2026, Phasen 0 bis 6 ✅ · Release 2.0.1 (Soll-Umfang von Phase 6, D-013) abgenommen 26.10.2026, Phase 7 (Release 2.1) in Arbeit: 7.1 Evaluationsdatensatz ✅, 7.2a Vektorspeicher und Embedding-Adapter ✅, 7.2b Einbettung im Hintergrund ✅, 7.3 hybride Suche ✅, 7.4 Quellenabsicherung 🟡 (mit `qwen3:8b` synthetisch erfüllt, auf eigenen Fragen False Reject 17,1 %, eigene Ausschlussfragen fehlen), Phase 7 noch nicht freigegeben (Chunk-Strategie, Fundstellenanzeige offen)
+**Status:** Phasen- und Testplan · Release 1.9 freigegeben, Release 2.0 abgenommen 26.10.2026, Phasen 0 bis 6 ✅ · Release 2.0.1 (Soll-Umfang von Phase 6, D-013) abgenommen 26.10.2026, Phase 7 (Release 2.1) in Arbeit: 7.1 Evaluationsdatensatz ✅, 7.2a Vektorspeicher und Embedding-Adapter ✅, 7.2b Einbettung im Hintergrund ✅, 7.3 hybride Suche ✅, 7.4 Quellenabsicherung 🟡 (mit `qwen3:8b` synthetisch erfüllt, eigene Ausschlussfragen False Accept 5,0 %, auf eigenen Fragen False Reject 17,1 %), Phase 7 noch nicht freigegeben (Chunk-Strategie, Fundstellenanzeige offen)
 
 **Legende:** ✅ vollständig implementiert und gesamtes Gate nachweislich bestanden · 🟡 implementiert oder teilweise geprüft, aber noch nicht vollständig abgenommen · ❌ Gate fehlgeschlagen oder Freigabe blockiert · ⬜ geplant und noch nicht begonnen
+
+## Aktualisierung 30.10.2026 – Phase 7, Schritt 7.4 eigene Ausschlussfragen 🟡
+
+**Anlass:** Der Product Owner hat 20 eigene Ausschlussfragen (e71 bis e90) geschrieben, lokal in `data/eval-eigene-fragen.json` (jetzt 90 Fragen, nicht versioniert). Code unverändert `c7ef78a`, Modell `qwen3:8b`, Temperatur 0. Messkopie neu aufgebaut (1.490 Abschnitte, alle eingebettet), danach gelöscht.
+
+| tatsächlich | angenommen | verweigert |
+|---|---:|---:|
+| beantwortbar (70) | 58 | 12 |
+| Ausschluss (20) | 1 | 19 |
+
+| Kennzahl | eigene Fragen | Ziel |
+|---|---:|---:|
+| False-Accept-Rate | 5,0 % (e71) | höchstens 5 % |
+| False-Reject-Rate | 17,1 % | höchstens 10 % |
+| Precision / Recall beantwortbar | 0,983 / 0,829 | |
+| angenommene Antworten mit gültiger Quelle | 59 von 59 | 100 % |
+| Hauptquelle zitiert | 48 von 58 | |
+| Antwortzeit P95 | 38,0 s | |
+
+False Rejects e02, e07, e08, e12, e14, e15, e17, e25, e41, e46, e53, e60; 2 davon abgebrochene Antworten. Die erste Stufe stuft alle 90 eigenen Fragen als `sufficient` ein, auch alle 20 Ausschlussfragen: Auf dem eigenen Bestand entscheidet allein das antwortende Modell. Die False-Accept-Rate liegt genau auf der Grenze, ein weiterer Fehler ergäbe 10 %.
+
+**Bewertung:** Bedingung „eigene Ausschlussfragen gemessen“ erfüllt, False Accept im Ziel. 7.4 bleibt 🟡, weil die False-Reject-Rate auf den eigenen Fragen mit 17,1 % über 10 % liegt.
 
 ## Aktualisierung 30.10.2026 – Phase 7, Schritt 7.4 Messung mit `qwen3:8b` 🟡
 
@@ -779,8 +801,8 @@ Frühere Zwischenstände: Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33
 - optionaler Reranker: nicht erforderlich (7.4, D-019), Hybrid erreicht Recall@1 und MRR
 - konfigurierbare Chunk-Strategie nach Dokumenttyp
 - Anzeige von Dokument, Abschnitt, Fundstelle, Retrieval-Score und Reranking-Score
-- Antwort verweigern oder kennzeichnen, wenn die Quellenlage nicht ausreicht 🟡 umgesetzt (7.4, D-019); mit `qwen3:8b` synthetisch False Accept 3,1 % und False Reject 9,3 %, auf eigenen Fragen False Reject 17,1 %
-- Evaluationsdatensatz mit Fragen, erwarteten Quellen und Ausschlussfällen ✅ synthetischer Teil mit Ausschlussfragen (Schritt 7.1); 70 eigene Fragen des Product Owners zu 44 Dokumenten lokal, gemessen auf 232 Dokumenten
+- Antwort verweigern oder kennzeichnen, wenn die Quellenlage nicht ausreicht 🟡 umgesetzt (7.4, D-019); mit `qwen3:8b` synthetisch False Accept 3,1 % und False Reject 9,3 %, auf eigenen Fragen False Accept 5,0 % (20 Ausschlussfragen) und False Reject 17,1 %
+- Evaluationsdatensatz mit Fragen, erwarteten Quellen und Ausschlussfällen ✅ synthetischer Teil mit Ausschlussfragen (Schritt 7.1); 90 eigene Fragen des Product Owners lokal (70 beantwortbare zu 44 Dokumenten, 20 Ausschlussfragen)
 
 **Test und Abnahme:**
 
