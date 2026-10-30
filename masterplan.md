@@ -12,9 +12,35 @@
 
 **Ablage:** Einziger Masterplan ist diese Datei `masterplan.md`. Die frühere Kopie `docs/masterplan.md` wurde am 22.10.2026 entfernt.
 
-**Status:** Phasen- und Testplan · Release 1.9 freigegeben, Release 2.0 abgenommen 26.10.2026, Phasen 0 bis 6 ✅ · Release 2.0.1 (Soll-Umfang von Phase 6, D-013) abgenommen 26.10.2026, Phase 7 (Release 2.1) in Arbeit: 7.1 Evaluationsdatensatz ✅, 7.2a Vektorspeicher und Embedding-Adapter ✅, 7.2b Einbettung im Hintergrund ✅, 7.3 hybride Suche ✅, 7.4 Quellenabsicherung 🟡 (Zielwerte mit lokalem Modell verfehlt), Phase 7 noch nicht freigegeben (Chunk-Strategie, Fundstellenanzeige offen)
+**Status:** Phasen- und Testplan · Release 1.9 freigegeben, Release 2.0 abgenommen 26.10.2026, Phasen 0 bis 6 ✅ · Release 2.0.1 (Soll-Umfang von Phase 6, D-013) abgenommen 26.10.2026, Phase 7 (Release 2.1) in Arbeit: 7.1 Evaluationsdatensatz ✅, 7.2a Vektorspeicher und Embedding-Adapter ✅, 7.2b Einbettung im Hintergrund ✅, 7.3 hybride Suche ✅, 7.4 Quellenabsicherung 🟡 (mit `qwen3:8b` synthetisch erfüllt, auf eigenen Fragen False Reject 17,1 %, eigene Ausschlussfragen fehlen), Phase 7 noch nicht freigegeben (Chunk-Strategie, Fundstellenanzeige offen)
 
 **Legende:** ✅ vollständig implementiert und gesamtes Gate nachweislich bestanden · 🟡 implementiert oder teilweise geprüft, aber noch nicht vollständig abgenommen · ❌ Gate fehlgeschlagen oder Freigabe blockiert · ⬜ geplant und noch nicht begonnen
+
+## Aktualisierung 30.10.2026 – Phase 7, Schritt 7.4 Messung mit `qwen3:8b` 🟡
+
+**Anlass:** Mit `qwen2.5:7b-instruct` verfehlte 7.4 die Zielwerte deutlich. Der Product Owner hat `qwen3:8b` als Ollama-Modell eingestellt (vorher `llama3.2`, auf dem Entwicklungsrechner nicht installiert); das Modell wurde über Ollama geladen und liegt vollständig im Grafikspeicher (5,2 GB). Code unverändert `c7ef78a` (Gate 7 von 7). Die Denkphase von `qwen3` liefert Ollama getrennt, das Antwortfeld enthält nur die Antwort; der bestehende Antwortpfad funktioniert ohne Änderung.
+
+**Synthetisch (86 Fragen), zwei Läufe identisch:**
+
+| tatsächlich | angenommen | verweigert |
+|---|---:|---:|
+| beantwortbar (54) | 49 | 5 |
+| Ausschluss (32) | 1 | 31 |
+
+| Kennzahl | `qwen3:8b` | Ziel | `qwen2.5:7b` |
+|---|---:|---:|---:|
+| False-Accept-Rate | 3,1 % | höchstens 5 % | 6,2 % |
+| False-Reject-Rate | 9,3 % | höchstens 10 % | 38,9 % |
+| Precision / Recall beantwortbar | 0,980 / 0,907 | | 0,943 / 0,611 |
+| angenommene Antworten mit gültiger Quelle | 50 von 50 | 100 % | 35 von 35 |
+| Hauptquelle zitiert | 49 von 49 | | 33 von 33 |
+| Antwortzeit P95 | 20,9 s | | 2,4 s |
+
+Angenommen nach Gruppe: wortgleich 20 von 20, umschrieben 29 von 34, Ausschluss 1 von 32 (q70 Hauptuntersuchung für das Pedelec: das Dokument nennt nur die Jahresinspektion). False Rejects q22, q23, q28, q29, q50; bei q22 und q50 lag die Hauptquelle nicht unter den übergebenen Abschnitten. Der Abstand zum Ziel ist knapp: ein weiterer False Reject ergäbe 11,1 %.
+
+**Eigene Fragen (70 beantwortbare, Messkopie mit 1.488 Abschnitten, danach gelöscht):** angenommen 58, alle mit gültiger Quelle, 49 davon mit der erwarteten Hauptquelle (die übrigen zitieren ein anderes Dokument mit derselben Angabe, etwa README statt Masterplan); verweigert 12 (11 durch das Modell, 1 abgebrochene Antwort). False-Reject-Rate 17,1 % (`qwen2.5:7b`: 72,9 %), Antwortzeit P95 47 s.
+
+**Bewertung (Product Owner):** 7.4 bleibt 🟡, bis eigene Ausschlussfragen gemessen sind und die False-Reject-Rate auf den eigenen Fragen höchstens 10 % beträgt. Die Antwortzeit mit Denkphase (P95 21 s synthetisch, 47 s auf eigenen Dokumenten) ist für die Bedienung hoch; das Gate misst nur die Suchzeit.
 
 ## Aktualisierung 29.10.2026 (Abend) – Phase 7, Schritt 7.4 Quellenabsicherung 🟡
 
@@ -48,7 +74,7 @@
 | KI-Anfrage bei insufficient oder unavailable | 0 | 0 |
 | Antwortzeit P95 | 2,36 s | |
 
-Nach Gruppe angenommen: wortgleich 19 von 20, umschrieben 14 von 34, Ausschluss 2 von 32 (q71 IP-Adresse des Routers: das Dokument nennt andere Adressen; q72 Hundesteuer). Zwei der False Rejects (q22, q50) sind richtig verweigert, ihre Hauptquelle lag nicht unter den übergebenen Abschnitten. Mit Temperatur 0 waren zwei Läufe identisch; vor der Korrektur des Kontextfensters lag die False-Reject-Rate bei 42,6 %.
+Nach Gruppe angenommen: wortgleich 19 von 20, umschrieben 14 von 34, Ausschluss 2 von 32 (q71 gesetzliche Rente: das Dokument nennt nur die Rente der Berufsunfähigkeitsversicherung; q72 wer die Klassenfahrt bezahlt hat). Korrigiert am 30.10.2026, vorher falsch als IP-Adresse des Routers und Hundesteuer zugeordnet. Zwei der False Rejects (q22, q50) sind richtig verweigert, ihre Hauptquelle lag nicht unter den übergebenen Abschnitten. Mit Temperatur 0 waren zwei Läufe identisch; vor der Korrektur des Kontextfensters lag die False-Reject-Rate bei 42,6 %.
 
 **Modellvergleich (gleicher Prompt, synthetisch, vor der Korrektur des Kontextfensters):** `qwen2.5:7b-instruct` mit Standardtemperatur 3,1 % bzw. 6,2 % False Accept und 33 % bzw. 41 % False Reject in zwei Läufen; `llama3.1` 53 % False Accept, 9 % False Reject, 35 Antworten ohne Quellenverweis; `gpt-oss` liegt nur zu 5,8 von 13,1 GB im Grafikspeicher und wurde nach über 40 Minuten abgebrochen. Kein lokal verfügbares Modell erreicht beide Ziele. Das im Produkt eingestellte Modell `llama3.2` ist auf dem Entwicklungsrechner nicht installiert.
 
@@ -753,7 +779,7 @@ Frühere Zwischenstände: Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33
 - optionaler Reranker: nicht erforderlich (7.4, D-019), Hybrid erreicht Recall@1 und MRR
 - konfigurierbare Chunk-Strategie nach Dokumenttyp
 - Anzeige von Dokument, Abschnitt, Fundstelle, Retrieval-Score und Reranking-Score
-- Antwort verweigern oder kennzeichnen, wenn die Quellenlage nicht ausreicht 🟡 umgesetzt (7.4, D-019), False-Accept- und False-Reject-Ziel mit lokalen Modellen verfehlt
+- Antwort verweigern oder kennzeichnen, wenn die Quellenlage nicht ausreicht 🟡 umgesetzt (7.4, D-019); mit `qwen3:8b` synthetisch False Accept 3,1 % und False Reject 9,3 %, auf eigenen Fragen False Reject 17,1 %
 - Evaluationsdatensatz mit Fragen, erwarteten Quellen und Ausschlussfällen ✅ synthetischer Teil mit Ausschlussfragen (Schritt 7.1); 70 eigene Fragen des Product Owners zu 44 Dokumenten lokal, gemessen auf 232 Dokumenten
 
 **Test und Abnahme:**
