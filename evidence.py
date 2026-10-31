@@ -63,6 +63,7 @@ class AnswerResult:
     status: str  # answered, weak_answer, refused, unverified or unavailable
     mode: str | None
     cited: tuple = ()
+    second_pass: bool = False  # the narrow evidence pass after a refusal ran (``AI.answer``)
 
     @property
     def state(self):
@@ -122,14 +123,18 @@ def unavailable():
     return Assessment(UNAVAILABLE, ('retrieval_fehler',))
 
 
-def check_answer(answer, source_count):
-    """(status, cited source numbers) for a raw AI answer; raises for empty or invented citations."""
+def check_answer(answer, allowed):
+    """(status, cited source numbers) for a raw AI answer; raises for empty or invented citations.
+
+    ``allowed`` is the number of sources (labels Q1 to Qn) or the source numbers of a narrower pass.
+    """
     text = (answer or '').strip()
     if not text:
         raise ValueError('KI-Dienst lieferte keine Textantwort.')
     if NO_SOURCE_TOKEN in text:
         return REFUSED, ()
     cited = tuple(dict.fromkeys(int(label) for label in _LABEL.findall(text)))
-    if any(not 1 <= number <= source_count for number in cited):
+    allowed = range(1, allowed + 1) if isinstance(allowed, int) else set(allowed)
+    if any(number not in allowed for number in cited):
         raise InvalidCitation('KI-Antwort enthält ungültige Quellenverweise. Die Antwort wurde nicht gespeichert.')
     return (ANSWERED if cited else UNVERIFIED), cited

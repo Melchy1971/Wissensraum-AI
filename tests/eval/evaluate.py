@@ -112,18 +112,30 @@ ACCEPTED = ('answered', 'weak_answer')  # shown as an answer, with at least one 
 
 REFUSAL_REASONS = {'refused': 'modell_verweigert', 'unverified': 'ohne_quellenkennung',
                    'invalid_citation': 'ungueltige_kennung', 'error': 'providerfehler'}
+MAX_FALSE_REJECT, MAX_FALSE_ACCEPT, MIN_SOURCE_SHARE = 0.10, 0.05, 0.95  # gate of step 7.4
 
 
-def evidence_outcomes(store, questions, question_vector, model, answer=None, name=lambda doc_id: doc_id):
-    """Evidence state before the AI and, with ``answer(question, sources, state)``, the final outcome.
+def gate_limits(answerable, excluded):
+    """Highest allowed counts: False Reject at most 10 % of the answerable, False Accept at most 5 % of the excluded."""
+    return math.floor(MAX_FALSE_REJECT * answerable + 1e-9), math.floor(MAX_FALSE_ACCEPT * excluded + 1e-9)
 
-    Uses the retrieval of ``AI.ask`` (hybrid, at most 8 documents), its answer context and the
-    product's ``assess`` and ``check_answer``. Without ``answer`` only the state before the AI is
-    reported. Each entry also carries a diagnosis (rank of the expected source, passed documents
-    and sections, error class, duration) without any document text.
+
+def candidate_rank(candidates, expected, name):
+    """1-based position of the first chunk of ``expected`` in a candidate list, else None."""
+    return next((rank for rank, chunk in enumerate(candidates, start=1) if name(chunk['document_id']) == expected), None)
+
+
+def evidence_outcomes(store, questions, question_vector, model, ai=None, name=lambda doc_id: doc_id):
+    """Evidence state before the AI and, with ``ai`` (``core.AI``), the final outcome of ``AI.answer``.
+
+    Uses the retrieval of ``AI.ask`` (hybrid, at most 8 documents), the product's ``assess`` and
+    ``AI.answer`` with its answer context and second evidence pass. Without ``ai`` only the state
+    before the AI is reported. Each entry carries a diagnosis without any document text: ranks of
+    the expected source (documents, full-text and vector candidates), passed sections, error class,
+    duration, model calls and prompt tokens.
     """
     from core import ProviderError
-    from evidence import INSUFFICIENT, InvalidCitation, assess, check_answer
+    from evidence import INSUFFICIENT, InvalidCitation, assess
     from retrieval import CANDIDATE_LIMIT, HYBRID, STATUS_HYBRID, Retrieval, answer_context, rrf
     outcomes = {}
     for item in questions:
@@ -132,43 +144,55 @@ def evidence_outcomes(store, questions, question_vector, model, answer=None, nam
         ranking = [name(entry['document_id']) for entry in rrf(rows, hits, limit=CANDIDATE_LIMIT)]
         retrieval = Retrieval(rrf(rows, hits, limit=8), HYBRID, STATUS_HYBRID, {}, (1, 1))
         assessment = assess(retrieval, item['question'])
-        sources = answer_context(retrieval, store)  # as in AI.ask
-        passed = [{'label': f'Q{number}', 'document_id': s['document_id'], 'document': name(s['document_id']),
-                   'title': s['title'], 'chunk_id': s['chunk_id'], 'section': s['ordinal'],
-                   'role': 'nachbar' if 'neighbor_of' in s else 'treffer'}
-                  for number, s in enumerate(sources, start=1)]
         expected = item['expected'][0] if item['expected'] else None
         entry = {'state': assessment.state, 'reasons': list(assessment.reasons), 'expected': expected,
                  'expected_rank': ranking.index(expected) + 1 if expected in ranking else None,
-                 'expected_passed': any(p['document'] == expected for p in passed) if expected else None,
-                 'passed': passed}
+                 'expected_fulltext_rank': candidate_rank(rows, expected, name) if expected else None,
+                 'expected_vector_rank': candidate_rank(hits, expected, name) if expected else None}
+        sources = []
         if assessment.state == INSUFFICIENT:
-            entry.update(status='refused', reason='keine_treffer')
-        elif answer:
-            started = time.perf_counter()
+            entry.update(status='refused', reason='keine_treffer', calls=0)
+        elif ai:
+            calls = getattr(ai.transport, 'calls', [])
+            before, started, cited, second = len(calls), time.perf_counter(), (), False
             try:
-                status, cited = check_answer(answer(item['question'], sources, assessment.state), len(sources))
+                _, status, cited, sources, second = ai.answer(item['question'], retrieval, assessment)
             except InvalidCitation:
-                status, cited = 'invalid_citation', ()
+                status = 'invalid_citation'
             except ProviderError as error:  # transport, timeout, cut-off or empty answer: no answer shown
-                status, cited = 'error', ()
+                status = 'error'
                 entry.update(error_kind=error.kind, error_detail=error.detail)
             except ValueError:
-                status, cited = 'error', ()
+                status = 'error'
                 entry.update(error_kind='other')
             if status == 'answered' and assessment.state == 'weak':
                 status = 'weak_answer'
-            entry.update(status=status, seconds=round(time.perf_counter() - started, 2),
+            sources = sources or answer_context(retrieval, store, item['question'],
+                                                ai.fits(item['question'], assessment.state))
+            entry.update(status=status, seconds=round(time.perf_counter() - started, 2), second_pass=second,
                          cited=[name(sources[number - 1]['document_id']) for number in cited],
-                         cited_chunks=[sources[number - 1]['chunk_id'] for number in cited])
+                         cited_chunks=[sources[number - 1]['chunk_id'] for number in cited],
+                         calls=len(calls) - before, prompt_tokens=[c['prompt_tokens'] for c in calls[before:]])
             if status in REFUSAL_REASONS:
                 entry['reason'] = REFUSAL_REASONS[status]
+        else:
+            sources = answer_context(retrieval, store, item['question'])
+        entry['passed'] = [{'label': f'Q{number}', 'document_id': s['document_id'], 'document': name(s['document_id']),
+                            'title': s['title'], 'chunk_id': s['chunk_id'], 'section': s['ordinal'],
+                            'role': 'nachbar' if 'neighbor_of' in s else 'treffer'}
+                           for number, s in enumerate(sources, start=1)]
+        entry['expected_passed'] = any(p['document'] == expected for p in entry['passed']) if expected else None
         outcomes[item['id']] = entry
     return outcomes
 
 
-def evidence_score(questions, outcomes):
-    """Confusion matrix and rates; accept means shown as an answer, reject means refused."""
+def evidence_score(questions, outcomes, equivalents=None):
+    """Confusion matrix, rates and the gate of step 7.4; accept means shown as an answer.
+
+    ``equivalents`` (question id -> {cited document -> 'gleichwertig' or 'aehnlich'}) records a
+    manual check of accepted answers that cite another document than the expected one: equivalent
+    only if that document contains the same decisive statement, never by its name alone.
+    """
     by_group = {}
     for group in GROUPS:
         members = [q for q in questions if q['type'] == group]
@@ -179,6 +203,7 @@ def evidence_score(questions, outcomes):
     result = {'groups': by_group}
     if not all('status' in outcomes[q['id']] for q in questions):
         return result
+    equivalents = equivalents or {}
     answerable = [q for q in questions if q['expected']]
     excluded = [q for q in questions if not q['expected']]
     accepted = lambda q: outcomes[q['id']]['status'] in ACCEPTED  # noqa: E731
@@ -186,6 +211,20 @@ def evidence_score(questions, outcomes):
     fa, tr = sum(map(accepted, excluded)), sum(not accepted(q) for q in excluded)
     shown = [q for q in questions if accepted(q)]
     with_source = [q for q in shown if outcomes[q['id']]['cited']]
+    fr_max, fa_max = gate_limits(len(answerable), len(excluded))
+    sources = {}
+    for q in answerable:
+        if accepted(q):
+            if q['expected'][0] in outcomes[q['id']]['cited']:
+                sources[q['id']] = 'erwartet'
+            else:  # manual check per cited document: equivalent only with the same decisive statement
+                checked = {equivalents.get(q['id'], {}).get(document) for document in outcomes[q['id']]['cited']}
+                sources[q['id']] = ('gleichwertig' if 'gleichwertig' in checked
+                                    else 'aehnlich' if 'aehnlich' in checked else 'ungeprueft')
+    good = sum(kind in ('erwartet', 'gleichwertig') for kind in sources.values())
+    seconds = [o['seconds'] for o in outcomes.values() if 'seconds' in o]
+    asked = [o for o in outcomes.values() if o.get('calls')]
+    tokens = [t for o in outcomes.values() for t in o.get('prompt_tokens', []) if t]
     result.update({
         'confusion': {'beantwortbar': {'angenommen': ta, 'verweigert': fr},
                       'ausschluss': {'angenommen': fa, 'verweigert': tr}},
@@ -194,11 +233,27 @@ def evidence_score(questions, outcomes):
         'recall_answerable': round(ta / len(answerable), 3) if answerable else None,
         'false_accept_rate': round(fa / len(excluded), 3) if excluded else None,
         'false_reject_rate': round(fr / len(answerable), 3) if answerable else None,
+        'gate': {'beantwortbar': len(answerable), 'ausschluss': len(excluded),
+                 'false_reject': f'{fr}/{len(answerable)} (höchstens {fr_max})',
+                 'false_accept': f'{fa}/{len(excluded)} (höchstens {fa_max})',
+                 'quelle_gueltig': f'{len(with_source)}/{len(shown)} (100 %)',
+                 'quelle_erwartet_oder_gleichwertig': f'{good}/{ta} (mindestens 95 %)',
+                 'passed': (fr <= fr_max and fa <= fa_max and len(with_source) == len(shown)
+                            and (not ta or good / ta >= MIN_SOURCE_SHARE))},
         'accepted_with_source': f'{len(with_source)}/{len(shown)}',
-        'main_source_cited': f'{sum(q["expected"][0] in outcomes[q["id"]]["cited"] for q in answerable if accepted(q))}/{ta}',
+        'main_source_cited': f'{sum(kind == "erwartet" for kind in sources.values())}/{ta}',
+        'main_source_in_context': f'{sum(bool(outcomes[q["id"]].get("expected_passed")) for q in answerable)}/{len(answerable)}',
+        'source_kinds': {kind: sorted(q for q, k in sources.items() if k == kind)
+                         for kind in ('erwartet', 'gleichwertig', 'aehnlich', 'ungeprueft')},
         'status': {status: sum(o['status'] == status for o in outcomes.values())
                    for status in sorted({o['status'] for o in outcomes.values()})},
-        'answer_p95_ms': round(1000 * percentile([o['seconds'] for o in outcomes.values() if 'seconds' in o], 0.95), 1),
+        'answer_p50_ms': round(1000 * percentile(seconds, 0.50), 1),
+        'answer_p95_ms': round(1000 * percentile(seconds, 0.95), 1),
+        'answer_max_ms': round(1000 * max(seconds), 1) if seconds else 0.0,
+        'sections_mean': round(sum(len(o['passed']) for o in asked) / len(asked), 2) if asked else 0.0,
+        'prompt_tokens_mean': round(sum(tokens) / len(tokens)) if tokens else None,
+        'second_passes': sum(bool(o.get('second_pass')) for o in outcomes.values()),
+        'model_calls': sum(o.get('calls', 0) for o in outcomes.values()),
         'per_question': {q['id']: outcomes[q['id']]['status'] for q in questions},  # ids and status only
         'false_accepts': [q['id'] for q in excluded if accepted(q)],
         'false_rejects': [q['id'] for q in answerable if not accepted(q)],
@@ -212,11 +267,29 @@ def evidence_score(questions, outcomes):
     return result
 
 
-def ollama_answerer(model):
-    """The product's answer request against the local Ollama, as ``answer(question, sources, state)``."""
+class CountingTransport:
+    """Transport for ``core.AI`` that records each model call's token counts (no content)."""
+
+    def __init__(self):
+        self.calls = []
+
+    def __call__(self, request, timeout):
+        import io
+        import urllib.request
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            data = response.read()
+        try:
+            reply = json.loads(data)
+        except ValueError:
+            reply = {}
+        self.calls.append({'prompt_tokens': reply.get('prompt_eval_count'), 'output_tokens': reply.get('eval_count')})
+        return io.BytesIO(data)
+
+
+def ollama_answerer(model, store):
+    """``core.AI`` for the local Ollama with a counting transport; the product's answer path."""
     from core import AI
-    ai = AI(None, '', model, provider='ollama')
-    return lambda question, sources, state: ai.generate(question, sources, state, check=False)
+    return AI(store, '', model, transport=CountingTransport(), provider='ollama')
 
 
 def corpus_store(folder, corpus, vectors):
@@ -271,7 +344,7 @@ def evaluate(answers=None):
         store, by_row = corpus_store(folder, corpus, vectors)
         measured = method_rankings(store, questions, vector, vectors['model'], by_row.__getitem__)
         outcomes = evidence_outcomes(store, questions, vector, vectors['model'],
-                                     ollama_answerer(answers) if answers else None, by_row.__getitem__)
+                                     ollama_answerer(answers, store) if answers else None, by_row.__getitem__)
     return {'model': vectors['model'], 'documents': len(corpus),
             'chunks': sum(1 for _ in corpus_chunks(corpus)), 'questions': len(questions),
             **{method: score(questions, *measured[method]) for method in METHODS},
@@ -291,7 +364,7 @@ def store_rankings(store, questions, embedder, model):
                            model, name)
 
 
-def evaluate_own(db_path, questions_path, model, answers=None):
+def evaluate_own(db_path, questions_path, model, answers=None, equivalents=None):
     """Own questions against an existing database (a copy: opening it migrates the schema)."""
     from core import Embedder
     store = Store(db_path)
@@ -316,8 +389,8 @@ def evaluate_own(db_path, questions_path, model, answers=None):
                 names[document_id] = doc.get('filename') or doc['title']
             return names[document_id]
         outcomes = evidence_outcomes(store, usable, lambda item: embedder.embed([item['question']], query=True)[0],
-                                     model, ollama_answerer(answers) if answers else None, name)
-        result.update(evidence=evidence_score(usable, outcomes), answer_model=answers)
+                                     model, ollama_answerer(answers, store) if answers else None, name)
+        result.update(evidence=evidence_score(usable, outcomes, equivalents), answer_model=answers)
     return result
 
 
@@ -348,8 +421,10 @@ def report(result):
                       '| tatsächlich | angenommen | verweigert |', '|---|---:|---:|',
                       f'| beantwortbar | {matrix["beantwortbar"]["angenommen"]} | {matrix["beantwortbar"]["verweigert"]} |',
                       f'| Ausschluss | {matrix["ausschluss"]["angenommen"]} | {matrix["ausschluss"]["verweigert"]} |', '']
-            for key in ('precision_answerable', 'recall_answerable', 'false_accept_rate', 'false_reject_rate',
-                        'accepted_with_source', 'main_source_cited', 'status', 'answer_p95_ms',
+            for key in ('gate', 'precision_answerable', 'recall_answerable', 'false_accept_rate', 'false_reject_rate',
+                        'accepted_with_source', 'main_source_cited', 'main_source_in_context', 'source_kinds',
+                        'status', 'answer_p50_ms', 'answer_p95_ms', 'answer_max_ms', 'sections_mean',
+                        'prompt_tokens_mean', 'second_passes', 'model_calls',
                         'false_accepts', 'false_rejects', 'false_reject_causes'):
                 lines.append(f'- {key}: {evidence[key]}')
     if result.get('missing_sources'):
@@ -366,10 +441,14 @@ def main(argv=None):
     parser.add_argument('--model', default='qwen3-embedding:0.6b')
     parser.add_argument('--answers', metavar='OLLAMA_MODELL',
                         help='Quellenlage end-to-end: Antworten vom lokalen Ollama-Modell (kein Cloud-Dienst)')
+    parser.add_argument('--equivalents', type=Path,
+                        help='mit --own: geprüfte Ersatzquellen (JSON Frage-ID -> {Dokument: gleichwertig|aehnlich}, lokal)')
     args = parser.parse_args(argv)
     if args.own and not args.db:
         parser.error('--own braucht --db')
-    result = evaluate_own(args.db, args.own, args.model, args.answers) if args.own else evaluate(args.answers)
+    equivalents = json.loads(args.equivalents.read_text(encoding='utf-8')) if args.equivalents else None
+    result = (evaluate_own(args.db, args.own, args.model, args.answers, equivalents) if args.own
+              else evaluate(args.answers))
     if args.own and 'fulltext' not in result:
         print(json.dumps(result, indent=2, ensure_ascii=False))
         return

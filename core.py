@@ -1396,14 +1396,26 @@ class Embedder:
         return vectors
 
 
+def estimate_tokens(text):
+    """Upper estimate of the tokens of ``text``: a letter as 1/3.5, any other character as 1/1.2 token.
+
+    Measured with qwen3:8b on 90 answer prompts of the own questions (30.10.2026): 2.2 to 3.4
+    characters per token, fewer for tables and numbers. Three characters per token underestimated
+    by up to 26 % and let the answer run past the window; this estimate was never below the count
+    of Ollama (26 % above on average).
+    """
+    letters = sum(character.isalpha() for character in text)
+    return int(letters / 3.5 + (len(text) - letters) / 1.2) + 1
+
+
 def ollama_context(instructions, user_input, answer_tokens):
     """Context window for an Ollama request: prompt plus answer, rounded up to a power of two.
 
     Ollama otherwise keeps its default window (2,048 tokens measured) and silently drops the start
-    of a longer prompt, which removes the rules. A token is counted as three characters, which
-    overestimates German text; the window is capped at 32,768.
+    of a longer prompt, which removes the rules. The prompt is counted with ``estimate_tokens``;
+    the window is capped at 32,768.
     """
-    needed = (len(instructions) + len(user_input)) // 3 + answer_tokens + 256
+    needed = estimate_tokens(instructions) + estimate_tokens(user_input) + answer_tokens + 256
     return min(32768, max(4096, 1 << (needed - 1).bit_length()))
 
 
@@ -1415,7 +1427,9 @@ def run_sources(sources_json):
     return stored.get('sources', []), {key: value for key, value in stored.items() if key != 'sources'}
 
 
-OLLAMA_PREDICT = 4096  # answer plus thinking phase of a local reasoning model
+OLLAMA_ANSWER_CONTEXT = 8192  # tokens; qwen3:8b stays completely in the 8 GB of the reference GPU (RTX 3050)
+OLLAMA_MIN_PREDICT = 2048  # output tokens kept free for answer and thinking phase (1,600 cut qwen3 off)
+OLLAMA_MAX_PREDICT = 4096
 OLLAMA_TIMEOUT = 300  # seconds; a local model answers more slowly than a cloud service
 RETRY_KINDS = ('timeout', 'unreachable', 'server', 'incomplete')  # technical and possibly transient; not http 4xx or empty
 
@@ -1457,16 +1471,34 @@ class AI:
         'quellenlage "weak", gib nur wieder, was die Quellen ausdrücklich sagen. 8. Antworte auf Deutsch und führe '
         'keine Aktionen aus.')
 
-    def generate(self, question, sources, evidence='sufficient', check=True):
+    SECOND_PASS = (' 10. Zweite Prüfung: Prüfe ausschließlich, ob einer der bereitgestellten Abschnitte die Frage '
+                   'direkt oder sinngleich beantwortet. Antworte bei vorhandenem Beleg mit einer knappen Antwort und '
+                   'Quellenkennung. Andernfalls ausschließlich mit ' + 'KEINE_AUSREICHENDE_QUELLE' + '.')
+    second_pass = True  # the narrow evidence pass after a refusal (step 7.4); off only for measurements
+
+    @staticmethod
+    def user_input(question, sources, evidence='sufficient', numbers=None):
+        """The JSON input of an answer request; ``numbers`` keeps the labels of a narrower selection."""
+        labels = [f'Q{n}' for n in (numbers or range(1, len(sources) + 1))]
+        return json.dumps({'frage':question,'quellenlage':evidence,'erlaubte_kennungen':labels,
+                           'quellen':[{'kennung':label,'titel':s['title'],'dokument':s['document_id'],
+                                       'abschnitt':s['ordinal'],'text':s['content']}
+                                      for label,s in zip(labels,sources)]},ensure_ascii=False)
+
+    def fits(self, question, evidence='sufficient'):
+        """Whether a set of sources leaves the request inside ``OLLAMA_ANSWER_CONTEXT`` with room for the answer."""
+        def check(sources):
+            prompt = (estimate_tokens(self.INSTRUCTIONS + self.SECOND_PASS)
+                      + estimate_tokens(self.user_input(question, sources, evidence)))
+            return prompt + OLLAMA_MIN_PREDICT + 256 <= OLLAMA_ANSWER_CONTEXT
+        return check
+
+    def generate(self, question, sources, evidence='sufficient', check=True, numbers=None, instructions=None):
         """Raw answer of the provider; invented source labels raise ``InvalidCitation`` (``check``)."""
         from evidence import check_answer
         from settings import PROVIDERS
-        instructions = self.INSTRUCTIONS
-        labels = [f'Q{i+1}' for i in range(len(sources))]
-        user_input=json.dumps({'frage':question,'quellenlage':evidence,'erlaubte_kennungen':labels,
-                               'quellen':[{'kennung':label,'titel':s['title'],'dokument':s['document_id'],
-                                           'abschnitt':s['ordinal'],'text':s['content']}
-                                          for label,s in zip(labels,sources)]},ensure_ascii=False)
+        instructions = instructions or self.INSTRUCTIONS
+        user_input = self.user_input(question, sources, evidence, numbers)
         endpoint=PROVIDERS[self.provider]['endpoint']
         headers={'Content-Type':'application/json'}
         if self.provider=='openai':
@@ -1487,10 +1519,12 @@ class AI:
         else:
             payload={'model':self.model,'stream':False,
                      'messages':[{'role':'system','content':instructions},{'role':'user','content':user_input}],
-                     # temperature 0: reproducible, close to the sources; the token limit covers the
-                     # thinking phase of reasoning models (qwen3), which 1,600 tokens cut off
-                     'options':{'num_predict':OLLAMA_PREDICT,'temperature':0,
-                                'num_ctx':ollama_context(instructions,user_input,OLLAMA_PREDICT)}}
+                     # temperature 0: reproducible, close to the sources; the output gets what the window
+                     # leaves after the prompt, at least OLLAMA_MIN_PREDICT for the thinking phase of qwen3
+                     'options':{'temperature':0}}
+            window = ollama_context(instructions, user_input, OLLAMA_MIN_PREDICT)
+            prompt = estimate_tokens(instructions) + estimate_tokens(user_input)
+            payload['options'].update(num_ctx=window, num_predict=min(OLLAMA_MAX_PREDICT, window - prompt - 256))
         timeout = OLLAMA_TIMEOUT if self.provider == 'ollama' else 90
         for attempt in (1, 2):  # one controlled retry after a clearly technical failure, never after a refusal
             try:
@@ -1500,7 +1534,7 @@ class AI:
                 if attempt == 2 or error.kind not in RETRY_KINDS:
                     raise
         if check:
-            check_answer(answer, len(sources))  # empty answer or invented label: nothing is stored
+            check_answer(answer, numbers or len(sources))  # empty answer or invented label: nothing is stored
         return answer.strip()
 
     def _request(self, endpoint, headers, payload, timeout):
@@ -1554,32 +1588,51 @@ class AI:
         if not question or len(question) > 4000:
             raise ValueError('Frage muss zwischen 1 und 4.000 Zeichen enthalten.')
         from evidence import (INSUFFICIENT, REFUSAL, REFUSED, UNAVAILABLE_MESSAGE, UNVERIFIED, UNVERIFIED_MESSAGE,
-                              WEAK, WEAK_ANSWER, WEAK_NOTICE, AnswerResult, Assessment, assess, check_answer,
-                              unavailable)
-        from retrieval import Retriever, answer_context, as_sources
+                              WEAK, WEAK_ANSWER, WEAK_NOTICE, AnswerResult, Assessment, assess, unavailable)
+        from retrieval import Retriever, as_sources
         try:
             retrieval = Retriever(self.store).search(question, limit=8)  # same path as the search list
         except Exception:  # database error or no usable search mode: no AI request, no internal details
             return AnswerResult(UNAVAILABLE_MESSAGE, [], unavailable(), 'unavailable', None)
         assessment = assess(retrieval, question)
-        sources = answer_context(retrieval, self.store)  # hits, then their neighbouring sections
         hints = [{key: s[key] for key in ('document_id', 'chunk_id', 'title', 'ordinal')} for s in as_sources(retrieval)]
         if assessment.state == INSUFFICIENT:  # nothing found: no AI request
             return self._record(question, AnswerResult(REFUSAL, hints, assessment, REFUSED, retrieval.mode), '')
-        answer = self.generate(question, sources, assessment.state)
-        status, cited = check_answer(answer, len(sources))
+        answer, status, cited, sources, second = self.answer(question, retrieval, assessment)
         if status == REFUSED:  # the model found no source for the answer
             refused = Assessment(INSUFFICIENT, ('quellen_ohne_antwort',), assessment.signals)
-            return self._record(question, AnswerResult(REFUSAL, hints, refused, REFUSED, retrieval.mode),
-                                self.model_name())
+            return self._record(question, AnswerResult(REFUSAL, hints, refused, REFUSED, retrieval.mode,
+                                                       second_pass=second), self.model_name())
         if status == UNVERIFIED:  # no source for a factual answer: not shown, model text not stored
             unproven = Assessment(INSUFFICIENT, ('antwort_ohne_beleg',), assessment.signals)
             return self._record(question, AnswerResult(UNVERIFIED_MESSAGE, hints, unproven, UNVERIFIED,
-                                                       retrieval.mode), self.model_name())
+                                                       retrieval.mode, second_pass=second), self.model_name())
         if assessment.state == WEAK:
             answer, status = WEAK_NOTICE + '\n\n' + answer, WEAK_ANSWER
-        return self._record(question, AnswerResult(answer, sources, assessment, status, retrieval.mode, cited),
-                            self.model_name())
+        return self._record(question, AnswerResult(answer, sources, assessment, status, retrieval.mode, cited,
+                                                   second_pass=second), self.model_name())
+
+    def answer(self, question, retrieval, assessment):
+        """(text, status, cited, sources, second_pass) for a retrieval with hits; ``ask`` and the evaluation.
+
+        After a refusal of the model while the evidence is ``sufficient`` exactly one narrow second
+        pass runs: the sections of the three best documents (at most six), the same labels, the
+        same temperature and an explicit instruction to look only for a direct or equivalent answer.
+        It is not a retry: it follows only a refusal, never a technical error, an answer without
+        or with an invented label, and never a second time.
+        """
+        from evidence import REFUSED, SUFFICIENT, check_answer
+        from retrieval import answer_context, narrow_context
+        sources = answer_context(retrieval, self.store, question, self.fits(question, assessment.state))
+        answer = self.generate(question, sources, assessment.state)
+        status, cited = check_answer(answer, len(sources))
+        if status != REFUSED or assessment.state != SUFFICIENT or not self.second_pass:
+            return answer, status, cited, sources, False
+        numbers = narrow_context(sources)
+        answer = self.generate(question, [sources[n - 1] for n in numbers], assessment.state, numbers=numbers,
+                               instructions=self.INSTRUCTIONS + self.SECOND_PASS)
+        status, cited = check_answer(answer, numbers)
+        return answer, status, cited, sources, True
 
     def _record(self, question, result, model):
         """Store the run with an immutable snapshot; passage text only for cited sources."""
@@ -1588,7 +1641,8 @@ class AI:
                     for number, source in enumerate(result.sources, start=1)]
         self.store.log('question', question, result.text, {
             'format': 2, 'retrieval_mode': result.mode, 'evidence': result.assessment.state,
-            'reasons': list(result.assessment.reasons), 'answer_status': result.status, 'sources': snapshot}, model)
+            'reasons': list(result.assessment.reasons), 'answer_status': result.status,
+            'second_pass': result.second_pass, 'sources': snapshot}, model)
         return result
 
     def summarize(self, doc_id):
