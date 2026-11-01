@@ -23,7 +23,7 @@ from import_jobs import ImportJobs  # noqa: E402
 
 MANIFEST_FORMAT = 'wissensraum-own-evaluation-stock'
 REPORT_FORMAT = MANIFEST_FORMAT + '-report'
-MANIFEST_FIELDS = frozenset({'format', 'version', 'files', 'folders', 'exclude_names'})
+MANIFEST_FIELDS = frozenset({'format', 'version', 'base', 'files', 'folders', 'exclude_names'})
 REQUIRED_EXCLUDES = frozenset({'.git', 'node_modules', 'venv', '.venv', 'dist', 'build', '__pycache__'})
 SQLITE_SUFFIXES = frozenset({'.db', '.sqlite', '.sqlite3'})
 
@@ -54,6 +54,8 @@ def load_manifest(path):
         raise ValueError('Manifest enth\u00e4lt unbekannte oder fehlende Felder.')
     if data.get('format') != MANIFEST_FORMAT or data.get('version') != 1:
         raise ValueError('Manifest hat nicht das erwartete Format Version 1.')
+    if type(data['base']) is not str or not data['base'].strip():
+        raise ValueError('Manifestfeld base enthält keinen gültigen Pfad.')
     for key in ('files', 'folders', 'exclude_names'):
         if type(data[key]) is not list or any(type(value) is not str or not value.strip() for value in data[key]):
             raise ValueError(f'Manifestfeld {key} enth\u00e4lt ung\u00fcltige Werte.')
@@ -65,6 +67,8 @@ def load_manifest(path):
 
 
 def manifest_entries(manifest, base, output):
+    if Path(manifest['base']).resolve() != Path(base).resolve():
+        raise ValueError('Manifestbasis stimmt nicht mit --base überein.')
     excludes = REQUIRED_EXCLUDES | {name.casefold() for name in manifest['exclude_names']}
     protected = {Path(base).resolve(), Path(output).resolve()}
     entries = []

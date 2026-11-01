@@ -53,7 +53,8 @@ class EvaluationStockBuilderTests(unittest.TestCase):
         self.temp.cleanup()
 
     def write_manifest(self, **changes):
-        data = {'format': builder.MANIFEST_FORMAT, 'version': 1, 'files': [], 'folders': [],
+        data = {'format': builder.MANIFEST_FORMAT, 'version': 1, 'base': str(self.base),
+                'files': [], 'folders': [],
                 'exclude_names': sorted(builder.REQUIRED_EXCLUDES)}
         data.update(changes)
         self.manifest.write_text(json.dumps(data), encoding='utf-8')
@@ -89,10 +90,17 @@ class EvaluationStockBuilderTests(unittest.TestCase):
         self.assertEqual(len(list(self.data.glob('messbestand-phase7-*-*.db'))), 1)
 
     def test_manifest_rejects_unknown_fields_empty_and_duplicate_paths(self):
-        for change in ({'unknown': True}, {'files': ['']}, {'files': [str(self.source / 'expected.md')] * 2}):
+        for change in ({'unknown': True}, {'base': ''}, {'files': ['']},
+                       {'files': [str(self.source / 'expected.md')] * 2}):
             self.write_manifest(**change)
             with self.assertRaises(ValueError):
                 builder.load_manifest(self.manifest)
+
+    def test_manifest_base_must_match_command_line_base(self):
+        self.write_manifest(base=str(self.root / 'other.db'))
+        manifest = builder.load_manifest(self.manifest)
+        with self.assertRaisesRegex(ValueError, '--base'):
+            builder.manifest_entries(manifest, self.base, self.output)
 
     def test_manifest_rejects_database_as_input_and_paths_outside_data_for_control_files(self):
         self.write_manifest(files=[str(self.base)])
