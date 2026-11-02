@@ -10,6 +10,7 @@ import sqlite3
 import sys
 import tempfile
 from contextlib import closing
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -18,7 +19,7 @@ ROOT = HERE.parents[1]
 DATA = ROOT / 'data'
 sys.path.insert(0, str(ROOT))
 
-from core import Embedder, Store  # noqa: E402
+from core import Embedder, Store, SUPPORTED_DOCUMENT_SUFFIXES  # noqa: E402
 from import_jobs import ImportJobs  # noqa: E402
 
 MANIFEST_FORMAT = 'wissensraum-own-evaluation-stock'
@@ -26,6 +27,15 @@ REPORT_FORMAT = MANIFEST_FORMAT + '-report'
 MANIFEST_FIELDS = frozenset({'format', 'version', 'base', 'files', 'folders', 'exclude_names'})
 REQUIRED_EXCLUDES = frozenset({'.git', 'node_modules', 'venv', '.venv', 'dist', 'build', '__pycache__'})
 SQLITE_SUFFIXES = frozenset({'.db', '.sqlite', '.sqlite3'})
+IMPORT_ERROR_CODES = frozenset({'unsupported', 'too_large', 'no_text', 'damaged', 'encrypted',
+                                'ocr_unavailable', 'unreadable', 'error'})
+
+
+@dataclass(frozen=True)
+class ManifestDiscovery:
+    entries: list[tuple[Path, str, str]]
+    skipped_unsupported: int
+    duplicate_manifest_entries: int
 
 
 def sha256_file(path):
@@ -59,25 +69,41 @@ def load_manifest(path):
     for key in ('files', 'folders', 'exclude_names'):
         if type(data[key]) is not list or any(type(value) is not str or not value.strip() for value in data[key]):
             raise ValueError(f'Manifestfeld {key} enth\u00e4lt ung\u00fcltige Werte.')
-        normalized = [os.path.normcase(str(Path(value).resolve())) if key != 'exclude_names' else value.casefold()
-                      for value in data[key]]
-        if len(normalized) != len(set(normalized)):
+        normalized = [value.casefold() for value in data[key]]
+        if key == 'exclude_names' and len(normalized) != len(set(normalized)):
             raise ValueError(f'Manifestfeld {key} enth\u00e4lt doppelte Werte.')
     return data
+
+
+def canonical_path(path):
+    return os.path.normcase(str(Path(path).resolve()))
 
 
 def manifest_entries(manifest, base, output):
     if Path(manifest['base']).resolve() != Path(base).resolve():
         raise ValueError('Manifestbasis stimmt nicht mit --base überein.')
     excludes = REQUIRED_EXCLUDES | {name.casefold() for name in manifest['exclude_names']}
-    protected = {Path(base).resolve(), Path(output).resolve()}
+    protected = {canonical_path(base), canonical_path(output)}
     entries = []
+    seen = set()
+    skipped_unsupported = 0
+    duplicate_manifest_entries = 0
     for number, value in enumerate(manifest['files'], start=1):
-        path = Path(value).resolve()
-        if path in protected:
+        supplied = Path(value)
+        if supplied.is_symlink():
+            raise ValueError(f'Manifestdatei F{number:04d} ist nicht verfügbar.')
+        path = supplied.resolve()
+        key = canonical_path(path)
+        if key in protected:
             raise ValueError(f'Manifestdatei F{number:04d} ist eine gesch\u00fctzte Datenbank.')
-        if path.is_symlink() or not path.is_file():
+        if not path.is_file():
             raise ValueError(f'Manifestdatei F{number:04d} ist nicht verf\u00fcgbar.')
+        if path.suffix.casefold() not in SUPPORTED_DOCUMENT_SUFFIXES:
+            raise ValueError(f'Manifestdatei F{number:04d} hat kein unterstütztes Dokumentformat.')
+        if key in seen:
+            duplicate_manifest_entries += 1
+            continue
+        seen.add(key)
         entries.append((path, path.name, f'F{number:04d}'))
     for folder_number, value in enumerate(manifest['folders'], start=1):
         root = Path(value).resolve()
@@ -91,12 +117,22 @@ def manifest_entries(manifest, base, output):
                                     key=str.casefold)
             for name in sorted(filenames, key=str.casefold):
                 path = current_path / name
-                if path.is_symlink() or not path.is_file() or path.resolve() in protected:
+                resolved = path.resolve()
+                key = canonical_path(resolved)
+                if path.is_symlink() or not path.is_file() or key in protected:
                     continue
                 item += 1
-                entries.append((path.resolve(), path.relative_to(root).as_posix(),
+                if key in seen:
+                    duplicate_manifest_entries += 1
+                    continue
+                seen.add(key)
+                if path.suffix.casefold() not in SUPPORTED_DOCUMENT_SUFFIXES:
+                    skipped_unsupported += 1
+                    continue
+                entries.append((resolved, path.relative_to(root).as_posix(),
                                 f'D{folder_number:04d}-{item:06d}'))
-    return sorted(entries, key=lambda entry: os.path.normcase(str(entry[0])))
+    entries.sort(key=lambda entry: canonical_path(entry[0]))
+    return ManifestDiscovery(entries, skipped_unsupported, duplicate_manifest_entries)
 
 
 def clone_sqlite(base, target):
@@ -131,7 +167,8 @@ def import_all(store, entries):
         elif item['status'] == 'duplicate':
             duplicates.append(ref)
         else:
-            failed.append({'source': ref, 'status': item['status'], 'reason': item['reason'] or 'error'})
+            reason = item['reason'] if item['reason'] in IMPORT_ERROR_CODES else 'error'
+            failed.append({'source': ref, 'status': 'quarantined', 'reason': reason})
     return imported, duplicates, failed
 
 
@@ -238,10 +275,13 @@ def validate_paths(base, manifest, questions, output):
 def dry_run(base, manifest_path, questions_path, output):
     validate_paths(base, manifest_path, questions_path, output)
     manifest = load_manifest(manifest_path)
-    entries = manifest_entries(manifest, base, output)
+    discovery = manifest_entries(manifest, base, output)
     expected, answerable, excluded = question_contract(questions_path)
-    return {'dry_run': True, 'files': len(entries), 'expected_sources': len(expected),
-            'answerable_questions': answerable, 'exclusion_questions': excluded}
+    return {'dry_run': True, 'files': len(discovery.entries),
+            'skipped_unsupported': discovery.skipped_unsupported,
+            'duplicate_manifest_entries': discovery.duplicate_manifest_entries,
+            'expected_sources': len(expected), 'answerable_questions': answerable,
+            'exclusion_questions': excluded}
 
 
 def build(base, manifest_path, questions_path, output, model, replace=False, skip_vectors=False,
@@ -249,7 +289,7 @@ def build(base, manifest_path, questions_path, output, model, replace=False, ski
     base, manifest_path, questions_path, output = map(Path, (base, manifest_path, questions_path, output))
     validate_paths(base, manifest_path, questions_path, output)
     manifest = load_manifest(manifest_path)
-    entries = manifest_entries(manifest, base, output)
+    discovery = manifest_entries(manifest, base, output)
     if output.exists() and not replace:
         raise FileExistsError('Ausgabedatenbank existiert bereits; --replace ist erforderlich.')
     base_before = sha256_file(base)
@@ -266,7 +306,7 @@ def build(base, manifest_path, questions_path, output, model, replace=False, ski
             if db.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
                 raise ValueError('Kopie der Basisdatenbank ist besch\u00e4digt.')
         store = Store(temporary)
-        imported, duplicate_inputs, import_errors = import_all(store, entries)
+        imported, duplicate_inputs, import_errors = import_all(store, discovery.entries)
         if not skip_vectors:
             embed_missing(store, model, progress, embedder_factory)
         health = store.health()
@@ -295,6 +335,8 @@ def build(base, manifest_path, questions_path, output, model, replace=False, ski
             'missing_sources': missing, 'duplicate_sources': duplicates,
             'sources_without_chunks': no_chunks, 'sources_without_vectors': no_vectors,
             'imported': imported, 'duplicates': len(duplicate_inputs), 'failed': len(import_errors),
+            'skipped_unsupported': discovery.skipped_unsupported,
+            'duplicate_manifest_entries': discovery.duplicate_manifest_entries,
             'duplicate_inputs': duplicate_inputs, 'import_errors': import_errors,
             'integrity': integrity, 'health_backend': health['backend'],
             'non_deterministic_metadata': ['documents.created_at', 'import_jobs timestamps'],

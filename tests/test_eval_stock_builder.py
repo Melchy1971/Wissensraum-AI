@@ -91,7 +91,7 @@ class EvaluationStockBuilderTests(unittest.TestCase):
 
     def test_manifest_rejects_unknown_fields_empty_and_duplicate_paths(self):
         for change in ({'unknown': True}, {'base': ''}, {'files': ['']},
-                       {'files': [str(self.source / 'expected.md')] * 2}):
+                       {'exclude_names': ['build', 'BUILD']}):
             self.write_manifest(**change)
             with self.assertRaises(ValueError):
                 builder.load_manifest(self.manifest)
@@ -120,7 +120,70 @@ class EvaluationStockBuilderTests(unittest.TestCase):
         first = builder.manifest_entries(manifest, self.base, self.output)
         second = builder.manifest_entries(manifest, self.base, self.output)
         self.assertEqual(first, second)
-        self.assertEqual([row[0].name for row in first], ['a.md', 'expected.md', 'z.md'])
+        self.assertEqual([row[0].name for row in first.entries], ['a.md', 'expected.md', 'z.md'])
+
+    def test_folder_discovery_filters_unsupported_suffixes_case_insensitively(self):
+        for name in ('image.png', 'archive.zip', 'program.exe', 'extensionless'):
+            (self.source / name).write_bytes(b'ignored')
+        (self.source / 'manual.PDF').write_bytes(b'pdf')
+        (self.source / 'notes.MD').write_text('Text', encoding='utf-8')
+        discovery = builder.manifest_entries(builder.load_manifest(self.manifest), self.base, self.output)
+        self.assertEqual({row[0].name for row in discovery.entries},
+                         {'expected.md', 'manual.PDF', 'notes.MD'})
+        self.assertEqual(discovery.skipped_unsupported, 4)
+
+    def test_explicit_unsupported_file_is_rejected(self):
+        image = self.source / 'private.png'
+        image.write_bytes(b'image')
+        self.write_manifest(files=[str(image)], folders=[])
+        with self.assertRaisesRegex(ValueError, 'Dokumentformat'):
+            builder.manifest_entries(builder.load_manifest(self.manifest), self.base, self.output)
+
+    def test_duplicate_file_and_overlapping_folders_are_discovered_once(self):
+        child = self.source / 'child'
+        child.mkdir()
+        nested = child / 'nested.md'
+        nested.write_text('Nested', encoding='utf-8')
+        self.write_manifest(files=[str(self.source / 'expected.md')],
+                            folders=[str(self.source), str(child)])
+        discovery = builder.manifest_entries(builder.load_manifest(self.manifest), self.base, self.output)
+        self.assertEqual({row[0] for row in discovery.entries},
+                         {(self.source / 'expected.md').resolve(), nested.resolve()})
+        self.assertEqual(discovery.duplicate_manifest_entries, 2)
+
+    def test_unknown_import_reason_is_private_safe_error(self):
+        class Jobs:
+            def __init__(self, store):
+                pass
+
+            def create_selection(self, *args):
+                return 1
+
+            def run(self, job):
+                pass
+
+            def items(self, job):
+                return [{'path': str(self_path), 'status': 'failed',
+                         'reason': 'private failure at C:\\secret\\document.md'}]
+
+        self_path = self.source / 'expected.md'
+        with mock.patch.object(builder, 'ImportJobs', Jobs):
+            report = self.build()
+        self.assertEqual(report['import_errors'],
+                         [{'source': 'D0001-000001', 'status': 'quarantined', 'reason': 'error'}])
+        report_text = self.output.with_suffix('.report.json').read_text(encoding='utf-8')
+        self.assertNotIn('secret', report_text)
+        self.assertNotIn(str(self.root), report_text)
+
+    def test_unsupported_and_duplicate_manifest_entries_do_not_block_ready(self):
+        (self.source / 'ignored.exe').write_bytes(b'ignored')
+        self.write_manifest(files=[str(self.source / 'expected.md')], folders=[str(self.source)])
+        base_before = builder.sha256_file(self.base)
+        report = self.build()
+        self.assertTrue(report['ready'])
+        self.assertEqual((report['imported'], report['skipped_unsupported'],
+                          report['duplicate_manifest_entries'], report['failed']), (1, 1, 1, 0))
+        self.assertEqual(builder.sha256_file(self.base), base_before)
 
     def test_import_duplicate_is_reported_not_stored_twice(self):
         copy = self.source / 'copy.md'
@@ -181,6 +244,7 @@ class EvaluationStockBuilderTests(unittest.TestCase):
         before = {path: path.read_bytes() for path in self.data.iterdir()}
         result = builder.dry_run(self.base, self.manifest, self.questions, self.output)
         self.assertEqual(result['files'], 1)
+        self.assertEqual((result['skipped_unsupported'], result['duplicate_manifest_entries']), (0, 0))
         self.assertFalse(self.output.exists())
         self.assertEqual(before, {path: path.read_bytes() for path in self.data.iterdir()})
 
