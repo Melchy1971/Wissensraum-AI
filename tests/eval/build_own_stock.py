@@ -5,11 +5,13 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import sqlite3
 import sys
 import tempfile
-from contextlib import closing
+import unicodedata
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -25,6 +27,8 @@ from import_jobs import ImportJobs  # noqa: E402
 MANIFEST_FORMAT = 'wissensraum-own-evaluation-stock'
 REPORT_FORMAT = MANIFEST_FORMAT + '-report'
 MANIFEST_FIELDS = frozenset({'format', 'version', 'base', 'files', 'folders', 'exclude_names'})
+OPTIONAL_MANIFEST_FIELDS = frozenset({'source_aliases'})
+ALIAS_FIELDS = frozenset({'expected_title', 'canonical_title', 'content_sha256', 'reason'})
 REQUIRED_EXCLUDES = frozenset({'.git', 'node_modules', 'venv', '.venv', 'dist', 'build', '__pycache__'})
 SQLITE_SUFFIXES = frozenset({'.db', '.sqlite', '.sqlite3'})
 IMPORT_ERROR_CODES = frozenset({'unsupported', 'too_large', 'no_text', 'damaged', 'encrypted',
@@ -36,6 +40,21 @@ class ManifestDiscovery:
     entries: list[tuple[Path, str, str]]
     skipped_unsupported: int
     duplicate_manifest_entries: int
+
+
+@dataclass(frozen=True)
+class CoverageResult:
+    expected: int
+    answerable: int
+    excluded: int
+    exact_sources: int
+    aliased_sources: int
+    missing: list
+    duplicates: list
+    without_chunks: list
+    without_vectors: list
+    invalid_aliases: list
+    conflicting_aliases: list
 
 
 def sha256_file(path):
@@ -60,7 +79,8 @@ def under_data(path):
 
 def load_manifest(path):
     data = json.loads(Path(path).read_text(encoding='utf-8'))
-    if type(data) is not dict or set(data) != MANIFEST_FIELDS:
+    if (type(data) is not dict or not MANIFEST_FIELDS <= set(data)
+            or set(data) - MANIFEST_FIELDS - OPTIONAL_MANIFEST_FIELDS):
         raise ValueError('Manifest enth\u00e4lt unbekannte oder fehlende Felder.')
     if data.get('format') != MANIFEST_FORMAT or data.get('version') != 1:
         raise ValueError('Manifest hat nicht das erwartete Format Version 1.')
@@ -72,6 +92,17 @@ def load_manifest(path):
         normalized = [value.casefold() for value in data[key]]
         if key == 'exclude_names' and len(normalized) != len(set(normalized)):
             raise ValueError(f'Manifestfeld {key} enth\u00e4lt doppelte Werte.')
+    aliases = data.setdefault('source_aliases', [])
+    if type(aliases) is not list:
+        raise ValueError('Manifestfeld source_aliases muss eine Liste sein.')
+    for number, alias in enumerate(aliases, start=1):
+        if (type(alias) is not dict or set(alias) != ALIAS_FIELDS
+                or any(type(alias[key]) is not str or not alias[key].strip() for key in ALIAS_FIELDS)):
+            raise ValueError(f'Quellenalias A{number:04d} ist ungültig.')
+        if alias['reason'] != 'content_duplicate':
+            raise ValueError(f'Quellenalias A{number:04d} hat keinen zulässigen Grund.')
+        if not re.fullmatch(r'[0-9a-fA-F]{64}', alias['content_sha256']):
+            raise ValueError(f'Quellenalias A{number:04d} hat keinen gültigen Content-Hash.')
     return data
 
 
@@ -204,10 +235,16 @@ def question_contract(path):
     return expected, answerable, excluded
 
 
-def coverage(store, questions_path, model):
+def normalized_title(value):
+    value = unicodedata.normalize('NFKD', value).casefold()
+    return ''.join(character for character in value if character.isalnum())
+
+
+def coverage(store, questions_path, model, aliases=None):
     expected, answerable, excluded = question_contract(questions_path)
+    aliases = aliases or []
     with store.connect() as db:
-        rows = db.execute('''SELECT d.id,COALESCE(d.filename,d.title) AS name,
+        rows = db.execute('''SELECT d.id,COALESCE(d.filename,d.title) AS name,d.sha256,
               COUNT(DISTINCT c.id) AS chunks,
               COUNT(DISTINCT CASE WHEN v.model=? THEN v.chunk_id END) AS vectors
             FROM documents d LEFT JOIN chunks c ON c.document_id=d.id
@@ -215,20 +252,74 @@ def coverage(store, questions_path, model):
             WHERE NOT EXISTS (SELECT 1 FROM document_versions mine JOIN document_versions newer
               ON newer.lineage_id=mine.lineage_id AND newer.version>mine.version
               WHERE mine.document_id=d.id)
-            GROUP BY d.id,COALESCE(d.filename,d.title)''', (model,)).fetchall()
+            GROUP BY d.id,COALESCE(d.filename,d.title),d.sha256''', (model,)).fetchall()
     by_name = {}
+    by_normalized = {}
     for row in rows:
         by_name.setdefault(row['name'], []).append(row)
+        by_normalized.setdefault(normalized_title(row['name']), []).append(row)
+    aliases_by_expected = {}
+    for alias in aliases:
+        aliases_by_expected.setdefault(alias['expected_title'], []).append(alias)
+    alias_expected_titles = set(aliases_by_expected)
+    missing, duplicates, without_chunks, without_vectors = [], [], [], []
+    invalid_aliases, conflicting_aliases = [], []
+    exact_sources = aliased_sources = 0
 
-    def findings(predicate):
-        return [{'source': source_id(name), 'question_ids': sorted(ids)}
-                for name, ids in sorted(expected.items()) if predicate(by_name.get(name, []))]
+    def finding(name, ids, reason=None):
+        result = {'source': source_id(name), 'question_ids': sorted(ids)}
+        if reason:
+            result['reason'] = reason
+        return result
 
-    missing = findings(lambda matches: not matches)
-    duplicates = findings(lambda matches: len(matches) > 1)
-    without_chunks = findings(lambda matches: len(matches) == 1 and matches[0]['chunks'] == 0)
-    without_vectors = findings(lambda matches: len(matches) == 1 and matches[0]['vectors'] < matches[0]['chunks'])
-    return len(expected), answerable, excluded, missing, duplicates, without_chunks, without_vectors
+    for name, ids in sorted(expected.items()):
+        matches = by_name.get(name, [])
+        if not matches:
+            matches = by_normalized.get(normalized_title(name), [])
+        if matches:
+            exact_sources += 1
+            if len(matches) > 1:
+                duplicates.append(finding(name, ids))
+            elif matches[0]['chunks'] == 0:
+                without_chunks.append(finding(name, ids))
+            elif matches[0]['vectors'] < matches[0]['chunks']:
+                without_vectors.append(finding(name, ids))
+            continue
+        definitions = aliases_by_expected.get(name, [])
+        unique_definitions = {(item['canonical_title'], item['content_sha256'].casefold())
+                              for item in definitions}
+        if len(unique_definitions) > 1:
+            conflicting_aliases.append(finding(name, ids, 'multiple_targets'))
+            missing.append(finding(name, ids))
+            continue
+        if not definitions:
+            missing.append(finding(name, ids))
+            continue
+        alias = definitions[0]
+        if alias['canonical_title'] in alias_expected_titles:
+            invalid_aliases.append(finding(name, ids, 'alias_chain_or_cycle'))
+            missing.append(finding(name, ids))
+            continue
+        targets = by_name.get(alias['canonical_title'], [])
+        if not targets:
+            targets = by_normalized.get(normalized_title(alias['canonical_title']), [])
+        reason = None
+        if len(targets) != 1:
+            reason = 'unknown_or_ambiguous_target'
+        elif targets[0]['sha256'].casefold() != alias['content_sha256'].casefold():
+            reason = 'content_hash_mismatch'
+        elif targets[0]['chunks'] == 0:
+            reason = 'target_without_chunks'
+        elif targets[0]['vectors'] < targets[0]['chunks']:
+            reason = 'target_without_vectors'
+        if reason:
+            invalid_aliases.append(finding(name, ids, reason))
+            missing.append(finding(name, ids))
+        else:
+            aliased_sources += 1
+    return CoverageResult(len(expected), answerable, excluded, exact_sources, aliased_sources,
+                          missing, duplicates, without_chunks, without_vectors,
+                          invalid_aliases, conflicting_aliases)
 
 
 def counts(store, model):
@@ -272,16 +363,54 @@ def validate_paths(base, manifest, questions, output):
         raise ValueError('Basisdatenbank ist nicht verf\u00fcgbar.')
 
 
+class ReadOnlyStore:
+    def __init__(self, path):
+        self.path = Path(path)
+
+    @contextmanager
+    def connect(self):
+        uri = self.path.resolve().as_uri() + '?mode=ro'
+        connection = sqlite3.connect(uri, uri=True)
+        connection.row_factory = sqlite3.Row
+        try:
+            yield connection
+        finally:
+            connection.close()
+
+
 def dry_run(base, manifest_path, questions_path, output):
     validate_paths(base, manifest_path, questions_path, output)
     manifest = load_manifest(manifest_path)
     discovery = manifest_entries(manifest, base, output)
     expected, answerable, excluded = question_contract(questions_path)
-    return {'dry_run': True, 'files': len(discovery.entries),
+    result = {'dry_run': True, 'files': len(discovery.entries),
             'skipped_unsupported': discovery.skipped_unsupported,
             'duplicate_manifest_entries': discovery.duplicate_manifest_entries,
             'expected_sources': len(expected), 'answerable_questions': answerable,
             'exclusion_questions': excluded}
+    if Path(output).is_file():
+        read_only = ReadOnlyStore(output)
+        covered = coverage(read_only, questions_path, 'qwen3-embedding:0.6b',
+                           manifest['source_aliases'])
+        with read_only.connect() as db:
+            integrity = db.execute('PRAGMA integrity_check').fetchone()[0]
+        report_path = Path(output).with_suffix('.report.json')
+        previous_report = (json.loads(report_path.read_text(encoding='utf-8'))
+                           if report_path.is_file() else {})
+        failed = previous_report.get('failed', 0)
+        ready = (not covered.missing and not covered.duplicates and not covered.without_chunks
+                 and not covered.without_vectors and not covered.invalid_aliases
+                 and not covered.conflicting_aliases and failed == 0 and integrity == 'ok')
+        result.update({
+            'exact_sources': covered.exact_sources, 'aliased_sources': covered.aliased_sources,
+            'missing_sources': covered.missing, 'duplicate_sources': covered.duplicates,
+            'sources_without_chunks': covered.without_chunks,
+            'sources_without_vectors': covered.without_vectors,
+            'invalid_aliases': covered.invalid_aliases,
+            'conflicting_aliases': covered.conflicting_aliases,
+            'failed': failed, 'integrity': integrity, 'ready': ready,
+        })
+    return result
 
 
 def build(base, manifest_path, questions_path, output, model, replace=False, skip_vectors=False,
@@ -314,14 +443,16 @@ def build(base, manifest_path, questions_path, output, model, replace=False, ski
             integrity = db.execute('PRAGMA integrity_check').fetchone()[0]
         if integrity != 'ok':
             raise ValueError('SQLite-Integrit\u00e4tspr\u00fcfung fehlgeschlagen.')
-        expected, answerable, excluded, missing, duplicates, no_chunks, no_vectors = coverage(
-            store, questions_path, model)
+        covered = coverage(store, questions_path, model, manifest['source_aliases'])
         schema, documents, current, chunks, vectors = counts(store, model)
         base_after = sha256_file(base)
         if base_before != base_after:
             raise ValueError('Basisdatenbank wurde w\u00e4hrend des Aufbaus ver\u00e4ndert.')
-        ready = (not skip_vectors and vectors == chunks and integrity == 'ok' and not missing and
-                 not duplicates and not no_chunks and not no_vectors and not import_errors)
+        ready = (not skip_vectors and vectors == chunks and integrity == 'ok'
+                 and not covered.missing and not covered.duplicates
+                 and not covered.without_chunks and not covered.without_vectors
+                 and not covered.invalid_aliases and not covered.conflicting_aliases
+                 and not import_errors)
         content_hash = semantic_sha256(store)
         os.replace(temporary, output)
         report = {
@@ -330,10 +461,14 @@ def build(base, manifest_path, questions_path, output, model, replace=False, ski
             'database_sha256': sha256_file(output), 'documents': documents,
             'reproducible_content_sha256': content_hash,
             'current_documents': current, 'chunks': chunks, 'vectors': vectors,
-            'embedding_model': model, 'answerable_questions': answerable,
-            'exclusion_questions': excluded, 'expected_sources': expected,
-            'missing_sources': missing, 'duplicate_sources': duplicates,
-            'sources_without_chunks': no_chunks, 'sources_without_vectors': no_vectors,
+            'embedding_model': model, 'answerable_questions': covered.answerable,
+            'exclusion_questions': covered.excluded, 'expected_sources': covered.expected,
+            'exact_sources': covered.exact_sources, 'aliased_sources': covered.aliased_sources,
+            'missing_sources': covered.missing, 'duplicate_sources': covered.duplicates,
+            'sources_without_chunks': covered.without_chunks,
+            'sources_without_vectors': covered.without_vectors,
+            'invalid_aliases': covered.invalid_aliases,
+            'conflicting_aliases': covered.conflicting_aliases,
             'imported': imported, 'duplicates': len(duplicate_inputs), 'failed': len(import_errors),
             'skipped_unsupported': discovery.skipped_unsupported,
             'duplicate_manifest_entries': discovery.duplicate_manifest_entries,

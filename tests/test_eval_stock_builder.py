@@ -185,6 +185,63 @@ class EvaluationStockBuilderTests(unittest.TestCase):
                           report['duplicate_manifest_entries'], report['failed']), (1, 1, 1, 0))
         self.assertEqual(builder.sha256_file(self.base), base_before)
 
+    def alias(self, expected='alias.md', canonical='expected.md', digest=None):
+        return {'expected_title': expected, 'canonical_title': canonical,
+                'content_sha256': digest or hashlib.sha256(b'Erwartete Aussage.').hexdigest(),
+                'reason': 'content_duplicate'}
+
+    def test_valid_content_alias_satisfies_source_without_creating_content(self):
+        self.write_questions([{'id': 'e01', 'question': 'secret', 'expected': ['alias.md']}])
+        self.write_manifest(files=[], folders=[str(self.source)], source_aliases=[self.alias()])
+        report = self.build()
+        self.assertTrue(report['ready'])
+        self.assertEqual((report['exact_sources'], report['aliased_sources']), (0, 1))
+        with Store(self.output).connect() as database:
+            self.assertEqual(database.execute('SELECT COUNT(*) FROM documents').fetchone()[0], 2)
+            chunks = database.execute('SELECT COUNT(*) FROM chunks').fetchone()[0]
+            vectors = database.execute('SELECT COUNT(*) FROM chunk_vectors').fetchone()[0]
+        self.assertEqual((chunks, vectors), (report['chunks'], report['vectors']))
+
+    def test_e16_through_e23_share_exactly_one_valid_alias(self):
+        self.write_questions([
+            {'id': f'e{number}', 'question': f'secret-{number}', 'expected': ['alias.md']}
+            for number in range(16, 24)
+        ])
+        self.write_manifest(files=[], folders=[str(self.source)], source_aliases=[self.alias()])
+        report = self.build()
+        self.assertTrue(report['ready'])
+        self.assertEqual((report['expected_sources'], report['exact_sources'],
+                          report['aliased_sources']), (1, 0, 1))
+        self.assertEqual(report['missing_sources'], [])
+
+    def test_invalid_alias_hash_and_unknown_target_stay_missing(self):
+        self.write_questions([{'id': 'e01', 'question': 'secret', 'expected': ['alias.md']}])
+        cases = [self.alias(digest='0' * 64), self.alias(canonical='unknown.md')]
+        for number, alias in enumerate(cases):
+            output = self.data / f'invalid-{number}.db'
+            self.write_manifest(files=[], folders=[str(self.source)], source_aliases=[alias])
+            report = builder.build(self.base, self.manifest, self.questions, output, 'test-model',
+                                   embedder_factory=FakeEmbedder)
+            self.assertFalse(report['ready'])
+            self.assertEqual((len(report['missing_sources']), len(report['invalid_aliases'])), (1, 1))
+
+    def test_conflicting_and_chained_aliases_fail_closed(self):
+        other = self.source / 'other.md'
+        other.write_text('Andere eindeutige Aussage.', encoding='utf-8')
+        other_hash = hashlib.sha256(b'Andere eindeutige Aussage.').hexdigest()
+        self.write_questions([{'id': 'e01', 'question': 'secret', 'expected': ['alias.md']}])
+        self.write_manifest(files=[], folders=[str(self.source)], source_aliases=[
+            self.alias(), self.alias(canonical='other.md', digest=other_hash)])
+        report = self.build()
+        self.assertFalse(report['ready'])
+        self.assertEqual(len(report['conflicting_aliases']), 1)
+        self.output.unlink()
+        self.write_manifest(files=[], folders=[str(self.source)], source_aliases=[
+            self.alias(canonical='next.md'), self.alias(expected='next.md')])
+        report = self.build()
+        self.assertFalse(report['ready'])
+        self.assertEqual(len(report['invalid_aliases']), 1)
+
     def test_import_duplicate_is_reported_not_stored_twice(self):
         copy = self.source / 'copy.md'
         copy.write_text('Erwartete Aussage.', encoding='utf-8')
