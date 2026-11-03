@@ -334,6 +334,27 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual([s['document_id'] for s in small], [r['document_id'] for r in found.results[:3]])
         self.assertEqual(retrieval.narrow_context(wide), [1, 2, 3, 4, 5, 6])  # second pass: three documents, six sections
 
+    def test_alternate_section_of_the_other_list_for_the_best_documents(self):
+        def hit(chunk, document, ordinal=1, text=None):
+            return {'chunk_id': chunk, 'document_id': document, 'title': 'T', 'category': '', 'ordinal': ordinal,
+                    'content': text or f'Abschnitt {chunk} von Dokument {document}.'}
+        results = [hit(number, number * 10) for number in range(1, 6)]
+        alternates = {10: hit(101, 10, 3, 'Die Antwort steht im dritten Abschnitt.'),
+                      20: hit(2, 20),  # the same chunk as the hit: dropped
+                      40: hit(401, 40, 2)}  # not among the three best documents: not added
+        found = retrieval.Retrieval(results, 'hybrid', retrieval.STATUS_HYBRID, {}, (1, 1), alternates)
+        empty = mock.Mock(adjacent_chunks=mock.Mock(return_value=[]))
+        sources = retrieval.answer_context(found, empty, 'Antwort', fits=lambda chosen: True)
+        self.assertEqual([s['chunk_id'] for s in sources], [1, 101, 2, 3, 4, 5])
+        self.assertEqual(sources[1]['alternate_of'], 1)  # own label Q2, behind the hit in reading order
+        self.assertEqual(retrieval.answer_context(found, empty, 'Antwort', fits=lambda chosen: True), sources)
+        # a tight budget keeps the alternate of a top document before the hits of lower documents
+        tight = retrieval.answer_context(found, empty, 'Antwort', fits=lambda chosen: len(chosen) <= 4)
+        self.assertEqual([s['chunk_id'] for s in tight], [1, 101, 2, 3])
+        without = retrieval.Retrieval(results, 'fulltext', retrieval.STATUS_FULLTEXT)
+        self.assertEqual([s['chunk_id'] for s in retrieval.answer_context(without, empty, 'Antwort',
+                                                                          fits=lambda chosen: True)], [1, 2, 3, 4, 5])
+
     def test_context_drops_repeated_and_contained_passages(self):
         def hit(chunk, document, text):
             return {'chunk_id': chunk, 'document_id': document, 'title': 'T', 'category': '', 'ordinal': 1,

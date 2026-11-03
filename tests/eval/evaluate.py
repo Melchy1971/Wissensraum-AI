@@ -136,13 +136,15 @@ def evidence_outcomes(store, questions, question_vector, model, ai=None, name=la
     """
     from core import ProviderError
     from evidence import INSUFFICIENT, InvalidCitation, assess
-    from retrieval import CANDIDATE_LIMIT, HYBRID, STATUS_HYBRID, Retrieval, answer_context, rrf
+    from retrieval import (CANDIDATE_LIMIT, HYBRID, STATUS_HYBRID, Retrieval, alternate_passages, answer_context,
+                           rrf)
     outcomes = {}
     for item in questions:
         rows = store.search(item['question'], limit=CANDIDATE_LIMIT)
         hits = store.vector_search(model, question_vector(item), limit=CANDIDATE_LIMIT)
         ranking = [name(entry['document_id']) for entry in rrf(rows, hits, limit=CANDIDATE_LIMIT)]
-        retrieval = Retrieval(rrf(rows, hits, limit=8), HYBRID, STATUS_HYBRID, {}, (1, 1))
+        results = rrf(rows, hits, limit=8)
+        retrieval = Retrieval(results, HYBRID, STATUS_HYBRID, {}, (1, 1), alternate_passages(rows, hits, results))
         assessment = assess(retrieval, item['question'])
         expected = item['expected'][0] if item['expected'] else None
         entry = {'state': assessment.state, 'reasons': list(assessment.reasons), 'expected': expected,
@@ -179,7 +181,8 @@ def evidence_outcomes(store, questions, question_vector, model, ai=None, name=la
             sources = answer_context(retrieval, store, item['question'])
         entry['passed'] = [{'label': f'Q{number}', 'document_id': s['document_id'], 'document': name(s['document_id']),
                             'title': s['title'], 'chunk_id': s['chunk_id'], 'section': s['ordinal'],
-                            'role': 'nachbar' if 'neighbor_of' in s else 'treffer'}
+                            'role': ('nachbar' if 'neighbor_of' in s else 'zweitabschnitt' if 'alternate_of' in s
+                                     else 'treffer')}
                            for number, s in enumerate(sources, start=1)]
         entry['expected_passed'] = any(p['document'] == expected for p in entry['passed']) if expected else None
         outcomes[item['id']] = entry

@@ -80,6 +80,23 @@ class RrfTests(unittest.TestCase):
         self.assertEqual([r['document_id'] for r in results], [4, 9])  # equal RRF score
         self.assertEqual(len(rrf([chunk(i, i) for i in range(30)], [], limit=10)), 10)
 
+    def test_alternate_passage_is_the_best_chunk_of_the_other_list(self):
+        fulltext = [chunk(1, 10), chunk(2, 20), chunk(1, 11)]
+        vector = [chunk(1, 12), chunk(2, 20), chunk(3, 30)]
+        results = rrf(fulltext, vector)
+        self.assertEqual([(r['document_id'], r['chunk_id']) for r in results], [(1, 10), (2, 20), (3, 30)])
+        alternates = retrieval.alternate_passages(fulltext, vector, results)
+        # equal ranks: the full-text passage stays, the vector list's best section is the alternate;
+        # same chunk in both lists or found by one list only: none
+        self.assertEqual({document: c['chunk_id'] for document, c in alternates.items()}, {1: 12})
+        self.assertEqual(rrf(fulltext, vector), results)  # the search result is unchanged
+        fulltext = [chunk(2, 20), chunk(1, 10)]
+        vector = [chunk(1, 12)]
+        results = rrf(fulltext, vector)
+        self.assertEqual({r['document_id']: r['chunk_id'] for r in results}, {1: 12, 2: 20})
+        self.assertEqual({d: c['chunk_id'] for d, c in retrieval.alternate_passages(fulltext, vector, results).items()},
+                         {1: 10})  # the vector list supplies the passage, the full-text section is the alternate
+
     def test_only_the_best_chunk_of_a_document_counts_per_list(self):
         results = rrf([chunk(1, 10), chunk(1, 11), chunk(2, 20)], [])
         self.assertEqual([(r['document_id'], r['fulltext_rank'], r['chunk_id']) for r in results],
