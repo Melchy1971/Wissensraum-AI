@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import sqlite3
 import sys
 import tempfile
@@ -163,7 +164,7 @@ class EvaluationStockBuilderTests(unittest.TestCase):
                 pass
 
             def items(self, job):
-                return [{'path': str(self_path), 'status': 'failed',
+                return [{'path': os.path.relpath(self_path), 'status': 'failed',
                          'reason': 'private failure at C:\\secret\\document.md'}]
 
         self_path = self.source / 'expected.md'
