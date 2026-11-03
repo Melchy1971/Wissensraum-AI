@@ -15,6 +15,30 @@ import build_own_stock as builder
 from core import Store
 
 
+def short_name(path):
+    """The 8.3 alias of an existing Windows path, or None if the volume has none for it."""
+    import ctypes
+    size = ctypes.windll.kernel32.GetShortPathNameW(str(path), None, 0)
+    if not size:
+        return None
+    buffer = ctypes.create_unicode_buffer(size)
+    if not ctypes.windll.kernel32.GetShortPathNameW(str(path), buffer, size):
+        return None
+    return None if os.path.normcase(buffer.value) == os.path.normcase(str(path)) else buffer.value
+
+
+def other_spelling(path):
+    """Another spelling of an existing file's path as an import job might report it.
+
+    Windows: the 8.3 alias if there is one, in swapped case; POSIX: the path relative to the
+    working directory (a case change would name another file there).
+    """
+    path = Path(path).resolve()
+    if os.name == 'nt':
+        return (short_name(path) or str(path)).swapcase()
+    return os.path.relpath(path)
+
+
 class FakeEmbedder:
     def __init__(self, provider, model):
         self.model = model
@@ -153,6 +177,31 @@ class EvaluationStockBuilderTests(unittest.TestCase):
         self.assertEqual(discovery.duplicate_manifest_entries, 2)
 
     def test_unknown_import_reason_is_private_safe_error(self):
+        returned = other_spelling(self.source / 'expected.md')
+
+        class Jobs:
+            def __init__(self, store):
+                pass
+
+            def create_selection(self, *args):
+                return 1
+
+            def run(self, job):
+                pass
+
+            def items(self, job):  # the job reports the file under another spelling of its path
+                return [{'path': returned, 'status': 'failed',
+                         'reason': 'private failure at C:\\secret\\document.md'}]
+
+        with mock.patch.object(builder, 'ImportJobs', Jobs):
+            report = self.build()
+        self.assertEqual(report['import_errors'],
+                         [{'source': 'D0001-000001', 'status': 'quarantined', 'reason': 'error'}])
+        report_text = self.output.with_suffix('.report.json').read_text(encoding='utf-8')
+        self.assertNotIn('secret', report_text)
+        self.assertNotIn(str(self.root), report_text)
+
+    def test_unmatched_import_item_fails_without_private_path(self):
         class Jobs:
             def __init__(self, store):
                 pass
@@ -164,46 +213,52 @@ class EvaluationStockBuilderTests(unittest.TestCase):
                 pass
 
             def items(self, job):
-                return [{'path': str(self_path).swapcase(), 'status': 'failed',
-                         'reason': 'private failure at C:\\secret\\document.md'}]
+                return [{'path': str(Path(self_root) / 'private' / 'unknown.md'), 'status': 'imported',
+                         'reason': None}]
 
-        self_path = self.source / 'expected.md'
-        with mock.patch.object(builder, 'ImportJobs', Jobs):
-            report = self.build()
-        self.assertEqual(report['import_errors'],
-                         [{'source': 'D0001-000001', 'status': 'quarantined', 'reason': 'error'}])
-        report_text = self.output.with_suffix('.report.json').read_text(encoding='utf-8')
-        self.assertNotIn('secret', report_text)
-        self.assertNotIn(str(self.root), report_text)
+        self_root = self.root
+        store = Store(self.root / 'probe.db')
+        entries = [((self.source / 'expected.md').resolve(), 'expected.md', 'F0001')]
+        with mock.patch.object(builder, 'ImportJobs', Jobs), self.assertRaises(ValueError) as caught:
+            builder.import_all(store, entries)
+        self.assertNotIn(str(self.root), str(caught.exception))
+        self.assertNotIn('unknown', str(caught.exception))
 
-    def test_canonical_path_normalizes_relative_case_and_drive_identity(self):
-        tracked = Path('tests') / 'test_eval_stock_builder.py'
-        self.assertEqual(builder.canonical_path(tracked),
-                         builder.canonical_path(tracked.resolve()))
+    def test_path_identity_joins_relative_and_absolute_spellings(self):
+        expected = self.source / 'expected.md'
+        relative = Path(os.path.relpath(expected)) if Path.cwd().drive == expected.drive else None
+        if relative is not None:
+            self.assertEqual(builder.path_identity(relative), builder.path_identity(expected))
+        self.assertEqual(builder.path_identity(expected), builder.path_identity(expected.resolve()))
+        self.assertEqual(builder.path_identity(other_spelling(expected)), builder.path_identity(expected))
+        tracked = Path('tests') / 'test_eval_stock_builder.py'  # relative to the repository root
+        if tracked.exists():
+            self.assertEqual(builder.path_identity(tracked), builder.path_identity(tracked.resolve()))
+
+    def test_path_identity_keeps_different_files_apart(self):
+        first, second = self.source / 'Groß.md', self.source / 'groß.md'
+        first.write_text('eins', encoding='utf-8')
+        second.write_text('zwei', encoding='utf-8')  # same file on a case-insensitive file system
+        same_file = first.read_text(encoding='utf-8') == 'zwei'
+        self.assertEqual(builder.path_identity(first) == builder.path_identity(second), same_file)
+        self.assertNotEqual(builder.path_identity(self.source / 'expected.md'), builder.path_identity(first))
+        missing = self.root / 'missing.md'  # no file: the normalised path text identifies it
+        self.assertEqual(builder.path_identity(missing), ('path', builder.canonical_path(missing)))
         if os.name == 'nt':
-            self.assertEqual(builder.canonical_path(self.source / 'expected.md'),
-                             builder.canonical_path(str(self.source / 'expected.md').swapcase()))
-            current_drive = Path.cwd().drive
-            other_drive = next((drive for drive in ('C:', 'D:', 'H:') if drive != current_drive), None)
-            if other_drive:
-                self.assertNotEqual(builder.canonical_path(Path(current_drive + '\\') / 'identity.md'),
-                                    builder.canonical_path(Path(other_drive + '\\') / 'identity.md'))
+            current = Path.cwd().drive
+            other = next(drive for drive in ('C:', 'D:', 'H:', 'Z:') if drive.casefold() != current.casefold())
+            self.assertNotEqual(builder.path_identity(Path(current + '\\') / 'identity-missing.md'),
+                                builder.path_identity(Path(other + '\\') / 'identity-missing.md'))
+            self.assertEqual(builder.path_identity(str(missing).swapcase()), builder.path_identity(missing))
 
     @unittest.skipUnless(os.name == 'nt', 'Windows 8.3 aliases only')
-    def test_canonical_path_expands_available_short_name(self):
-        import ctypes
-
+    def test_path_identity_joins_available_short_name(self):
         long_path = str((self.source / 'expected.md').resolve())
-        size = ctypes.windll.kernel32.GetShortPathNameW(long_path, None, 0)
-        if not size:
-            self.skipTest('8.3 aliases are unavailable')
-        buffer = ctypes.create_unicode_buffer(size)
-        if not ctypes.windll.kernel32.GetShortPathNameW(long_path, buffer, size):
-            self.skipTest('8.3 alias could not be read')
-        short_path = buffer.value
-        if os.path.normcase(short_path) == os.path.normcase(long_path):
+        short_path = short_name(long_path)
+        if short_path is None:
             self.skipTest('file has no distinct 8.3 alias')
-        self.assertEqual(builder.canonical_path(long_path), builder.canonical_path(short_path))
+        self.assertEqual(builder.path_identity(long_path), builder.path_identity(short_path))
+        self.assertEqual(builder.path_identity(short_path.swapcase()), builder.path_identity(long_path))
 
     def test_unsupported_and_duplicate_manifest_entries_do_not_block_ready(self):
         (self.source / 'ignored.exe').write_bytes(b'ignored')

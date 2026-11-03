@@ -107,20 +107,42 @@ def load_manifest(path):
 
 
 def canonical_path(path):
-    """Filesystem identity used for both manifest inputs and persisted import items.
+    """Normalised absolute path text: stable sort order and fallback identity for missing files.
 
-    ``resolve`` makes relative paths absolute and, on Windows, asks the OS for the
-    final path (including expansion of available 8.3 aliases). ``normcase`` then
-    applies the platform's case and separator rules while preserving the drive.
+    ``resolve`` makes relative paths absolute (against the working directory) and follows the
+    final path the system reports. ``normcase`` applies the platform's case and separator rules
+    and keeps the drive.
     """
     return os.path.normcase(str(Path(path).resolve()))
+
+
+def path_identity(path):
+    """The one identity used to match manifest inputs, protected databases and import job items.
+
+    An existing file is identified by its volume and file number (``st_dev``, ``st_ino``): a
+    relative path, another spelling of the case on Windows, an 8.3 short name or a second path
+    to the same file all give the same identity, while the same name on another drive or, on a
+    case-sensitive file system, a name differing only in case gives a different one. A path
+    that does not exist, or a file system without file numbers, falls back to
+    ``canonical_path``.
+    """
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        candidate = Path.cwd() / candidate
+    try:
+        status = candidate.stat()
+    except OSError:
+        status = None
+    if status is not None and status.st_ino:
+        return ('file', status.st_dev, status.st_ino)
+    return ('path', canonical_path(candidate))
 
 
 def manifest_entries(manifest, base, output):
     if Path(manifest['base']).resolve() != Path(base).resolve():
         raise ValueError('Manifestbasis stimmt nicht mit --base überein.')
     excludes = REQUIRED_EXCLUDES | {name.casefold() for name in manifest['exclude_names']}
-    protected = {canonical_path(base), canonical_path(output)}
+    protected = {path_identity(base), path_identity(output)}
     entries = []
     seen = set()
     skipped_unsupported = 0
@@ -130,7 +152,7 @@ def manifest_entries(manifest, base, output):
         if supplied.is_symlink():
             raise ValueError(f'Manifestdatei F{number:04d} ist nicht verfügbar.')
         path = supplied.resolve()
-        key = canonical_path(path)
+        key = path_identity(path)
         if key in protected:
             raise ValueError(f'Manifestdatei F{number:04d} ist eine gesch\u00fctzte Datenbank.')
         if not path.is_file():
@@ -155,7 +177,7 @@ def manifest_entries(manifest, base, output):
             for name in sorted(filenames, key=str.casefold):
                 path = current_path / name
                 resolved = path.resolve()
-                key = canonical_path(resolved)
+                key = path_identity(resolved)
                 if path.is_symlink() or not path.is_file() or key in protected:
                     continue
                 item += 1
@@ -193,12 +215,14 @@ def import_all(store, entries):
     if not entries:
         return 0, [], []
     jobs = ImportJobs(store)
-    by_path = {canonical_path(path): ref for path, _, ref in entries}
+    by_path = {path_identity(path): ref for path, _, ref in entries}
     job = jobs.create_selection('files', '', [(path, locator) for path, locator, _ in entries])
     jobs.run(job)
     imported, duplicates, failed = 0, [], []
     for item in jobs.items(job):
-        ref = by_path[canonical_path(item['path'])]
+        ref = by_path.get(path_identity(item['path']))
+        if ref is None:  # never a KeyError: its message would carry the private path
+            raise ValueError('Importergebnis l\u00e4sst sich keiner Manifestquelle zuordnen.')
         if item['status'] in ('imported', 'versioned'):
             imported += 1
         elif item['status'] == 'duplicate':
