@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import sqlite3
 import sys
 import tempfile
@@ -167,15 +168,42 @@ class EvaluationStockBuilderTests(unittest.TestCase):
                          'reason': 'private failure at C:\\secret\\document.md'}]
 
         self_path = self.source / 'expected.md'
-        with (mock.patch.object(builder, 'ImportJobs', Jobs),
-              mock.patch.object(builder, 'canonical_path',
-                                lambda path: str(path).casefold())):
+        with mock.patch.object(builder, 'ImportJobs', Jobs):
             report = self.build()
         self.assertEqual(report['import_errors'],
                          [{'source': 'D0001-000001', 'status': 'quarantined', 'reason': 'error'}])
         report_text = self.output.with_suffix('.report.json').read_text(encoding='utf-8')
         self.assertNotIn('secret', report_text)
         self.assertNotIn(str(self.root), report_text)
+
+    def test_canonical_path_normalizes_relative_case_and_drive_identity(self):
+        tracked = Path('tests') / 'test_eval_stock_builder.py'
+        self.assertEqual(builder.canonical_path(tracked),
+                         builder.canonical_path(tracked.resolve()))
+        if os.name == 'nt':
+            self.assertEqual(builder.canonical_path(self.source / 'expected.md'),
+                             builder.canonical_path(str(self.source / 'expected.md').swapcase()))
+            current_drive = Path.cwd().drive
+            other_drive = next((drive for drive in ('C:', 'D:', 'H:') if drive != current_drive), None)
+            if other_drive:
+                self.assertNotEqual(builder.canonical_path(Path(current_drive + '\\') / 'identity.md'),
+                                    builder.canonical_path(Path(other_drive + '\\') / 'identity.md'))
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows 8.3 aliases only')
+    def test_canonical_path_expands_available_short_name(self):
+        import ctypes
+
+        long_path = str((self.source / 'expected.md').resolve())
+        size = ctypes.windll.kernel32.GetShortPathNameW(long_path, None, 0)
+        if not size:
+            self.skipTest('8.3 aliases are unavailable')
+        buffer = ctypes.create_unicode_buffer(size)
+        if not ctypes.windll.kernel32.GetShortPathNameW(long_path, buffer, size):
+            self.skipTest('8.3 alias could not be read')
+        short_path = buffer.value
+        if os.path.normcase(short_path) == os.path.normcase(long_path):
+            self.skipTest('file has no distinct 8.3 alias')
+        self.assertEqual(builder.canonical_path(long_path), builder.canonical_path(short_path))
 
     def test_unsupported_and_duplicate_manifest_entries_do_not_block_ready(self):
         (self.source / 'ignored.exe').write_bytes(b'ignored')

@@ -107,6 +107,12 @@ def load_manifest(path):
 
 
 def canonical_path(path):
+    """Filesystem identity used for both manifest inputs and persisted import items.
+
+    ``resolve`` makes relative paths absolute and, on Windows, asks the OS for the
+    final path (including expansion of available 8.3 aliases). ``normcase`` then
+    applies the platform's case and separator rules while preserving the drive.
+    """
     return os.path.normcase(str(Path(path).resolve()))
 
 
