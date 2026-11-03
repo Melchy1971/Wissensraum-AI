@@ -1,6 +1,5 @@
 import hashlib
 import json
-import os
 import sqlite3
 import sys
 import tempfile
@@ -164,11 +163,13 @@ class EvaluationStockBuilderTests(unittest.TestCase):
                 pass
 
             def items(self, job):
-                return [{'path': os.path.relpath(self_path), 'status': 'failed',
+                return [{'path': str(self_path).swapcase(), 'status': 'failed',
                          'reason': 'private failure at C:\\secret\\document.md'}]
 
         self_path = self.source / 'expected.md'
-        with mock.patch.object(builder, 'ImportJobs', Jobs):
+        with (mock.patch.object(builder, 'ImportJobs', Jobs),
+              mock.patch.object(builder, 'canonical_path',
+                                lambda path: str(path).casefold())):
             report = self.build()
         self.assertEqual(report['import_errors'],
                          [{'source': 'D0001-000001', 'status': 'quarantined', 'reason': 'error'}])
