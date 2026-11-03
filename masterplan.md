@@ -2,19 +2,57 @@
 
 **Dokumentversion:** 1.9
 
-**Stand:** 28.10.2026
+**Stand:** 03.11.2026
 
 **Produktstand:** 2.0 abgenommen am 26.10.2026 (Code-Stand `84f9ecf`) · 1.9 freigegeben am 23.10.2026
 
 **Repository:** `Melchy1971/Wissensraum-AI`
 
-**Geprüfte Codebasis:** Letzter produktcodewirksamer Stand `17aa5d2` (30.10.2026, Schritt 7.4 Antwortkontext und Fehlerdiagnose, Schemaversion 11). Lokales Matrix-Gate `tests/local_ci.py`: 7 von 7 Jobs grün an `5ca9021`, `4ef9545`, `6e1a9e3`, `ebd2475`, `72f0fbf`, `7b85460`, `3cb3aaa`, `d7decfe`, `c7ef78a` und `17aa5d2` (D-015, GitHub Actions ohne Budget). Vorheriger Abnahmestand `84f9ecf`: CI-Lauf [40185408996](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40185408996): alle sieben Jobs grün. Release 2.0 wurde am 26.10.2026 mit eigenen Daten abgenommen; nachfolgende Commits bis zu dieser Planaktualisierung betreffen ausschließlich README und Masterplan.
+**Geprüfte Codebasis:** Letzter produktcodewirksamer Stand `8bdd4f7` (03.11.2026, Schritt 7.4 Zweitabschnitt im erweiterten Antwortfenster, Schemaversion 11). Lokales Matrix-Gate an `8bdd4f7`: 6 von 7 Jobs grün, windows-3.11 lokal durch Dateisperren des Virenscanners gestört; GitHub Actions für PR #6: 14 von 14 Checks grün (D-020). Davor: Lokales Matrix-Gate `tests/local_ci.py`: 7 von 7 Jobs grün an `5ca9021`, `4ef9545`, `6e1a9e3`, `ebd2475`, `72f0fbf`, `7b85460`, `3cb3aaa`, `d7decfe`, `c7ef78a` und `17aa5d2` (D-015, GitHub Actions ohne Budget). Vorheriger Abnahmestand `84f9ecf`: CI-Lauf [40185408996](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40185408996): alle sieben Jobs grün. Release 2.0 wurde am 26.10.2026 mit eigenen Daten abgenommen; nachfolgende Commits bis zu dieser Planaktualisierung betreffen ausschließlich README und Masterplan.
 
 **Ablage:** Einziger Masterplan ist diese Datei `masterplan.md`. Die frühere Kopie `docs/masterplan.md` wurde am 22.10.2026 entfernt.
 
-**Status:** Phasen- und Testplan · Release 1.9 freigegeben, Release 2.0 abgenommen 26.10.2026, Phasen 0 bis 6 ✅ · Release 2.0.1 (Soll-Umfang von Phase 6, D-013) abgenommen 26.10.2026, Phase 7 (Release 2.1) in Arbeit: 7.1 Evaluationsdatensatz ✅, 7.2a Vektorspeicher und Embedding-Adapter ✅, 7.2b Einbettung im Hintergrund ✅, 7.3 hybride Suche ✅, 7.4 Quellenabsicherung 🟡 (mit `qwen3:8b` synthetisch erfüllt, eigene Ausschlussfragen False Accept 1 von 20, auf eigenen Fragen False Reject 11 von 70, Ziel höchstens 7), Phase 7 noch nicht freigegeben (Chunk-Strategie, Fundstellenanzeige offen)
+**Status:** Phasen- und Testplan · Release 1.9 freigegeben, Release 2.0 abgenommen 26.10.2026, Phasen 0 bis 6 ✅ · Release 2.0.1 (Soll-Umfang von Phase 6, D-013) abgenommen 26.10.2026, Phase 7 (Release 2.1) in Arbeit: 7.1 Evaluationsdatensatz ✅, 7.2a Vektorspeicher und Embedding-Adapter ✅, 7.2b Einbettung im Hintergrund ✅, 7.3 hybride Suche ✅, 7.4 Quellenabsicherung ✅ (eingefrorener Bestand V2 mit `qwen3:8b`: False Reject 3 von 66, False Accept 1 von 24 in zwei Läufen, synthetisch 9,3 % und 3,1 %), Phase 7 noch nicht freigegeben (Chunk-Strategie, Fundstellenanzeige offen)
 
 **Legende:** ✅ vollständig implementiert und gesamtes Gate nachweislich bestanden · 🟡 implementiert oder teilweise geprüft, aber noch nicht vollständig abgenommen · ❌ Gate fehlgeschlagen oder Freigabe blockiert · ⬜ geplant und noch nicht begonnen
+
+## Aktualisierung 03.11.2026 (Abend) – Phase 7, Schritt 7.4 Quellenabsicherung abgeschlossen ✅
+
+**Grundlage:** Eingefrorener Bestand V2 (`data/eval-set-v2.freeze.json`, Code `e0efa8e`, Datenbank `0385f8ee…`): 55 Dokumente, 349 Abschnitte, 349 Vektoren, 66 beantwortbare und 24 Ausschlussfragen, `qwen3:8b` mit Temperatur 0, `qwen3-embedding:0.6b`. Die Einzelfalldaten liegen nur anonymisiert und lokal vor (Frage-IDs, Ränge, Abschnittsnummern, Kategorien), Rohdaten wurden nach der Auswertung gelöscht.
+
+**Diagnose von B** (`e0efa8e`, zweiter Beleglauf aus, ein Lauf): False Reject 11 von 66, False Accept 2 von 24, P95 38,3 s. Die erste Messung von B ergab 8 von 66. Gleiche Parameter, gleicher Bestand: `qwen3:8b` schwankt auch bei Temperatur 0 um bis zu drei False Rejects je Lauf. Ursachen: erwartete Quelle nicht unter den Antwortdokumenten e11 (der Fachbegriff der Frage steht in keinem Dokument); richtige Quelle, aber nicht der Abschnitt mit der Antwort im Kontext e02, e03, e04, e06, e08, e09, e19, e22, e94; Modell verweigert trotz Beleg e53; falsche Antwort bei Ausschlussfrage e12, e71; keine Antwort ohne gültige Kennung, keine technischen Fehler.
+
+**Ursache im Kontextaufbau:** Die hybride Suche übernimmt je Dokument den Abschnitt der Liste, in der das Dokument besser rangiert, bei Gleichstand den der Volltextsuche. Der beste Abschnitt der Vektorsuche desselben Dokuments ging verloren. Mehr Abschnitte im Fenster von 8.192 Token verdrängen Trefferdokumente mit niedrigerem Rang (gemessen: drei Zweitabschnitte verdrängen bei e15 und e41 das erwartete Dokument).
+
+**Umfang (`9371775`, `8bdd4f7`):** Treffer und Nachbarabschnitte werden unverändert innerhalb von 8.192 Token gewählt. Danach erhält das beste Dokument den besten Abschnitt der anderen Suchliste, wenn er abweicht (`Retrieval.alternates`, eigene Kennung), im zusätzlichen Platz bis 9.216 Token. Er verdrängt kein Trefferdokument; der Kontext von B bleibt bei allen 90 Fragen vollständig erhalten. `qwen3:8b` mit 9.216 Token (5,9 GB) und das Embedding-Modell passen gemeinsam in den Grafikspeicher der Referenz-GPU. Der enge zweite Beleglauf bleibt im Code, ist aber standardmäßig aus. `compare_variants.py` nimmt optimierte Varianten auf derselben Freeze auf, mit Pflichtangabe des Code-Commits. Suche, Ranking, Recall und MRR sind unverändert.
+
+**Verworfene Varianten (je ein Lauf):**
+
+| Variante | False Reject | False Accept | P95 | Grund |
+|---|---|---|---|---|
+| ohne Denkphase, 1 Zweitabschnitt, 8.192 Token | 10/66 | 1/24 | 13,4 s | fünf bisher korrekte Fälle verschlechtert |
+| 3 Zweitabschnitte, 10.240 Token | 3/66 | 2/24 | 73,0 s | 0,5 GB auf der CPU, P95 fast verdoppelt, kein False Accept behoben |
+| 1 Zweitabschnitt, 9.216 Token, Embedding auf der CPU | 5/66 | 1/24 | 31,9 s | Recall@1 0,682 statt 0,697 |
+| 1 Zweitabschnitt im gemeinsamen Fenster von 9.216 Token | 5/66 | 1/24 | 42,6 s | zusätzliches Trefferdokument, e15 verschlechtert |
+
+**Messung B2 (`9371775`), zwei Läufe:**
+
+| | B (Diagnose) | B2 Lauf 1 | B2 Lauf 2 |
+|---|---|---|---|
+| False Reject | 11/66 | 3/66 (e04, e11, e53) | 3/66 (e04, e11, e53) |
+| False Accept | 2/24 | 1/24 (e12) | 1/24 (e12) |
+| Recall@1 / @3 / @5 / MRR | 0,697 / 0,894 / 0,955 / 0,809 | unverändert | unverändert |
+| P95 Antwort | 38,3 s | 40,5 s | 33,9 s |
+| technische Fehler | 0 | 0 | 0 |
+| Hauptquelle zitiert | 46 von 55 | 54 von 63 | 54 von 63 |
+
+Beide Läufe mit identischer Klassifikation. Behoben gegenüber B: e02, e03, e06, e08, e09, e19, e22, e94 und der False Accept e71; kein bisher korrekter Fall verschlechtert. Vergleichsgate mit A, B, C und B2: grün, Gewinner B2 (A, B und C verfehlen False Reject und False Accept). Synthetischer Datensatz mit B2: False Reject 9,3 %, False Accept 3,1 %, hybrid Recall@1 0,704, Recall@3 0,852, Recall@10 0,963, MRR 0,781, alles unverändert gegenüber `c7ef78a`.
+
+**Nachweise:** Neue Tests für den Zweitabschnitt (andere Suchliste, kein Verdrängen von Treffern, eigenes Fenster), das Antwortfenster von 9.216 Token, den abgeschalteten zweiten Beleglauf und optimierte Varianten im Vergleichsgate. GitHub Actions für PR #6: 14 von 14 Checks grün (Windows und Ubuntu je 3.11, 3.12, 3.13 in Push- und PR-Lauf, PostgreSQL). Lokales Matrix-Gate an `8bdd4f7` (`local-ci-gate-8bdd4f7.md`): windows-3.12, windows-3.13 je 592 Tests bestanden, 30 übersprungen; linux-3.11, 3.12, 3.13 je 592 bestanden, 26 übersprungen; PostgreSQL 18.6 26 von 26. windows-3.11 scheiterte zweimal an Dateisperren beim Aufräumen der Temp-Ordner (WinError 145, 32, 5, Schattendateien `*.tmp`) durch den Virenscanner des Entwicklungsrechners; Windows 3.11 gilt über GitHub Actions als nachgewiesen (D-020).
+
+**Betriebsvoraussetzung:** Ollama muss für die Antwort exklusiv laufen. Belegen andere Programme Grafikspeicher oder fordern andere Clients `qwen3:8b` mit anderem Kontextfenster an, lädt Ollama die Modelle wechselnd neu; die Antwortzeit steigt dann stark (gemessen am 03.11.2026 mit einem zweiten Client).
+
+**Status:** 7.4 ✅ nach D-020. Phase 7 bleibt 🟡: konfigurierbare Chunk-Strategie und Fundstellenanzeige sind offen. Release 2.1 ist nicht freigegeben.
 
 ## Aktualisierung 03.11.2026 – Phase 7, deterministisches A/B/C-Vergleichsgate 🟡
 
@@ -564,7 +602,7 @@ Die Phasen werden in der angegebenen Reihenfolge getestet. Eine Phase wird erst 
 | 4 | Versionierte SQLite-/PostgreSQL-Migrationen | ✅ | freigegeben 23.10.2026 |
 | 5 | Release 1.9 Betriebsfähigkeit | ✅ | freigegeben 23.10.2026 |
 | 6 | Release 2.0 Importplattform | ✅ | freigegeben 23.10.2026, in vier Teilschritten (D-010); 6.1 ✅ (23.10.2026, CI [39925457254](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39925457254) auf `ca5bce6`), 6.2 ✅ (23.10.2026, CI [39932577799](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39932577799) auf `4cdb50e`), 6.3a ✅ (23.10.2026, CI [39942033441](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39942033441) auf `e36be53`), 6.3 ✅ (6.3b 23.10.2026, CI [39976859099](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39976859099) auf `e4d1f95`), alle vier Teilschritte ✅ (6.4 24.10.2026, CI [40097227667](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40097227667) auf `d05ef87`); abgenommen 26.10.2026 durch den Product Owner mit eigenen Daten; Soll-Umfang folgt als Release 2.0.1 (D-013), S1 in Arbeit |
-| 7 | Release 2.1 Hybrid-RAG | ⬜ | nach Phase 6 |
+| 7 | Release 2.1 Hybrid-RAG | 🟡 7.1 bis 7.4 ✅, Chunk-Strategie und Fundstellenanzeige offen | nach Phase 6 |
 | 8 | Wissensorganisation und Wissensgraph | ⬜ | nach Phase 7 |
 | 9 | Betrieb und Governance | ⬜ | nach Phase 8 |
 | 10 | Release 3.0 Sicherheitskern und Mehrbenutzerbetrieb | ⬜ | separates Architektur- und Sicherheits-Gate |
@@ -838,13 +876,13 @@ Frühere Zwischenstände: Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33
 - optionaler Reranker: nicht erforderlich (7.4, D-019), Hybrid erreicht Recall@1 und MRR
 - konfigurierbare Chunk-Strategie nach Dokumenttyp
 - Anzeige von Dokument, Abschnitt, Fundstelle, Retrieval-Score und Reranking-Score
-- Antwort verweigern oder kennzeichnen, wenn die Quellenlage nicht ausreicht 🟡 umgesetzt (7.4, D-019); mit `qwen3:8b` synthetisch False Accept 3,1 % und False Reject 9,3 %, auf eigenen Fragen False Accept 1 von 20 und False Reject 11 von 70 (`17aa5d2`)
+- Antwort verweigern oder kennzeichnen, wenn die Quellenlage nicht ausreicht ✅ (7.4, D-019, D-020); mit `qwen3:8b` synthetisch False Accept 3,1 % und False Reject 9,3 %, auf dem eingefrorenen Bestand V2 False Reject 3 von 66 und False Accept 1 von 24 in zwei Läufen (`9371775`)
 - Evaluationsdatensatz mit Fragen, erwarteten Quellen und Ausschlussfällen ✅ synthetischer Teil mit Ausschlussfragen (Schritt 7.1); 90 eigene Fragen des Product Owners lokal (70 beantwortbare zu 44 Dokumenten, 20 Ausschlussfragen)
 
 **Test und Abnahme:**
 
 - Recall@10 mindestens 0,85 auf dem freigegebenen Evaluationsdatensatz
-- mindestens 95 % der beantworteten Testfragen enthalten die erwartete Hauptquelle
+- ~~mindestens 95 % der beantworteten Testfragen enthalten die erwartete Hauptquelle~~ gestrichen für 7.4 (D-020); gemessen 54 von 63 (86 %)
 - 100 % der Tatsachenantworten enthalten mindestens einen gültigen Quellenverweis
 - unbelegte Antworten werden sichtbar markiert und nicht als gesichert dargestellt
 - Retrieval-P95 unter 2 Sekunden für den vereinbarten Referenzbestand (7.3: erfüllt, siehe Benchmark vom 29.10.2026)
@@ -1154,6 +1192,7 @@ Ein Arbeitspaket ist abgeschlossen, wenn:
 | D-017 | Importgrenze für Dateien und E-Mail-Anhänge 50 MB statt 20 MB; Seiten ohne Textebene in PDFs mit Textebene werden per OCR erkannt | Entschieden 29.10.2026 (Product Owner) |
 | D-018 | Hybride Suche (7.3): RRF mit k = 60, je 50 Kandidaten, ohne Gewichtung; Füllwortfilter in der Volltextsuche beider Backends. Gate-Kriterium: synthetisch Recall@10 ≥ 0,85 und wortgleich nicht schlechter als Volltext, auf den eigenen Fragen Recall@1 und MRR mindestens wie die Vektorsuche; eine Verfehlung wird nicht durch Anpassen an die eigenen Fragen ausgeglichen. PostgreSQL erhält mit Schema 11 gespeicherte Suchvektoren (`search_vector`, GIN), SQLite nur die Versionsnummer | Entschieden 29.10.2026 (Product Owner) |
 | D-019 | Quellenabsicherung (7.4) zweistufig: Suchsignale entscheiden `unavailable`, `insufficient` (keine Treffer, ohne KI-Anfrage) und `weak`; das antwortende Modell verweigert mit festem Kennwort, wenn keine Quelle die Antwort enthält; Antworten ohne gültigen Quellenverweis werden nicht angezeigt. Grund: Suchsignale trennen Ausschlussfragen nicht von Umschreibungen (52 % False Reject bei 0 False Accepts). Ollama antwortet mit Temperatur 0. Kein Reranker, weil Hybrid die Ziele aus 7.3 erreicht | Entschieden 29.10.2026 (Product Owner) |
+| D-020 | Abnahme 7.4: Maßgeblich ist das Vergleichsgate auf dem eingefrorenen Bestand V2 (False Reject höchstens 10 %, False Accept höchstens 5 %, keine technischen Fehler) in zwei Läufen mit identischer Klassifikation. Das Kriterium „mindestens 95 % der beantworteten Fragen zitieren die erwartete Hauptquelle“ entfällt für 7.4 (gemessen 86 %). Windows 3.11 gilt über GitHub Actions als nachgewiesen, solange der lokale Job durch Dateisperren des Virenscanners scheitert. Produktionsvariante B2: Zweitabschnitt des besten Dokuments im Fenster von 9.216 Token, zweiter Beleglauf aus | Entschieden 03.11.2026 (Product Owner) |
 
 ## 14. Hauptrisiken
 

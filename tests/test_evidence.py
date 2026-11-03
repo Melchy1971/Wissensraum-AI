@@ -89,7 +89,7 @@ def check_evidence_contract(case, store):
     # The model finds no answer in the sources: fixed refusal, hints without passage text.
     result, provider = ask(store, 'Wann ist der nächste TÜV-Termin für den Wagen?', NO_SOURCE_TOKEN)
     case.assertEqual((result.state, result.status, result.text), (INSUFFICIENT, 'refused', REFUSAL))
-    case.assertEqual((len(provider.requests), result.second_pass), (2, True))  # sufficient: one narrow second pass
+    case.assertEqual((len(provider.requests), result.second_pass), (1, False))  # second pass off by default
     case.assertTrue(result.sources and all('content' not in s for s in result.sources))
 
     # Snapshot: content of cited sources only, kept after deleting the document.
@@ -287,6 +287,8 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(ollama_context('', 'x' * 300, 1600), 4096)
         self.assertEqual(ollama_context('r' * 1500, 'x' * 15000, 1600), 8192)  # measured case: 16,379 characters
         self.assertEqual(ollama_context('', 'x' * 500000, 1600), 32768)
+        # a prompt that fits the answer window gets that window, not the next power of two
+        self.assertEqual(ollama_context('r' * 1500, 'x' * 21000, 2048), 9216)
 
     def context(self, question, **options):
         found = retrieval.Retrieval(retrieval.rrf(self.store.search(question), []), 'fulltext',
@@ -348,9 +350,12 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual([s['chunk_id'] for s in sources], [1, 101, 2, 3, 4, 5])
         self.assertEqual(sources[1]['alternate_of'], 1)  # own label Q2, behind the hit in reading order
         self.assertEqual(retrieval.answer_context(found, empty, 'Antwort', fits=lambda chosen: True), sources)
-        # a tight budget keeps the alternate of a top document before the hits of lower documents
+        # the alternate never pushes out a hit document: it only uses the room of the wider window
         tight = retrieval.answer_context(found, empty, 'Antwort', fits=lambda chosen: len(chosen) <= 4)
-        self.assertEqual([s['chunk_id'] for s in tight], [1, 101, 2, 3])
+        self.assertEqual([s['chunk_id'] for s in tight], [1, 2, 3, 4])
+        wide = retrieval.answer_context(found, empty, 'Antwort', fits=lambda chosen: len(chosen) <= 4,
+                                        wide_fits=lambda chosen: len(chosen) <= 5)
+        self.assertEqual([s['chunk_id'] for s in wide], [1, 101, 2, 3, 4])
         without = retrieval.Retrieval(results, 'fulltext', retrieval.STATUS_FULLTEXT)
         self.assertEqual([s['chunk_id'] for s in retrieval.answer_context(without, empty, 'Antwort',
                                                                           fits=lambda chosen: True)], [1, 2, 3, 4, 5])
@@ -401,6 +406,7 @@ class EvidenceTests(unittest.TestCase):
         self.assertLessEqual(prompt + options['num_predict'], options['num_ctx'])
         self.assertLessEqual(len(json.loads(sent[0]['messages'][1]['content'])['quellen']), 10)
 
+    @mock.patch.object(AI, 'second_pass', True)  # the mechanism stays available, off by default
     def test_second_pass_after_a_refusal_only(self):
         for number in range(4):
             self.store.add(f'Wartung {number}', f'Die Therme Nummer{number} bekommt eine Wartung im Mai.')
@@ -515,7 +521,7 @@ class EvidenceTests(unittest.TestCase):
         result, provider = ask(self.store, 'Wann ist die Wartung der Therme?', 'Jährlich.')
         self.assertEqual((result.status, len(provider.requests)), ('unverified', 1))
         result, provider = ask(self.store, 'Wann ist die Wartung der Therme?', NO_SOURCE_TOKEN)
-        self.assertEqual((result.status, len(provider.requests)), ('refused', 2))  # the second pass, not a retry
+        self.assertEqual((result.status, len(provider.requests)), ('refused', 1))  # no retry, no second pass by default
         provider = Provider('Jährlich [Q9].')
         with mock.patch.object(retrieval, 'Embedder', WordEmbedder), self.assertRaises(InvalidCitation):
             AI(self.store, 'sk-synthetic-key-1234', 'gpt-4.1-mini', transport=provider).ask('Wann ist die Wartung der Therme?')

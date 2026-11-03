@@ -1416,7 +1416,9 @@ def ollama_context(instructions, user_input, answer_tokens):
     the window is capped at 32,768.
     """
     needed = estimate_tokens(instructions) + estimate_tokens(user_input) + answer_tokens + 256
-    return min(32768, max(4096, 1 << (needed - 1).bit_length()))
+    window = min(32768, max(4096, 1 << (needed - 1).bit_length()))
+    # an answer request that fits the answer window gets at most that window, not the next power of two
+    return min(window, OLLAMA_ANSWER_CONTEXT) if needed <= OLLAMA_ANSWER_CONTEXT else window
 
 
 def run_sources(sources_json):
@@ -1427,7 +1429,9 @@ def run_sources(sources_json):
     return stored.get('sources', []), {key: value for key, value in stored.items() if key != 'sources'}
 
 
-OLLAMA_ANSWER_CONTEXT = 8192  # tokens; qwen3:8b stays completely in the 8 GB of the reference GPU (RTX 3050)
+OLLAMA_HIT_CONTEXT = 8192  # tokens for the hits and neighbours of an answer request, as before step 7.4
+OLLAMA_ANSWER_CONTEXT = 9216  # tokens with the alternate section; qwen3:8b (5.9 GB) and the embedding model stay
+# together in the 8 GB of the reference GPU (RTX 3050, measured 03.11.2026); 10,240 moved 0.5 GB to the CPU
 OLLAMA_MIN_PREDICT = 2048  # output tokens kept free for answer and thinking phase (1,600 cut qwen3 off)
 OLLAMA_MAX_PREDICT = 4096
 OLLAMA_TIMEOUT = 300  # seconds; a local model answers more slowly than a cloud service
@@ -1474,7 +1478,7 @@ class AI:
     SECOND_PASS = (' 10. Zweite Prüfung: Prüfe ausschließlich, ob einer der bereitgestellten Abschnitte die Frage '
                    'direkt oder sinngleich beantwortet. Antworte bei vorhandenem Beleg mit einer knappen Antwort und '
                    'Quellenkennung. Andernfalls ausschließlich mit ' + 'KEINE_AUSREICHENDE_QUELLE' + '.')
-    second_pass = True  # the narrow evidence pass after a refusal (step 7.4); off only for measurements
+    second_pass = False  # narrow evidence pass after a refusal (step 7.4); off: it fixed no false reject (03.11.2026)
 
     @staticmethod
     def user_input(question, sources, evidence='sufficient', numbers=None):
@@ -1485,12 +1489,15 @@ class AI:
                                        'abschnitt':s['ordinal'],'text':s['content']}
                                       for label,s in zip(labels,sources)]},ensure_ascii=False)
 
-    def fits(self, question, evidence='sufficient'):
-        """Whether a set of sources leaves the request inside ``OLLAMA_ANSWER_CONTEXT`` with room for the answer."""
+    def fits(self, question, evidence='sufficient', window=None):
+        """Whether a set of sources leaves the request inside ``window`` (default ``OLLAMA_ANSWER_CONTEXT``)
+        with room for the answer."""
+        window = window or OLLAMA_ANSWER_CONTEXT
+
         def check(sources):
             prompt = (estimate_tokens(self.INSTRUCTIONS + self.SECOND_PASS)
                       + estimate_tokens(self.user_input(question, sources, evidence)))
-            return prompt + OLLAMA_MIN_PREDICT + 256 <= OLLAMA_ANSWER_CONTEXT
+            return prompt + OLLAMA_MIN_PREDICT + 256 <= window
         return check
 
     def generate(self, question, sources, evidence='sufficient', check=True, numbers=None, instructions=None):
@@ -1623,7 +1630,9 @@ class AI:
         """
         from evidence import REFUSED, SUFFICIENT, check_answer
         from retrieval import answer_context, narrow_context
-        sources = answer_context(retrieval, self.store, question, self.fits(question, assessment.state))
+        sources = answer_context(retrieval, self.store, question,
+                                 self.fits(question, assessment.state, OLLAMA_HIT_CONTEXT),
+                                 wide_fits=self.fits(question, assessment.state))
         answer = self.generate(question, sources, assessment.state)
         status, cited = check_answer(answer, len(sources))
         if status != REFUSED or assessment.state != SUFFICIENT or not self.second_pass:
