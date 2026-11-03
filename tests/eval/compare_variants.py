@@ -1,15 +1,22 @@
-"""Compare frozen A/B/C evaluation reports without private evaluation content."""
+"""Compare frozen A/B/C evaluation reports, and optimised variants on the same freeze, without private content.
+
+A, B and C are required. Further variants (for example an optimised B) may be added; they must use
+the same freeze and name the code they were measured with in ``code_commit``.
+"""
 from __future__ import annotations
 
 import argparse
 import json
 import math
+import re
 from pathlib import Path
 
 
 FORMAT = "wissensraum-evaluation-variant"
 VERSION = 1
-VARIANTS = ("A", "B", "C")
+VARIANTS = ("A", "B", "C")  # required in every comparison
+VARIANT_NAME = re.compile(r"[A-Z][A-Za-z0-9_-]{0,15}")
+COMMIT = re.compile(r"[0-9a-f]{7,40}")
 FREEZE_FIELDS = {
     "commit", "database_sha256", "evaluation_sha256", "documents", "chunks", "vectors",
     "answerable", "excluded", "embedding_model", "answer_model",
@@ -33,10 +40,16 @@ def _rate(value, field):
 
 def load_report(path):
     data = json.loads(Path(path).read_text(encoding="utf-8"))
-    if type(data) is not dict or set(data) != {"format", "version", "variant", "freeze", "metrics"}:
+    fields = {"format", "version", "variant", "freeze", "metrics"}
+    if type(data) is not dict or not fields <= set(data) <= fields | {"code_commit"}:
         raise ValueError(f"{path}: invalid report fields")
-    if data["format"] != FORMAT or data["version"] != VERSION or data["variant"] not in VARIANTS:
+    if (data["format"] != FORMAT or data["version"] != VERSION or type(data["variant"]) is not str
+            or not VARIANT_NAME.fullmatch(data["variant"])):
         raise ValueError(f"{path}: invalid report identity")
+    if data["variant"] not in VARIANTS and "code_commit" not in data:
+        raise ValueError(f"{path}: an optimised variant must name its code_commit")
+    if "code_commit" in data and (type(data["code_commit"]) is not str or not COMMIT.fullmatch(data["code_commit"])):
+        raise ValueError(f"{path}: invalid code_commit")
     freeze, metrics = data["freeze"], data["metrics"]
     if type(freeze) is not dict or set(freeze) != FREEZE_FIELDS:
         raise ValueError(f"{path}: invalid freeze fields")
@@ -69,8 +82,9 @@ def limits(freeze):
 
 
 def compare(reports):
-    if len(reports) != len(VARIANTS) or {report["variant"] for report in reports} != set(VARIANTS):
-        raise ValueError("exactly one report for each variant A, B and C is required")
+    names = [report["variant"] for report in reports]
+    if len(names) != len(set(names)) or not set(VARIANTS) <= set(names):
+        raise ValueError("exactly one report for each variant A, B and C is required, every variant once")
     baseline = reports[0]["freeze"]
     if any(report["freeze"] != baseline for report in reports[1:]):
         raise ValueError("variant reports do not share identical freeze metadata")
@@ -81,7 +95,10 @@ def compare(reports):
     for report in sorted(reports, key=lambda item: item["variant"]):
         metrics = report["metrics"]
         passed = all(metrics[name] <= maximum for name, maximum in gate_limits.items())
-        rows.append({"variant": report["variant"], "passed": passed, **metrics})
+        row = {"variant": report["variant"], "passed": passed, **metrics}
+        if "code_commit" in report:
+            row["code_commit"] = report["code_commit"]
+        rows.append(row)
     eligible = [row for row in rows if row["passed"]]
     winner = min(eligible, key=lambda row: (
         row["false_reject"], row["false_accept"], -row["mrr"], row["p95_ms"],
@@ -100,7 +117,7 @@ def compare(reports):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("reports", nargs=3, type=Path, metavar="REPORT")
+    parser.add_argument("reports", nargs="+", type=Path, metavar="REPORT")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args(argv)
     result = compare([load_report(path) for path in args.reports])

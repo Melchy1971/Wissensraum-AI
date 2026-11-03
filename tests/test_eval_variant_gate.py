@@ -58,6 +58,38 @@ class VariantGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "incomplete vectors"):
             variant_gate.compare(reports)
 
+    def test_optimised_variant_on_the_same_freeze_can_win(self):
+        reports = [self.report(name, false_accept=2, true_reject=22) for name in "ABC"]
+        optimised = self.report("B2", false_reject=3, true_accept=63)
+        optimised["code_commit"] = "93717753"
+        result = variant_gate.compare(reports + [optimised])
+        self.assertEqual((result["winner"], result["gate_passed"]), ("B2", True))
+        row = next(row for row in result["variants"] if row["variant"] == "B2")
+        self.assertEqual(row["code_commit"], "93717753")
+        with self.assertRaisesRegex(ValueError, "every variant once"):
+            variant_gate.compare(reports + [optimised, dict(optimised)])
+        with self.assertRaisesRegex(ValueError, "A, B and C"):
+            variant_gate.compare(reports[:2] + [optimised])
+
+    def test_load_requires_code_commit_for_optimised_variants(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "b2.json"
+            report = self.report("B2")
+            path.write_text(json.dumps(report), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "code_commit"):
+                variant_gate.load_report(path)
+            report["code_commit"] = "not a commit"
+            path.write_text(json.dumps(report), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "invalid code_commit"):
+                variant_gate.load_report(path)
+            report["code_commit"] = "93717753"
+            path.write_text(json.dumps(report), encoding="utf-8")
+            self.assertEqual(variant_gate.load_report(path)["variant"], "B2")
+            report["variant"] = "b2; rm"
+            path.write_text(json.dumps(report), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "identity"):
+                variant_gate.load_report(path)
+
     def test_load_rejects_bad_counts_and_non_monotonic_recall(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "a.json"
