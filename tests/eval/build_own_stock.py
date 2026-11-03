@@ -187,12 +187,12 @@ def import_all(store, entries):
     if not entries:
         return 0, [], []
     jobs = ImportJobs(store)
-    by_path = {str(path): ref for path, _, ref in entries}
+    by_path = {canonical_path(path): ref for path, _, ref in entries}
     job = jobs.create_selection('files', '', [(path, locator) for path, locator, _ in entries])
     jobs.run(job)
     imported, duplicates, failed = 0, [], []
     for item in jobs.items(job):
-        ref = by_path[item['path']]
+        ref = by_path[canonical_path(item['path'])]
         if item['status'] in ('imported', 'versioned'):
             imported += 1
         elif item['status'] == 'duplicate':
