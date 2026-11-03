@@ -199,7 +199,7 @@ def as_sources(retrieval):
 
 CONTEXT_SECTIONS = 10  # sections in one AI request
 NEIGHBOR_DOCUMENTS = 3  # only the three best documents get a neighbouring section
-ALTERNATE_DOCUMENTS = 3  # the three best documents also get the best section of the other search list
+ALTERNATE_DOCUMENTS = 1  # the best document also gets the best section of the other search list (step 7.4)
 NARROW_DOCUMENTS, NARROW_SECTIONS = 3, 6  # second evidence pass after a refusal
 CONTEXT_CHARS = 14400  # without a caller's budget: eight full sections of 1,800 characters
 
@@ -217,41 +217,36 @@ def word_coverage(question, text):
 
 
 def answer_context(retrieval, store, question, fits=None, limit=CONTEXT_SECTIONS, neighbors=NEIGHBOR_DOCUMENTS,
-                   alternates=ALTERNATE_DOCUMENTS):
-    """The passages for ``AI.ask``: the hits of step 7.3, alternate and neighbouring sections of the best documents.
+                   alternates=ALTERNATE_DOCUMENTS, wide_fits=None):
+    """The passages for ``AI.ask``: the hits of step 7.3, neighbouring and alternate sections of the best documents.
 
-    The document ranking stays as it is. First the passages of the ``alternates`` best documents,
-    then, for each of them, the best section of the other search list if it differs
-    (``Retrieval.alternates``, step 7.4), then the passages of the remaining hit documents, each
-    while ``fits`` accepts the selection (the AI adapter checks its context window, default:
-    14,400 characters). Then, for the ``neighbors`` best documents, at most one more section: of the
+    The document ranking stays as it is. First the best passage of every hit document while
+    ``fits`` accepts the selection (the AI adapter checks its context window, default: 14,400
+    characters). Then, for the ``neighbors`` best documents, at most one more section: of the
     sections directly before and after the hit, the one sharing more of the question's words;
-    none if it shares none. A section already chosen, or one whose text equals or is contained in
-    a chosen one, is dropped. At most ``limit`` sections. Sections of a document stay together in
-    reading order, documents keep their rank, so the labels Q1, Q2, ... follow from the retrieval
-    result and each one names exactly one chunk.
+    none if it shares none. Last, for the ``alternates`` best documents, the best section of the
+    other search list if it differs from the hit (``Retrieval.alternates``, step 7.4), while
+    ``wide_fits`` accepts it (default: ``fits``). Hits and neighbours are therefore chosen exactly
+    as without alternates, and an alternate never pushes out a hit document: it only uses the room
+    the wider answer window adds. A section already chosen, or one whose text equals or is
+    contained in a chosen one, is dropped. At most ``limit`` sections. Sections of a document stay
+    together in reading order, documents keep their rank, so the labels Q1, Q2, ... follow from
+    the retrieval result and each one names exactly one chunk.
     """
     fits = fits or _within(CONTEXT_CHARS)
+    wide_fits = wide_fits or fits
     hits = as_sources(retrieval)
     chosen = []
 
-    def add(source):
+    def add(source, check=fits):
         text = ' '.join(source['content'].split())
-        if (len(chosen) >= limit or not fits(chosen + [source])
+        if (len(chosen) >= limit or not check(chosen + [source])
                 or any(source['chunk_id'] == other['chunk_id'] or text in ' '.join(other['content'].split())
                        for other in chosen)):
             return False
         chosen.append(source)
         return True
-    for hit in hits[:alternates]:
-        add(hit)
-    for hit in [hit for hit in hits[:alternates] if hit in chosen]:
-        other = getattr(retrieval, 'alternates', {}).get(hit['document_id'])
-        if other:
-            add({'chunk_id': other['chunk_id'], 'document_id': hit['document_id'], 'title': hit['title'],
-                 'category': hit['category'], 'ordinal': other['ordinal'], 'content': other['content'],
-                 'alternate_of': hit['chunk_id']})
-    for hit in hits[alternates:]:
+    for hit in hits:
         add(hit)
     for hit in [hit for hit in hits if hit in chosen][:neighbors]:
         rows = [row for row in store.adjacent_chunks(hit['document_id'], hit['ordinal'])
@@ -261,6 +256,12 @@ def answer_context(retrieval, store, question, fits=None, limit=CONTEXT_SECTIONS
             add({'chunk_id': scored[0]['chunk_id'], 'document_id': hit['document_id'], 'title': hit['title'],
                  'category': hit['category'], 'ordinal': scored[0]['ordinal'], 'content': scored[0]['content'],
                  'neighbor_of': hit['chunk_id']})
+    for hit in [hit for hit in hits if hit in chosen][:alternates]:
+        other = getattr(retrieval, 'alternates', {}).get(hit['document_id'])
+        if other:
+            add({'chunk_id': other['chunk_id'], 'document_id': hit['document_id'], 'title': hit['title'],
+                 'category': hit['category'], 'ordinal': other['ordinal'], 'content': other['content'],
+                 'alternate_of': hit['chunk_id']}, wide_fits)
     rank = {hit['document_id']: number for number, hit in enumerate(hits)}
     return sorted(chosen, key=lambda source: (rank[source['document_id']], source['ordinal']))
 

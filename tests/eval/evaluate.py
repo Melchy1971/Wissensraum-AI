@@ -134,7 +134,7 @@ def evidence_outcomes(store, questions, question_vector, model, ai=None, name=la
     the expected source (documents, full-text and vector candidates), passed sections, error class,
     duration, model calls and prompt tokens.
     """
-    from core import ProviderError
+    from core import OLLAMA_HIT_CONTEXT, ProviderError
     from evidence import INSUFFICIENT, InvalidCitation, assess
     from retrieval import (CANDIDATE_LIMIT, HYBRID, STATUS_HYBRID, Retrieval, alternate_passages, answer_context,
                            rrf)
@@ -170,7 +170,8 @@ def evidence_outcomes(store, questions, question_vector, model, ai=None, name=la
             if status == 'answered' and assessment.state == 'weak':
                 status = 'weak_answer'
             sources = sources or answer_context(retrieval, store, item['question'],
-                                                ai.fits(item['question'], assessment.state))
+                                                ai.fits(item['question'], assessment.state, OLLAMA_HIT_CONTEXT),
+                                                wide_fits=ai.fits(item['question'], assessment.state))
             entry.update(status=status, seconds=round(time.perf_counter() - started, 2), second_pass=second,
                          cited=[name(sources[number - 1]['document_id']) for number in cited],
                          cited_chunks=[sources[number - 1]['chunk_id'] for number in cited],
