@@ -25,6 +25,8 @@
 
 **Nachweise:** Neuer gemeinsamer Vertrag `check_chunking_contract` (SQLite und PostgreSQL), Tests für Dokumenttyp, E-Mail-Quellen, CLI `chunking`, Fundstelle, CLI `search` und die Oberfläche. Lokales Matrix-Gate an `b0b41de`: 7 von 7 grün. Windows 3.11, 3.12, 3.13 je 598 Tests bestanden, 31 übersprungen (windows-3.11 mit 5 wiederholten Tests nach WinError 145 beim Aufräumen); Linux 3.11, 3.12, 3.13 je 598 bestanden, 27 übersprungen; PostgreSQL 18.6 27 von 27. GitHub Actions für PR #7: 14 von 14 Checks grün.
 
+**Nächster Schritt (Entscheidung Product Owner 05.11.2026):** Die Reihenfolge des Masterplans gilt: zuerst Release 2.2 (Phase 8A Wissensorganisation), dann 2.3, 2.4 und 3.0; Release 3.1 (VPS, Docker, PostgreSQL mit pgvector, Reverse Proxy und TLS, eigene Domain, Authentifizierung und Rollen, Backup und Wiederherstellung, Monitoring, Deployment und Rollback) beginnt erst nach dem Sicherheits- und Mehrbenutzer-Gate von 3.0. Als Nächstes werden Teilschritte und Gates von Phase 8A geplant und vom Product Owner freigegeben.
+
 **Status:** Beide Muss-Punkte ✅. Der Product Owner hat das Abnahmekriterium „mindestens 95 % der beantworteten Testfragen enthalten die erwartete Hauptquelle“ auch für Release 2.1 gestrichen (D-021, gemessen 54 von 63, 86 %). Alle übrigen Abnahmekriterien von Phase 7 sind erfüllt. Phase 7 ✅, **Release 2.1 freigegeben am 05.11.2026**.
 
 ## Aktualisierung 03.11.2026 (Abend) – Phase 7, Schritt 7.4 Quellenabsicherung abgeschlossen ✅
@@ -1239,7 +1241,7 @@ Release **2.0.1 – Soll-Umfang der Importplattform** (D-013: weitere Formate, R
 Release **3.1 – VPS-Webanwendung und eigene Domain** ist beschlossen, beginnt aber erst nach dem Sicherheits- und Mehrbenutzer-Gate von Release 3.0. Die Reihenfolge lautet:
 
 1. Release 2.0.1: Soll-Umfang der Importplattform (D-013) ✅ 26.10.2026
-2. Release 2.1: Hybrid-RAG und messbare Antwortqualität
+2. Release 2.1: Hybrid-RAG und messbare Antwortqualität ✅ 05.11.2026 (Tag `v2.1`)
 3. Release 2.2 und 2.3: Wissensorganisation und Wissensgraph nach fachlicher Priorisierung
 4. Release 2.4: Betrieb und Governance
 5. Release 3.0: Authentifizierung, Rollen, sichere Sitzungen, Auditierung und serverfähiges Bedrohungsmodell
