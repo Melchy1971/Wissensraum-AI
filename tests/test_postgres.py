@@ -186,7 +186,7 @@ class PostgresStoreTests(unittest.TestCase):
         store = PostgresStore(self.profile, self.password)
         with store.connect() as db:
             self.assertEqual([row['version'] for row in db.execute(
-                'SELECT version FROM schema_migrations ORDER BY version')], list(range(1, 15)))
+                'SELECT version FROM schema_migrations ORDER BY version')], list(range(1, 16)))
             old = db.execute("""SELECT -ts_rank_cd(to_tsvector('simple',d.title || ' ' || d.category || ' ' || c.content),
                                 websearch_to_tsquery('simple','Wartung OR Haus')) AS rank
                                 FROM chunks c JOIN documents d ON d.id=c.document_id""").fetchone()['rank']
@@ -433,6 +433,10 @@ class PostgresStoreTests(unittest.TestCase):
         from test_metadata import check_metadata_contract
         check_metadata_contract(self, PostgresStore(self.profile, self.password))
 
+    def test_relations_on_real_postgresql(self):
+        from test_relations import check_relations_contract
+        check_relations_contract(self, PostgresStore(self.profile, self.password))
+
     def test_organization_on_real_postgresql(self):
         from test_organization import check_organization_contract
         check_organization_contract(self, PostgresStore(self.profile, self.password))
@@ -643,7 +647,8 @@ class PostgresStoreTests(unittest.TestCase):
         reset = DatabaseSettings(Path.cwd(), vault, environ={}).reset_postgresql(
             self.profile, self.password, self.profile['database'])
         self.assertEqual(reset['tables'], [
-            'ai_runs', 'chunk_vectors', 'chunks', 'collection_documents', 'collections', 'document_tags',
+            'ai_runs', 'chunk_vectors', 'chunks', 'collection_documents', 'collections', 'document_relations',
+            'document_tags',
             'document_versions', 'documents', 'email_accounts', 'email_attachments', 'email_imports', 'favorites',
             'import_item_errors', 'import_items', 'import_jobs', 'metadata_changes', 'rule_run_changes',
             'rule_runs', 'rules', 'saved_searches',

@@ -172,6 +172,27 @@ SQLITE_HISTORICAL_MIGRATIONS = (
         "ALTER TABLE documents ADD COLUMN owner TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE documents ADD COLUMN review_date TEXT",
     )),
+    (14, (
+        """CREATE TABLE collections (
+            id INTEGER PRIMARY KEY, name TEXT NOT NULL, normalized TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE collection_documents (
+            collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+            document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(collection_id, document_id)
+        )""",
+        """CREATE TABLE favorites (
+            document_id INTEGER PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE saved_searches (
+            id INTEGER PRIMARY KEY, name TEXT NOT NULL, normalized TEXT NOT NULL UNIQUE,
+            query TEXT NOT NULL, mode TEXT, tag TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+    )),
 )
 
 
@@ -326,7 +347,8 @@ class FakePostgres:
                        'email_imports', 'sources', 'import_jobs', 'import_items',
                        'import_item_errors', 'document_versions', 'email_attachments',
                        'tags', 'document_tags', 'rules', 'rule_runs', 'rule_run_changes',
-                       'chunk_vectors', 'metadata_changes', 'collections', 'collection_documents', 'favorites', 'saved_searches'}
+                       'chunk_vectors', 'metadata_changes', 'collections', 'collection_documents', 'favorites', 'saved_searches',
+                       'document_relations'}
         return tables
 
 
@@ -405,6 +427,8 @@ class SQLiteMigrationTests(unittest.TestCase):
                     # Migration 14 adds empty collections, favorites and saved searches.
                     for table in ('collections', 'collection_documents', 'favorites', 'saved_searches'):
                         self.assertEqual(db.execute(f'SELECT count(*) FROM {table}').fetchone()[0], 0)
+                    # Migration 15 adds an empty relation table.
+                    self.assertEqual(db.execute('SELECT count(*) FROM document_relations').fetchone()[0], 0)
 
     def test_historical_fixtures_do_not_depend_on_runtime_migrations(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -707,7 +731,8 @@ class PostgresMigrationTests(unittest.TestCase):
               if table.startswith('import_') or table in ('document_versions', 'email_attachments', 'tags',
                                                           'document_tags', 'rules', 'rule_runs',
                                                           'rule_run_changes', 'chunk_vectors',
-                                                          'metadata_changes', 'collections', 'collection_documents', 'favorites', 'saved_searches')),
+                                                          'metadata_changes', 'collections', 'collection_documents', 'favorites', 'saved_searches',
+                                                          'document_relations')),
         ]
         indexes = [
             {'table_name':'chunks','index_name':'chunks_document_id_idx','index_definition':'CREATE INDEX chunks_document_id_idx ON wissensraum.chunks USING btree (document_id)'},

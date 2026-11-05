@@ -125,6 +125,11 @@ ALL_DOCUMENTS = 'alle Dokumente'
 FAVORITES = '★ Favoriten'
 NO_SAVED_SEARCH = 'gespeicherte Suchen'
 LIST_COLUMNS = ('title','category','tags')
+# Relation kind and direction as shown in the dialog (step 8A.4).
+RELATION_LABELS = {('references','out'):'verweist auf',('references','in'):'wird verwiesen von',
+                   ('supersedes','out'):'ersetzt',('supersedes','in'):'ersetzt durch',
+                   ('related','both'):'gehört zu'}
+RELATION_CHOICES = {'verweist auf':'references','ersetzt':'supersedes','gehört zu':'related'}
 STATUS_LABELS = {'new':'neu','reviewed':'geprüft','outdated':'veraltet','archived':'archiviert'}
 SEARCH_COLUMNS = ('title','section','hit','score')
 
@@ -269,6 +274,7 @@ class App(tk.Tk if tk is not None else object):
         row.pack(fill='x',padx=(14,0),pady=(0,8))
         for label,command in [('Zusammenfassen',self.summarize),('Metadaten',self.edit_metadata),
                               ('Favorit',self.toggle_favorite),('Sammlungen',self.edit_collections),
+                              ('Beziehungen',self.edit_relations),
                               ('Versionen',self.show_versions),
                               ('Original exportieren',self.export),('Löschen',self.delete)]:
             b = ttk.Button(row,text=label,command=command)
@@ -640,7 +646,7 @@ class App(tk.Tk if tk is not None else object):
                                 ('new','Nachher',170),('origin','Herkunft',90)]:
             tree.heading(col,text=title); tree.column(col,width=width)
         labels={'title':'Titel','category':'Bereich','tag':'Tag','status':'Status','owner':'Verantwortlich',
-                'review_date':'Wiedervorlage'}
+                'review_date':'Wiedervorlage','relation':'Beziehung'}
         def shown(row,key):
             value=row[key]
             return STATUS_LABELS.get(value,value) if row['field']=='status' else value
@@ -676,6 +682,61 @@ class App(tk.Tk if tk is not None else object):
         window.metadata_fields=fields; window.metadata_save=save; window.metadata_tree=tree
         return window
 
+    def edit_relations(self):
+        """Relations of the selected document to others: add, remove, open (step 8A.4)."""
+        doc_id=self.selected()
+        window=tk.Toplevel(self)
+        window.title('Beziehungen')
+        window.geometry('760x520')
+        window.transient(self)
+        ttk.Label(window,text='Beziehungen',font=('Segoe UI',18,'bold'),padding=(18,16,18,0)).pack(anchor='w')
+        ttk.Label(window,text='Beziehungen ändern kein Dokument. Jede Änderung steht im Metadatenverlauf.',
+                  padding=(18,5,18,10)).pack(anchor='w')
+        tree=ttk.Treeview(window,columns=('kind','other','note'),show='headings',height=10)
+        for col,title,width in [('kind','Art',150),('other','Dokument',300),('note','Notiz',240)]:
+            tree.heading(col,text=title); tree.column(col,width=width)
+        tree.pack(fill='both',expand=True,padx=18)
+        rows={}
+        def show():
+            rows.clear(); tree.delete(*tree.get_children())
+            for row in self.store.relations(doc_id):
+                rows[str(row['id'])]=row
+                tree.insert('','end',iid=str(row['id']),values=(RELATION_LABELS[(row['kind'],row['direction'])],
+                                                                f'{row["other_title"]} (#{row["other_id"]})',row['note']))
+        form=ttk.Frame(window,padding=(18,10,18,0)); form.pack(fill='x')
+        kind=tk.StringVar(value='verweist auf'); target=tk.StringVar(); note=tk.StringVar()
+        documents={f'{row["title"]} (#{row["id"]})':row['id'] for row in self.store.list() if row['id']!=doc_id}
+        ttk.Combobox(form,textvariable=kind,values=list(RELATION_CHOICES),state='readonly',width=16).pack(side='left')
+        ttk.Combobox(form,textvariable=target,values=list(documents),state='readonly',width=40).pack(side='left',padx=(8,0))
+        ttk.Entry(form,textvariable=note,width=24).pack(side='left',padx=(8,0),fill='x',expand=True)
+        def add():
+            try:
+                if target.get() not in documents:
+                    raise ValueError('Zuerst ein Zieldokument wählen.')
+                self.store.relate(doc_id,documents[target.get()],RELATION_CHOICES[kind.get()],note.get())
+            except ValueError as error:
+                messagebox.showerror('Beziehungen',str(error),parent=window)
+                return
+            note.set(''); show()
+        def remove():
+            for iid in tree.selection():
+                self.store.unrelate(int(iid))
+            show()
+        def open_other():
+            if tree.selection():
+                other=str(rows[tree.selection()[0]]['other_id'])
+                self.clear_search()
+                if self.tree.exists(other):
+                    self.tree.selection_set(other); self.tree.see(other)
+        buttons=ttk.Frame(window,padding=(18,10,18,16)); buttons.pack(fill='x')
+        ttk.Button(buttons,text='Hinzufügen',command=add,style='Accent.TButton').pack(side='left')
+        ttk.Button(buttons,text='Markierte entfernen',command=remove).pack(side='left',padx=(8,0))
+        ttk.Button(buttons,text='Dokument öffnen',command=open_other).pack(side='left',padx=(8,0))
+        show()
+        window.relation_tree=tree; window.relation_fields=(kind,target,note); window.relation_add=add
+        window.relation_remove=remove; window.relation_open=open_other
+        return window
+
     def show_versions(self):
         doc_id=self.selected()
         versions=self.store.versions(doc_id)
@@ -684,21 +745,39 @@ class App(tk.Tk if tk is not None else object):
         window.geometry('900x560')
         window.transient(self)
         ttk.Label(window,text='Versionen',font=('Segoe UI',18,'bold'),padding=(18,16,18,0)).pack(anchor='w')
-        ttk.Label(window,text='Neueste zuerst. Suche und Fragen verwenden nur die aktuelle Version.',
+        ttk.Label(window,text='Neueste zuerst. Suche und Fragen verwenden nur die aktuelle Version. '
+                             'Zwei markierte Versionen lassen sich vergleichen (Strg+Klick).',
                   padding=(18,5,18,10)).pack(anchor='w')
         body=ttk.Panedwindow(window,orient='horizontal'); body.pack(fill='both',expand=True,padx=18,pady=(0,16))
-        tree=ttk.Treeview(body,columns=('version','created','title'),show='headings',selectmode='browse')
+        tree=ttk.Treeview(body,columns=('version','created','title'),show='headings',selectmode='extended')
         for col,title,width in [('version','Version',70),('created','Erfasst (UTC)',150),('title','Titel',200)]:
             tree.heading(col,text=title); tree.column(col,width=width)
         text=ScrolledText(body,wrap='word',font=('Segoe UI',11),padx=12,pady=10)
+        text.tag_configure('added',foreground='#1d6b2f'); text.tag_configure('removed',foreground='#a3262a')
         body.add(tree,weight=2); body.add(text,weight=3)
         for row in versions:
             tree.insert('','end',iid=str(row['id']),values=(row['version'],row['created_at'],row['title']))
         def show(_=None):
-            if tree.selection():
+            if len(tree.selection())==1:
                 self.write(text,self.store.get(int(tree.selection()[0]))['content'])
+        def compare():
+            chosen=sorted(tree.selection(),key=lambda iid:int(tree.set(iid,'version')))
+            if len(chosen)!=2:
+                messagebox.showerror('Versionen','Genau zwei Versionen markieren.',parent=window)
+                return
+            result=self.store.compare(int(chosen[0]),int(chosen[1]))
+            old,new=(tree.set(iid,'version') for iid in chosen)
+            head=(f'Version {old} → Version {new}: identisch\n' if result['identical'] else
+                  f'Version {old} → Version {new}: {result["added"]} Zeilen hinzugefügt, '
+                  f'{result["removed"]} entfernt'+(' (gekürzt)' if result['truncated'] else '')+'\n\n')
+            text.configure(state='normal'); text.delete('1.0','end'); text.insert('end',head)
+            for line in result['diff'][2:]:
+                text.insert('end',line+'\n','added' if line.startswith('+') else 'removed' if line.startswith('-') else ())
+            text.configure(state='disabled')
         tree.bind('<<TreeviewSelect>>',show)
-        window.version_tree=tree; window.version_text=text
+        ttk.Button(window,text='Markierte vergleichen',command=compare).pack(anchor='w',padx=18,pady=(0,12),
+                                                                       before=body)
+        window.version_tree=tree; window.version_text=text; window.version_compare=compare
         if versions:
             tree.selection_set(str(doc_id) if tree.exists(str(doc_id)) else tree.get_children()[0])
             show()

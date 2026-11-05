@@ -82,6 +82,7 @@ Grenzen: 50 MB lokale Originaldatei und je E-Mail-Anhang, Dateiinhalt passend zu
 | `collections`, `collection_documents` | Sammlungen mit eindeutigem Namen (ohne Rücksicht auf Groß- und Kleinschreibung) und ihre Dokumente; ein Dokument kann in mehreren Sammlungen liegen (Schema 14) |
 | `favorites` | Als Favorit markierte Dokumente (Schema 14) |
 | `saved_searches` | Gespeicherte Suchen mit Name, Suchbegriff, optionalem Suchmodus und Tag (Schema 14) |
+| `document_relations` | Beziehungen zwischen zwei Dokumenten: verweist auf, ersetzt, gehört zu (ohne Richtung), mit Notiz; jede Art je Paar höchstens einmal, wird mit einem der beiden Dokumente gelöscht (Schema 15) |
 
 `schema.sql` dokumentiert das SQLite-Schema. Die ausführbare Schema-Historie liegt in den geordneten, versionierten SQLite- und PostgreSQL-Migrationen in `migrations.py`. SQLite speichert die Version in `PRAGMA user_version`, PostgreSQL in `wissensraum.schema_migrations`. Beide Backends haben denselben fachlichen Speicherumfang, verwenden aber unterschiedliche Volltexttechnik. SQL-Werte werden parametrisiert gebunden. KI-Ausgaben werden niemals als SQL oder Programmcode ausgeführt.
 
@@ -324,6 +325,10 @@ Der Dialog **Metadaten** enthält zusätzlich Status (neu, geprüft, veraltet, a
 ### Sammlungen, Favoriten und gespeicherte Suchen (Release 2.2, Schritt 8A.3)
 
 In „Dokumente & Suche“ markiert **Favorit** das ausgewählte Dokument oder hebt die Markierung auf. **Sammlungen** zeigt alle Sammlungen, markiert sind die, die das Dokument enthalten; **Übernehmen** speichert die Auswahl, **Neue Sammlung** legt eine an, **Markierte löschen** entfernt Sammlungen nach Rückfrage, die Dokumente bleiben erhalten. Das Auswahlfeld neben dem Tag-Filter beschränkt Liste und Suche auf alle Dokumente, die Favoriten oder eine Sammlung. **Suche speichern** legt Suchbegriff und Tag unter einem Namen ab, ein gleicher Name ersetzt die alte Suche; das Feld „gespeicherte Suchen“ führt sie erneut aus. Keine dieser Funktionen verändert ein Dokument; ein gelöschtes Dokument verschwindet aus allen Sammlungen und Favoriten. CLI: `collections`, `collection-create <name>`, `collection-rename <id> <name>`, `collection-delete <id>`, `collection-add <id> <dokument-ids…>`, `collection-remove <id> <dokument-ids…>`, `favorite <id> [--remove]`, `list --collection <id>` bzw. `list --favorites`, `searches`, `search-save <name> <suchbegriff> [--mode …] [--tag …]`, `search-delete <id>`. Schema 14 legt die vier leeren Tabellen an.
+
+### Beziehungen und Vergleich zweier Fassungen (Release 2.2, Schritt 8A.4)
+
+**Beziehungen** zeigt für das ausgewählte Dokument alle Verbindungen zu anderen Dokumenten aus seiner Sicht: verweist auf, wird verwiesen von, ersetzt, ersetzt durch, gehört zu. Art, Zieldokument und eine kurze Notiz wählen und **Hinzufügen**; **Markierte entfernen** löst Verbindungen, **Dokument öffnen** springt zum anderen Dokument. Ein Dokument lässt sich nicht mit sich selbst verbinden, dieselbe Art je Paar gibt es nur einmal. Hinzufügen und Entfernen stehen im Metadatenverlauf des Ausgangsdokuments; Inhalt und Original bleiben unverändert. Im Dialog **Versionen** vergleicht **Markierte vergleichen** zwei markierte Versionen zeilenweise, ältere zuerst: entfernte Zeilen rot mit `-`, hinzugefügte grün mit `+`, die Ausgabe ist auf 2.000 Zeilen begrenzt. CLI: `relate <quelle> <ziel> --kind references|supersedes|related [--note …]`, `relations <id>`, `unrelate <beziehungs-id>`, `compare <alt> <neu>` (vergleicht beliebige zwei Dokumente). Schema 15 legt die leere Tabelle `document_relations` an.
 
 ### Postfachsynchronisation (Release 2.0.1, Schritt S3)
 

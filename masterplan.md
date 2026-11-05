@@ -36,13 +36,23 @@
 
 **Status:** 8A.2 ✅. Der Recall auf V2 ist strukturell begründet, nicht mit Ollama gemessen.
 
-## Aktualisierung 05.11.2026 (Abend) – Phase 8A, Schritt 8A.3 Sammlungen, Favoriten, gespeicherte Suchen 🟡
+## Aktualisierung 05.11.2026 (Abend) – Phase 8A, Schritt 8A.3 Sammlungen, Favoriten, gespeicherte Suchen ✅
 
 **Umfang:** Schema 14 mit den Tabellen `collections` (Name eindeutig ohne Rücksicht auf Groß- und Kleinschreibung), `collection_documents`, `favorites` und `saved_searches` (Name, Suchbegriff, optionaler Modus und Tag), Migration für SQLite mit geprüfter Sicherung und für PostgreSQL unter Advisory Lock, Kataloge und `schema.sql` angepasst. `Organization` (beide Backends) legt Sammlungen an, benennt sie um, löscht sie, nimmt Dokumente auf und entfernt sie, markiert Favoriten und speichert Suchen. `list` filtert nach Sammlung und Favoriten. Oberfläche: Auswahlfeld für alle Dokumente, Favoriten und Sammlungen (auch für die Suche), gespeicherte Suchen, Schaltflächen „Favorit“ und „Sammlungen“, Detailansicht mit Favorit und Sammlungen. CLI: `collections`, `collection-*`, `favorite`, `list --collection/--favorites`, `searches`, `search-save`, `search-delete`.
 
 **Nachweise:** Gemeinsamer Vertrag `check_organization_contract` (SQLite und PostgreSQL): Namensregeln und Eindeutigkeit, Aufnahme ohne Doppelungen, unbekannte Dokumente und Sammlungen abgelehnt, Filter nach Sammlung und Favoriten, Ersetzen einer gespeicherten Suche gleichen Namens, ungültige Suchen abgelehnt, Dokumente unverändert, Löschen eines Dokuments entfernt es aus Sammlungen und Favoriten, Löschen einer Sammlung lässt Dokumente bestehen. Dazu CLI- und Oberflächentest, Migrations- und Diagnosetests auf Schema 14.
 
-**Status:** 8A.3 🟡 bis Matrix-Gate 7 von 7 und GitHub-CI grün.
+**Gate:** Lokales Matrix-Gate an `10253b7`: 7 von 7 (`local-ci-gate-10253b7.md`). Windows 3.11, 3.12, 3.13 je 609 Tests bestanden, 34 übersprungen (windows-3.11 mit 13 wiederholten Tests nach Dateisperren des Virenscanners); Linux 3.11, 3.12, 3.13 je 609 bestanden, 30 übersprungen; PostgreSQL 18.6 30 von 30. GitHub Actions für PR #10: 14 von 14 grün.
+
+**Status:** 8A.3 ✅.
+
+## Aktualisierung 05.11.2026 (Abend) – Phase 8A, Schritt 8A.4 Beziehungen und Fassungsvergleich 🟡
+
+**Umfang:** Schema 15 mit der Tabelle `document_relations` (Quelle, Ziel, Art `references`, `supersedes` oder `related`, Notiz; je Paar und Art eindeutig, `related` ohne Richtung mit der kleineren Kennung als Quelle), Migration für SQLite mit geprüfter Sicherung und für PostgreSQL unter Advisory Lock, Kataloge und `schema.sql` angepasst. `Relations` (beide Backends): `relate`, `unrelate`, `relations` aus Sicht eines Dokuments, `compare` als zeilenweiser Vergleich zweier Dokumente (difflib, höchstens 2.000 Zeilen). Anlegen und Entfernen einer Beziehung stehen im Metadatenverlauf (`relation`). Oberfläche: Dialog „Beziehungen“; im Dialog „Versionen“ Vergleich zweier markierter Versionen mit farbigen Zeilen. CLI: `relate`, `unrelate`, `relations`, `compare`.
+
+**Nachweise:** Gemeinsamer Vertrag `check_relations_contract` (SQLite und PostgreSQL): Richtung je Art, Notiz normalisiert, doppelte und ungültige Beziehungen abgelehnt (auch Selbstbezug und unbekanntes Dokument), Verlauf bei Anlegen und Entfernen, Dokumente unverändert, Löschen eines Dokuments entfernt seine Beziehungen, Vergleich zweier Versionen mit Zählung und identischer Fassung. Dazu Test der Begrenzung, CLI- und Oberflächentests, Migrations- und Diagnosetests auf Schema 15.
+
+**Status:** 8A.4 🟡 bis Matrix-Gate 7 von 7 und GitHub-CI grün.
 
 ## Aktualisierung 05.11.2026 – Phase 7 abgeschlossen, Release 2.1 freigegeben ✅
 
@@ -644,7 +654,7 @@ Die Phasen werden in der angegebenen Reihenfolge getestet. Eine Phase wird erst 
 | 5 | Release 1.9 Betriebsfähigkeit | ✅ | freigegeben 23.10.2026 |
 | 6 | Release 2.0 Importplattform | ✅ | freigegeben 23.10.2026, in vier Teilschritten (D-010); 6.1 ✅ (23.10.2026, CI [39925457254](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39925457254) auf `ca5bce6`), 6.2 ✅ (23.10.2026, CI [39932577799](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39932577799) auf `4cdb50e`), 6.3a ✅ (23.10.2026, CI [39942033441](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39942033441) auf `e36be53`), 6.3 ✅ (6.3b 23.10.2026, CI [39976859099](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39976859099) auf `e4d1f95`), alle vier Teilschritte ✅ (6.4 24.10.2026, CI [40097227667](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40097227667) auf `d05ef87`); abgenommen 26.10.2026 durch den Product Owner mit eigenen Daten; Soll-Umfang folgt als Release 2.0.1 (D-013), S1 in Arbeit |
 | 7 | Release 2.1 Hybrid-RAG | ✅ freigegeben 05.11.2026 (D-021) | nach Phase 6 |
-| 8 | Wissensorganisation und Wissensgraph | 🟡 8A.1 ✅, 8A.2 ✅, 8A.3 🟡 | nach Phase 7 |
+| 8 | Wissensorganisation und Wissensgraph | 🟡 8A.1 ✅, 8A.2 ✅, 8A.3 ✅, 8A.4 🟡 | nach Phase 7 |
 | 9 | Betrieb und Governance | ⬜ | nach Phase 8 |
 | 10 | Release 3.0 Sicherheitskern und Mehrbenutzerbetrieb | ⬜ | separates Architektur- und Sicherheits-Gate |
 | 11 | Release 3.1 VPS-Webanwendung und eigene Domain | ⬜ | erst nach Phase 10; öffentliche Bereitstellung nur mit vollständigem Sicherheits- und Betriebs-Gate |
@@ -936,7 +946,7 @@ Frühere Zwischenstände: Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33
 
 **Umfang:**
 
-- Tags, Sammlungen, Favoriten und gespeicherte Suchen
+- Tags, Sammlungen, Favoriten und gespeicherte Suchen ✅ 8A.3 (`10253b7`)
 - Dokumentstatus: neu, geprüft, veraltet, archiviert ✅ 8A.2 (`046efaa`)
 - Verantwortlicher und Wiedervorlagedatum ✅ 8A.2 (`046efaa`)
 - Beziehungen zwischen Dokumenten
