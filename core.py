@@ -171,6 +171,125 @@ class DocumentMetadata:
             return rules.history(db, doc_id)
 
 
+MAX_COLLECTION_NAME = 100
+MAX_SAVED_QUERY = 500
+SEARCH_MODES = ('fulltext', 'vector', 'hybrid')
+
+
+def _name(value, what):
+    name = ' '.join(str(value).split())
+    if not name or len(name) > MAX_COLLECTION_NAME:
+        raise ValueError(f'{what} muss 1 bis {MAX_COLLECTION_NAME} Zeichen haben.')
+    return name, name.casefold()
+
+
+class Organization:
+    """Collections, favorites and saved searches (Release 2.2, step 8A.3), shared by both backends.
+
+    None of them changes a document; deleting a document removes it from every collection and from
+    the favorites, deleting a collection leaves its documents untouched.
+    """
+
+    def collections(self):
+        with self.connect() as db:
+            return [dict(row) for row in db.execute(
+                'SELECT c.id,c.name,(SELECT count(*) FROM collection_documents cd WHERE cd.collection_id=c.id) '
+                'AS documents FROM collections c ORDER BY c.normalized,c.id')]
+
+    def create_collection(self, name):
+        name, normalized = _name(name, 'Name der Sammlung')
+        with self.connect() as db:
+            if db.execute('SELECT 1 FROM collections WHERE normalized=?', (normalized,)).fetchone():
+                raise ValueError('Eine Sammlung mit diesem Namen gibt es schon.')
+            return db.execute('INSERT INTO collections(name,normalized) VALUES(?,?) RETURNING id',
+                              (name, normalized)).fetchone()['id']
+
+    def rename_collection(self, collection_id, name):
+        name, normalized = _name(name, 'Name der Sammlung')
+        with self.connect() as db:
+            self._collection(db, collection_id)
+            if db.execute('SELECT 1 FROM collections WHERE normalized=? AND id<>?',
+                          (normalized, collection_id)).fetchone():
+                raise ValueError('Eine Sammlung mit diesem Namen gibt es schon.')
+            db.execute('UPDATE collections SET name=?,normalized=? WHERE id=?', (name, normalized, collection_id))
+
+    def delete_collection(self, collection_id):
+        with self.connect() as db:
+            self._collection(db, collection_id)
+            db.execute('DELETE FROM collections WHERE id=?', (collection_id,))
+
+    def add_to_collection(self, collection_id, document_ids):
+        """Add documents; already contained ones are skipped. Returns the number added."""
+        with self.connect() as db:
+            self._collection(db, collection_id)
+            added = 0
+            for doc_id in dict.fromkeys(int(doc_id) for doc_id in document_ids):
+                if not db.execute('SELECT 1 FROM documents WHERE id=?', (doc_id,)).fetchone():
+                    raise ValueError('Dokument wurde nicht gefunden.')
+                added += db.execute('INSERT INTO collection_documents(collection_id,document_id) VALUES(?,?) '
+                                    'ON CONFLICT DO NOTHING RETURNING document_id',
+                                    (collection_id, doc_id)).fetchone() is not None
+            return added
+
+    def remove_from_collection(self, collection_id, document_ids):
+        with self.connect() as db:
+            self._collection(db, collection_id)
+            removed = 0
+            for doc_id in dict.fromkeys(int(doc_id) for doc_id in document_ids):
+                removed += db.execute('DELETE FROM collection_documents WHERE collection_id=? AND document_id=? '
+                                      'RETURNING document_id', (collection_id, doc_id)).fetchone() is not None
+            return removed
+
+    def document_collections(self, doc_id):
+        with self.connect() as db:
+            return [dict(row) for row in db.execute(
+                'SELECT c.id,c.name FROM collections c JOIN collection_documents cd ON cd.collection_id=c.id '
+                'WHERE cd.document_id=? ORDER BY c.normalized,c.id', (doc_id,))]
+
+    @staticmethod
+    def _collection(db, collection_id):
+        if not db.execute('SELECT 1 FROM collections WHERE id=?', (collection_id,)).fetchone():
+            raise ValueError('Sammlung wurde nicht gefunden.')
+
+    def set_favorite(self, doc_id, favorite=True):
+        with self.connect() as db:
+            if not db.execute('SELECT 1 FROM documents WHERE id=?', (doc_id,)).fetchone():
+                raise ValueError('Dokument wurde nicht gefunden.')
+            if favorite:
+                db.execute('INSERT INTO favorites(document_id) VALUES(?) ON CONFLICT DO NOTHING', (doc_id,))
+            else:
+                db.execute('DELETE FROM favorites WHERE document_id=?', (doc_id,))
+
+    def is_favorite(self, doc_id):
+        with self.connect() as db:
+            return db.execute('SELECT 1 FROM favorites WHERE document_id=?', (doc_id,)).fetchone() is not None
+
+    def saved_searches(self):
+        with self.connect() as db:
+            return [dict(row) for row in db.execute(
+                'SELECT id,name,query,mode,tag FROM saved_searches ORDER BY normalized,id')]
+
+    def save_search(self, name, query, mode=None, tag=None):
+        """Store a search under ``name``; an existing search of the same name is replaced. Returns its id."""
+        name, normalized = _name(name, 'Name der Suche')
+        query = ' '.join(str(query).split())
+        if not query or len(query) > MAX_SAVED_QUERY:
+            raise ValueError(f'Suchbegriff muss 1 bis {MAX_SAVED_QUERY} Zeichen haben.')
+        if mode is not None and mode not in SEARCH_MODES:
+            raise ValueError('Suchmodus: fulltext, vector oder hybrid.')
+        tag = ' '.join(str(tag).split()) or None if tag is not None else None
+        with self.connect() as db:
+            return db.execute(
+                'INSERT INTO saved_searches(name,normalized,query,mode,tag) VALUES(?,?,?,?,?) '
+                'ON CONFLICT(normalized) DO UPDATE SET name=excluded.name,query=excluded.query,'
+                'mode=excluded.mode,tag=excluded.tag RETURNING id', (name, normalized, query, mode, tag)).fetchone()['id']
+
+    def delete_saved_search(self, search_id):
+        with self.connect() as db:
+            if db.execute('DELETE FROM saved_searches WHERE id=? RETURNING id', (search_id,)).fetchone() is None:
+                raise ValueError('Gespeicherte Suche wurde nicht gefunden.')
+
+
 class ChunkStrategies:
     """Chunk strategy per document type (Release 2.1), shared by both backends through ``connect()``.
 
@@ -317,14 +436,19 @@ EXCLUDE_RETIRED_SETTING = 'ai.exclude_retired'
 MAX_OWNER_LENGTH = 100
 
 
-def _list(db, all_versions, tag=None):
+COLLECTION_FILTER = 'd.id IN (SELECT cd.document_id FROM collection_documents cd WHERE cd.collection_id=?)'
+FAVORITE_FILTER = 'd.id IN (SELECT f.document_id FROM favorites f)'
+
+
+def _list(db, all_versions, tag=None, collection=None, favorites=False):
     import rules
-    conditions = ([] if all_versions else [CURRENT_VERSION_FILTER]) + ([TAG_FILTER] if tag else [])
+    conditions = (([] if all_versions else [CURRENT_VERSION_FILTER]) + ([TAG_FILTER] if tag else [])
+                  + ([COLLECTION_FILTER] if collection is not None else []) + ([FAVORITE_FILTER] if favorites else []))
     where = ' WHERE '+' AND '.join(conditions) if conditions else ''
     rows = [dict(row) for row in db.execute(
         'SELECT d.id,d.title,d.category,d.created_at,COALESCE(v.version,1) AS version FROM documents d '
         'LEFT JOIN document_versions v ON v.document_id=d.id'+where+' ORDER BY d.id DESC',
-        (tag.casefold(),) if tag else ())]
+        ((tag.casefold(),) if tag else ()) + ((int(collection),) if collection is not None else ()))]
     tags = rules.tags_by_document(db)
     for row in rows:
         row['tags'] = tags.get(row['id'], [])
@@ -548,7 +672,7 @@ class VectorIndex:
         return [{**details[chunk_id], 'score': score} for chunk_id, score in chosen.items() if chunk_id in details]
 
 
-class Store(DocumentMetadata, ChunkStrategies, VectorIndex):
+class Store(DocumentMetadata, Organization, ChunkStrategies, VectorIndex):
     backend = 'sqlite'
     # Declared type, PRAGMA not-null flag, normalized default, primary-key position.
     column_contract = {
@@ -640,6 +764,7 @@ class Store(DocumentMetadata, ChunkStrategies, VectorIndex):
         10: frozenset(schema_contract),
         11: frozenset(schema_contract),  # 11 changes only PostgreSQL
         12: frozenset(schema_contract),  # metadata_changes is not part of this contract
+        13: frozenset(schema_contract),  # nor are the tables of step 8A.3
         CURRENT_SCHEMA_VERSION: frozenset(schema_contract),
     }
     primary_keys = {
@@ -834,9 +959,9 @@ class Store(DocumentMetadata, ChunkStrategies, VectorIndex):
             _record_version(db, doc_id, lineage)
             return doc_id, True
 
-    def list(self, all_versions=False, tag=None):
+    def list(self, all_versions=False, tag=None, collection=None, favorites=False):
         with self.connect() as db:
-            return _list(db, all_versions, tag)
+            return _list(db, all_versions, tag, collection, favorites)
 
     def versions(self, doc_id):
         """All versions of the document's lineage, newest first."""
@@ -915,7 +1040,7 @@ class _PostgresConnection:
             return cursor.executemany(self.sql(query),parameters)
 
 
-class PostgresStore(DocumentMetadata, ChunkStrategies, VectorIndex):
+class PostgresStore(DocumentMetadata, Organization, ChunkStrategies, VectorIndex):
     """PostgreSQL implementation used after explicit activation in database settings."""
     backend = 'postgresql'
     # information_schema: data_type, udt_name, is_nullable, normalized default, is_identity.
@@ -1241,9 +1366,9 @@ class PostgresStore(DocumentMetadata, ChunkStrategies, VectorIndex):
             _record_version(db,doc_id,lineage)
             return doc_id,True
 
-    def list(self,all_versions=False,tag=None):
+    def list(self,all_versions=False,tag=None,collection=None,favorites=False):
         with self.connect() as db:
-            return _list(db,all_versions,tag)
+            return _list(db,all_versions,tag,collection,favorites)
 
     def versions(self,doc_id):
         with self.connect() as db:

@@ -26,13 +26,23 @@
 
 **Status:** 8A.1 ✅. Phase 8A 🟡, als Nächstes 8A.2.
 
-## Aktualisierung 05.11.2026 (Nachmittag) – Phase 8A, Schritt 8A.2 Dokumentstatus und Wiedervorlage 🟡
+## Aktualisierung 05.11.2026 (Nachmittag) – Phase 8A, Schritt 8A.2 Dokumentstatus und Wiedervorlage ✅
 
 **Umfang:** Schema 13 ergänzt `documents` um `status` (`new`, `reviewed`, `outdated`, `archived`; Standard `new`), `owner` und `review_date` (ISO-Datum als Text), Migration für SQLite mit geprüfter Sicherung und für PostgreSQL unter Advisory Lock, Schema-Kataloge, Gesundheitsprüfung und `schema.sql` angepasst. `Store.update_metadata` ändert zusätzlich Status, Verantwortlichen und Wiedervorlage und protokolliert nur tatsächliche Änderungen in `metadata_changes`. `Store.due_reviews` listet fällige Wiedervorlagen. Volltext- und Vektorsuche erhalten den Filter `active_only`; `AI.ask` setzt ihn, solange die Einstellung `ai.exclude_retired` nicht ausgeschaltet ist (Standard: an). Die Suchliste zeigt weiterhin alle Dokumente. Oberfläche: Status, Verantwortlich und Wiedervorlage im Dialog „Metadaten“ und in der Detailansicht; CLI: `edit --status/--owner/--review-date`, `review-due`, `ai-retired`.
 
 **Nachweise:** Gemeinsamer Vertrag `check_status_contract` (SQLite und PostgreSQL): Standardwerte nach Migration, Änderungen mit Verlauf, keine Einträge ohne Änderung, ungültiger Status, zu langer Verantwortlicher und ungültige Daten ohne Spur, fällige Wiedervorlagen, Volltext- und Vektorsuche mit und ohne Ausschluss, Rückkehr in die Antworten nach Statuswechsel, Einstellung an und aus. Dazu Test, dass `AI.ask` der Einstellung folgt, CLI- und Oberflächentest, Migrations- und Diagnosetests auf Schema 13. Recall auf V2: Der Bestand der Messung enthält nach der Migration ausschließlich Dokumente mit Status `new`; der Filter lässt damit jede Trefferliste unverändert, der Vertrag prüft genau diesen Fall (gleiche Treffer mit und ohne Ausschluss, solange kein Dokument veraltet oder archiviert ist).
 
-**Status:** 8A.2 🟡 bis Matrix-Gate 7 von 7 und GitHub-CI grün.
+**Gate:** Lokales Matrix-Gate an `046efaa`: 7 von 7 (`local-ci-gate-046efaa.md`). Windows 3.11, 3.12, 3.13 je 605 Tests bestanden, 33 übersprungen; windows-3.11 im ersten Lauf mit 13 Fehlern durch Dateisperren des Virenscanners beim Aufräumen, im Wiederholungslauf grün mit 17 wiederholten Tests (D-020). Linux 3.11, 3.12, 3.13 je 605 bestanden, 29 übersprungen; PostgreSQL 18.6 29 von 29. GitHub Actions für PR #9: 14 von 14 grün, gemergt als `21a8c1b`.
+
+**Status:** 8A.2 ✅. Der Recall auf V2 ist strukturell begründet, nicht mit Ollama gemessen.
+
+## Aktualisierung 05.11.2026 (Abend) – Phase 8A, Schritt 8A.3 Sammlungen, Favoriten, gespeicherte Suchen 🟡
+
+**Umfang:** Schema 14 mit den Tabellen `collections` (Name eindeutig ohne Rücksicht auf Groß- und Kleinschreibung), `collection_documents`, `favorites` und `saved_searches` (Name, Suchbegriff, optionaler Modus und Tag), Migration für SQLite mit geprüfter Sicherung und für PostgreSQL unter Advisory Lock, Kataloge und `schema.sql` angepasst. `Organization` (beide Backends) legt Sammlungen an, benennt sie um, löscht sie, nimmt Dokumente auf und entfernt sie, markiert Favoriten und speichert Suchen. `list` filtert nach Sammlung und Favoriten. Oberfläche: Auswahlfeld für alle Dokumente, Favoriten und Sammlungen (auch für die Suche), gespeicherte Suchen, Schaltflächen „Favorit“ und „Sammlungen“, Detailansicht mit Favorit und Sammlungen. CLI: `collections`, `collection-*`, `favorite`, `list --collection/--favorites`, `searches`, `search-save`, `search-delete`.
+
+**Nachweise:** Gemeinsamer Vertrag `check_organization_contract` (SQLite und PostgreSQL): Namensregeln und Eindeutigkeit, Aufnahme ohne Doppelungen, unbekannte Dokumente und Sammlungen abgelehnt, Filter nach Sammlung und Favoriten, Ersetzen einer gespeicherten Suche gleichen Namens, ungültige Suchen abgelehnt, Dokumente unverändert, Löschen eines Dokuments entfernt es aus Sammlungen und Favoriten, Löschen einer Sammlung lässt Dokumente bestehen. Dazu CLI- und Oberflächentest, Migrations- und Diagnosetests auf Schema 14.
+
+**Status:** 8A.3 🟡 bis Matrix-Gate 7 von 7 und GitHub-CI grün.
 
 ## Aktualisierung 05.11.2026 – Phase 7 abgeschlossen, Release 2.1 freigegeben ✅
 
@@ -634,7 +644,7 @@ Die Phasen werden in der angegebenen Reihenfolge getestet. Eine Phase wird erst 
 | 5 | Release 1.9 Betriebsfähigkeit | ✅ | freigegeben 23.10.2026 |
 | 6 | Release 2.0 Importplattform | ✅ | freigegeben 23.10.2026, in vier Teilschritten (D-010); 6.1 ✅ (23.10.2026, CI [39925457254](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39925457254) auf `ca5bce6`), 6.2 ✅ (23.10.2026, CI [39932577799](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39932577799) auf `4cdb50e`), 6.3a ✅ (23.10.2026, CI [39942033441](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39942033441) auf `e36be53`), 6.3 ✅ (6.3b 23.10.2026, CI [39976859099](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39976859099) auf `e4d1f95`), alle vier Teilschritte ✅ (6.4 24.10.2026, CI [40097227667](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40097227667) auf `d05ef87`); abgenommen 26.10.2026 durch den Product Owner mit eigenen Daten; Soll-Umfang folgt als Release 2.0.1 (D-013), S1 in Arbeit |
 | 7 | Release 2.1 Hybrid-RAG | ✅ freigegeben 05.11.2026 (D-021) | nach Phase 6 |
-| 8 | Wissensorganisation und Wissensgraph | 🟡 8A.1 ✅, 8A.2 🟡 | nach Phase 7 |
+| 8 | Wissensorganisation und Wissensgraph | 🟡 8A.1 ✅, 8A.2 ✅, 8A.3 🟡 | nach Phase 7 |
 | 9 | Betrieb und Governance | ⬜ | nach Phase 8 |
 | 10 | Release 3.0 Sicherheitskern und Mehrbenutzerbetrieb | ⬜ | separates Architektur- und Sicherheits-Gate |
 | 11 | Release 3.1 VPS-Webanwendung und eigene Domain | ⬜ | erst nach Phase 10; öffentliche Bereitstellung nur mit vollständigem Sicherheits- und Betriebs-Gate |
@@ -927,8 +937,8 @@ Frühere Zwischenstände: Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33
 **Umfang:**
 
 - Tags, Sammlungen, Favoriten und gespeicherte Suchen
-- Dokumentstatus: neu, geprüft, veraltet, archiviert
-- Verantwortlicher und Wiedervorlagedatum
+- Dokumentstatus: neu, geprüft, veraltet, archiviert ✅ 8A.2 (`046efaa`)
+- Verantwortlicher und Wiedervorlagedatum ✅ 8A.2 (`046efaa`)
 - Beziehungen zwischen Dokumenten
 - Metadatenbearbeitung ohne Veränderung des Originals ✅ 8A.1 (`4d2ecbe`): Titel, Bereich, Tags mit Verlauf
 - kontrollierte Versionierung und Vergleich zweier Fassungen
@@ -938,7 +948,7 @@ Frühere Zwischenstände: Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33
 
 - jede Metadatenänderung ist nachvollziehbar
 - Originaldatei und Original-Hash bleiben unverändert
-- veraltete Inhalte können aus KI-Antworten ausgeschlossen werden
+- veraltete Inhalte können aus KI-Antworten ausgeschlossen werden ✅ 8A.2 (Einstellung `ai.exclude_retired`, Standard an)
 
 ### Phase 8B – Release 2.3 Wissensgraph ⬜
 

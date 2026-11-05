@@ -79,6 +79,9 @@ Grenzen: 50 MB lokale Originaldatei und je E-Mail-Anhang, Dateiinhalt passend zu
 | `chunk_vectors` | Ein Vektor je Textabschnitt mit Modell und Dimension, L2-normiert als float16; SQLite `BLOB`, PostgreSQL `BYTEA`; wird mit dem Abschnitt gelöscht. Ein Modellwechsel macht vorhandene Vektoren ungültig (Schema 10). Genutzt von der hybriden Suche |
 | Suchvektoren (PostgreSQL) | Gespeicherte, automatisch berechnete Spalten `chunks.search_vector` und `documents.search_vector` mit GIN-Index (Schema 11); SQLite nutzt weiter FTS5 |
 | `metadata_changes` | Verlauf jeder Änderung von Titel, Bereich und Tags mit altem und neuem Wert, Herkunft (manuell, Regel, Rücknahme einer Regel), Regellauf und Zeitpunkt; wird mit dem Dokument gelöscht (Schema 12); seit Schema 13 auch Status, Verantwortlicher und Wiedervorlage |
+| `collections`, `collection_documents` | Sammlungen mit eindeutigem Namen (ohne Rücksicht auf Groß- und Kleinschreibung) und ihre Dokumente; ein Dokument kann in mehreren Sammlungen liegen (Schema 14) |
+| `favorites` | Als Favorit markierte Dokumente (Schema 14) |
+| `saved_searches` | Gespeicherte Suchen mit Name, Suchbegriff, optionalem Suchmodus und Tag (Schema 14) |
 
 `schema.sql` dokumentiert das SQLite-Schema. Die ausführbare Schema-Historie liegt in den geordneten, versionierten SQLite- und PostgreSQL-Migrationen in `migrations.py`. SQLite speichert die Version in `PRAGMA user_version`, PostgreSQL in `wissensraum.schema_migrations`. Beide Backends haben denselben fachlichen Speicherumfang, verwenden aber unterschiedliche Volltexttechnik. SQL-Werte werden parametrisiert gebunden. KI-Ausgaben werden niemals als SQL oder Programmcode ausgeführt.
 
@@ -317,6 +320,10 @@ In „Dokumente & Suche“ öffnet **Metadaten** für das ausgewählte Dokument 
 ### Dokumentstatus, Verantwortlicher und Wiedervorlage (Release 2.2, Schritt 8A.2)
 
 Der Dialog **Metadaten** enthält zusätzlich Status (neu, geprüft, veraltet, archiviert), Verantwortlich und Wiedervorlage (Datum JJJJ-MM-TT, leer entfernt es). Die Detailansicht zeigt alle drei Angaben, jede Änderung steht im Verlauf. Veraltete und archivierte Dokumente bleiben in der Suche sichtbar. KI-Antworten lassen sie standardmäßig aus: Volltext- und Vektorsuche für die Antwort berücksichtigen nur Dokumente mit Status neu oder geprüft. Solange kein Dokument als veraltet oder archiviert markiert ist, ändert sich an Treffern und Antworten nichts. CLI: `python cli.py edit <id> --status reviewed --owner … --review-date 2026-12-01`, `python cli.py review-due [--until JJJJ-MM-TT]` für fällige Wiedervorlagen und `python cli.py ai-retired [exclude|include]` für die Einstellung. Schema 13 ergänzt in `documents` die Spalten `status` (Standard `new`), `owner` und `review_date`; vorhandene Dokumente erhalten den Status neu.
+
+### Sammlungen, Favoriten und gespeicherte Suchen (Release 2.2, Schritt 8A.3)
+
+In „Dokumente & Suche“ markiert **Favorit** das ausgewählte Dokument oder hebt die Markierung auf. **Sammlungen** zeigt alle Sammlungen, markiert sind die, die das Dokument enthalten; **Übernehmen** speichert die Auswahl, **Neue Sammlung** legt eine an, **Markierte löschen** entfernt Sammlungen nach Rückfrage, die Dokumente bleiben erhalten. Das Auswahlfeld neben dem Tag-Filter beschränkt Liste und Suche auf alle Dokumente, die Favoriten oder eine Sammlung. **Suche speichern** legt Suchbegriff und Tag unter einem Namen ab, ein gleicher Name ersetzt die alte Suche; das Feld „gespeicherte Suchen“ führt sie erneut aus. Keine dieser Funktionen verändert ein Dokument; ein gelöschtes Dokument verschwindet aus allen Sammlungen und Favoriten. CLI: `collections`, `collection-create <name>`, `collection-rename <id> <name>`, `collection-delete <id>`, `collection-add <id> <dokument-ids…>`, `collection-remove <id> <dokument-ids…>`, `favorite <id> [--remove]`, `list --collection <id>` bzw. `list --favorites`, `searches`, `search-save <name> <suchbegriff> [--mode …] [--tag …]`, `search-delete <id>`. Schema 14 legt die vier leeren Tabellen an.
 
 ### Postfachsynchronisation (Release 2.0.1, Schritt S3)
 

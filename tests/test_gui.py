@@ -563,6 +563,45 @@ class InterfaceTests(unittest.TestCase):
         panel.deactivate()
         self.assertIn('ist aus. 1 von 1',panel.status.get())
 
+    def test_collections_favorites_and_saved_searches(self):
+        window=self.window
+        heating,_=window.store.add('Wartungsplan','Die Therme bekommt jährlich eine Wartung.',category='Haus')
+        car,_=window.store.add('Fahrzeug','Kasko für den Wagen.',category='Auto')
+        window.refresh(); window.tree.selection_set(str(heating)); window.update()
+        window.toggle_favorite(); window.update()
+        self.assertTrue(window.store.is_favorite(heating))
+        window.scope_filter.set(app.FAVORITES); window.refresh()
+        self.assertEqual(window.tree.get_children(),(str(heating),))
+        window.scope_filter.set(app.ALL_DOCUMENTS); window.refresh()
+        window.tree.selection_set(str(car)); window.update()
+        dialog=window.edit_collections()
+        with patch.object(app.simpledialog,'askstring',return_value='Fahrten'):
+            dialog.collection_create()
+        dialog.collection_box.selection_set(0); dialog.collection_save(); window.update()
+        collection=window.store.collections()[0]
+        self.assertEqual((collection['name'],collection['documents']),('Fahrten',1))
+        dialog.destroy()
+        window.scope_filter.set('Fahrten (1)'); window.refresh()
+        self.assertEqual(window.tree.get_children(),(str(car),))
+        window.scope_filter.set(app.ALL_DOCUMENTS)
+        window.query.set('Wartung')
+        with patch.object(app.simpledialog,'askstring',return_value='Heizung'):
+            window.save_search()
+        self.assertEqual([row['query'] for row in window.store.saved_searches()],['Wartung'])
+        window.query.set(''); window.refresh()
+        window.saved_search.set('Heizung'); window.run_saved_search(); self.wait_until_idle(window)
+        self.assertEqual(window.query.get(),'Wartung')
+        self.assertEqual(window.tree.get_children(),(str(heating),))
+        window.clear_search(); window.tree.selection_set(str(car)); window.update()
+        self.assertIn('Sammlungen: Fahrten',window.detail.get('1.0','end'))
+        dialog=window.edit_collections()
+        dialog.collection_box.selection_set(0)
+        with patch.object(app.messagebox,'askyesno',return_value=True):
+            dialog.collection_delete()
+        self.assertEqual(window.store.collections(),[])
+        self.assertEqual(window.store.get(car)['title'],'Fahrzeug')
+        dialog.destroy()
+
     def test_metadata_dialog_saves_changes_with_history(self):
         window=self.window
         doc_id,_=window.store.add('Wartungsplan','Die Therme bekommt jährlich eine Wartung.',category='Haus')

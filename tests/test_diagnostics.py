@@ -44,7 +44,7 @@ def make_v1_sqlite(path):
     with store.connect() as connection:
         for table in ('chunk_vectors', 'rule_run_changes', 'rule_runs', 'rules', 'document_tags', 'tags',
                       'email_attachments', 'document_versions', 'import_item_errors', 'import_items', 'import_jobs',
-                      'sources', 'metadata_changes'):
+                      'sources', 'metadata_changes', 'collections', 'collection_documents', 'favorites', 'saved_searches'):
             connection.execute(f'DROP TABLE {table}')
         for column in ('status', 'owner', 'review_date'):
             connection.execute(f'ALTER TABLE documents DROP COLUMN {column}')
@@ -456,7 +456,8 @@ class DiagnosticTests(unittest.TestCase):
                 store = Store(path)
                 store.add('Altbestand', f'Migration Version {version}')
                 with store.connect() as connection:
-                    connection.execute('DROP TABLE metadata_changes')
+                    for table in ('metadata_changes', 'collections', 'collection_documents', 'favorites', 'saved_searches'):
+                        connection.execute(f'DROP TABLE {table}')
                     for column in ('status', 'owner', 'review_date'):
                         connection.execute(f'ALTER TABLE documents DROP COLUMN {column}')
                     connection.execute('DROP TABLE chunk_vectors')

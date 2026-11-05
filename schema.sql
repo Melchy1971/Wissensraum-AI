@@ -1,4 +1,4 @@
--- SQLite / FTS5 schema snapshot · Release 2.2 · Version 13 (version 11 changes only PostgreSQL)
+-- SQLite / FTS5 schema snapshot · Release 2.2 · Version 14 (version 11 changes only PostgreSQL)
 -- Runtime upgrades are defined as ordered migrations in migrations.py.
 
 PRAGMA foreign_keys = ON;
@@ -117,4 +117,23 @@ CREATE TABLE IF NOT EXISTS metadata_changes (
  origin TEXT NOT NULL, run_id INTEGER REFERENCES rule_runs(id) ON DELETE SET NULL,
  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-PRAGMA user_version = 13;
+CREATE TABLE IF NOT EXISTS collections (
+ id INTEGER PRIMARY KEY, name TEXT NOT NULL, normalized TEXT NOT NULL UNIQUE,
+ created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS collection_documents (
+ collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+ document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+ added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ PRIMARY KEY(collection_id, document_id)
+);
+CREATE TABLE IF NOT EXISTS favorites (
+ document_id INTEGER PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+ created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS saved_searches (
+ id INTEGER PRIMARY KEY, name TEXT NOT NULL, normalized TEXT NOT NULL UNIQUE,
+ query TEXT NOT NULL, mode TEXT, tag TEXT,
+ created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+PRAGMA user_version = 14;
