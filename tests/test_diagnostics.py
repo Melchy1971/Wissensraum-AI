@@ -44,8 +44,10 @@ def make_v1_sqlite(path):
     with store.connect() as connection:
         for table in ('chunk_vectors', 'rule_run_changes', 'rule_runs', 'rules', 'document_tags', 'tags',
                       'email_attachments', 'document_versions', 'import_item_errors', 'import_items', 'import_jobs',
-                      'sources'):
+                      'sources', 'metadata_changes'):
             connection.execute(f'DROP TABLE {table}')
+        for column in ('status', 'owner', 'review_date'):
+            connection.execute(f'ALTER TABLE documents DROP COLUMN {column}')
         connection.execute('DROP TABLE email_imports')
         connection.execute('DROP TABLE email_accounts')
         connection.execute('DROP TABLE settings')
@@ -455,6 +457,8 @@ class DiagnosticTests(unittest.TestCase):
                 store.add('Altbestand', f'Migration Version {version}')
                 with store.connect() as connection:
                     connection.execute('DROP TABLE metadata_changes')
+                    for column in ('status', 'owner', 'review_date'):
+                        connection.execute(f'ALTER TABLE documents DROP COLUMN {column}')
                     connection.execute('DROP TABLE chunk_vectors')
                     if version < 9:
                         for table in ('rule_run_changes', 'rule_runs', 'rules', 'document_tags', 'tags'):

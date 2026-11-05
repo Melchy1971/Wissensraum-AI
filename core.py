@@ -1,6 +1,7 @@
 """Local SQL knowledge store and source-grounded AI operations. Python 3.11–3.13."""
 from __future__ import annotations
 
+import datetime
 import hashlib
 import io
 import json
@@ -13,7 +14,7 @@ from contextlib import closing, contextmanager
 from pathlib import Path
 import uuid
 
-from migrations import (CURRENT_SCHEMA_VERSION, SQLITE_MIGRATIONS,
+from migrations import (CURRENT_SCHEMA_VERSION, SQLITE_COLUMN_VERSIONS, SQLITE_MIGRATIONS,
                         migrate_postgres, migrate_sqlite)
 
 
@@ -75,6 +76,19 @@ def _chunking(db, doc_type):
 MAX_TITLE_LENGTH, MAX_CATEGORY_LENGTH = 300, 100
 
 
+def parse_review_date(value):
+    """'' (no date) or an ISO date YYYY-MM-DD; anything else raises a fixed ValueError."""
+    value = str(value).strip()
+    if not value:
+        return ''
+    try:
+        if len(value) != 10:
+            raise ValueError
+        return datetime.date.fromisoformat(value).isoformat()
+    except ValueError:
+        raise ValueError('Wiedervorlage als Datum JJJJ-MM-TT angeben.') from None
+
+
 class DocumentMetadata:
     """Editing of title, area and tags (Release 2.2, step 8A.1), shared by both backends.
 
@@ -82,8 +96,18 @@ class DocumentMetadata:
     original and hash of the document are never touched. Unchanged values log nothing.
     """
 
-    def update_metadata(self, doc_id, title=None, category=None, add_tags=None, remove_tags=None):
+    def update_metadata(self, doc_id, title=None, category=None, add_tags=None, remove_tags=None,
+                        status=None, owner=None, review_date=None):
+        """Change the given fields; ``review_date`` '' removes the date. Returns the logged changes."""
         import rules
+        if status is not None and status not in DOCUMENT_STATUSES:
+            raise ValueError('Status: ' + ', '.join(DOCUMENT_STATUSES) + '.')
+        if owner is not None:
+            owner = ' '.join(str(owner).split())
+            if len(owner) > MAX_OWNER_LENGTH:
+                raise ValueError(f'Verantwortlicher darf höchstens {MAX_OWNER_LENGTH} Zeichen haben.')
+        if review_date is not None:
+            review_date = parse_review_date(review_date)
         if title is not None:
             title = ' '.join(str(title).split())
             if not title or len(title) > MAX_TITLE_LENGTH:
@@ -95,7 +119,8 @@ class DocumentMetadata:
         add_tags, remove_tags = rules.parse_tags(add_tags or ''), rules.parse_tags(remove_tags or '')
         changes = []
         with self.connect() as db:
-            doc = db.execute('SELECT title,category FROM documents WHERE id=?', (doc_id,)).fetchone()
+            doc = db.execute('SELECT title,category,status,owner,review_date FROM documents WHERE id=?',
+                             (doc_id,)).fetchone()
             if doc is None:
                 raise ValueError('Dokument wurde nicht gefunden.')
             for field, value, setter in (('title', title, rules.set_title),
@@ -103,6 +128,13 @@ class DocumentMetadata:
                 if value is not None and value != doc[field]:
                     setter(db, self.backend, doc_id, value)
                     changes.append((field, doc[field], value))
+            for field, value in (('status', status), ('owner', owner), ('review_date', review_date)):
+                if value is None or value == (doc[field] or ''):
+                    continue
+                # Not part of the search index: a plain update, on both backends the same statement.
+                db.execute(f'UPDATE documents SET {field}=? WHERE id=?', (value or None if field == 'review_date'
+                                                                       else value, doc_id))
+                changes.append((field, doc[field] or '', value))
             attached = {name.casefold(): name for name in rules.document_tags(db, doc_id)}
             removed = [attached[name.casefold()] for name in remove_tags if name.casefold() in attached]
             rules.remove_tags(db, doc_id, removed)
@@ -111,6 +143,27 @@ class DocumentMetadata:
             for field, old, new in changes:
                 rules.log_change(db, doc_id, field, old, new, 'manual')
         return [{'field': field, 'old_value': old, 'new_value': new} for field, old, new in changes]
+
+    def due_reviews(self, until=None):
+        """Documents whose review date is on or before ``until`` (default today), oldest date first."""
+        until = parse_review_date(until) if until else datetime.date.today().isoformat()
+        with self.connect() as db:
+            return [dict(row) for row in db.execute(
+                'SELECT id,title,status,owner,review_date FROM documents '
+                "WHERE review_date IS NOT NULL AND review_date<>'' AND review_date<=? "
+                'ORDER BY review_date,id', (until,))]
+
+    def exclude_retired(self):
+        """Whether AI answers leave out outdated and archived documents (default yes)."""
+        with self.connect() as db:
+            row = db.execute('SELECT value FROM settings WHERE name=?', (EXCLUDE_RETIRED_SETTING,)).fetchone()
+        return row is None or row['value'] != '0'
+
+    def set_exclude_retired(self, enabled):
+        with self.connect() as db:
+            db.execute('DELETE FROM settings WHERE name=?', (EXCLUDE_RETIRED_SETTING,))
+            db.execute('INSERT INTO settings(name,value) VALUES(?,?)',
+                       (EXCLUDE_RETIRED_SETTING, '1' if enabled else '0'))
 
     def metadata_history(self, doc_id):
         import rules
@@ -256,6 +309,12 @@ def search_words(query):
 # Documents carrying a tag (normalized name as parameter); used by list and search filters.
 TAG_FILTER = ('d.id IN (SELECT dt.document_id FROM document_tags dt JOIN tags t ON t.id=dt.tag_id '
               'WHERE t.normalized=?)')
+# Document status (step 8A.2). Outdated and archived documents stay searchable but can be kept out of AI answers.
+DOCUMENT_STATUSES = ('new', 'reviewed', 'outdated', 'archived')
+RETIRED_STATUSES = ('outdated', 'archived')
+ACTIVE_FILTER = "d.status NOT IN ('outdated','archived')"
+EXCLUDE_RETIRED_SETTING = 'ai.exclude_retired'
+MAX_OWNER_LENGTH = 100
 
 
 def _list(db, all_versions, tag=None):
@@ -442,7 +501,7 @@ class VectorIndex:
                 _bump_vector_generation(db)
         return len(rows)
 
-    def vector_search(self, model, query, limit=8, all_versions=False, tag=None):
+    def vector_search(self, model, query, limit=8, all_versions=False, tag=None, active_only=False):
         """Chunks ranked by cosine similarity to ``query``, exact over the cached matrix.
 
         The filters are the full-text search's: current versions unless ``all_versions``, an
@@ -466,7 +525,8 @@ class VectorIndex:
             allowed = numpy.fromiter((row['id'] for row in db.execute(
                 'SELECT d.id FROM documents d WHERE 1=1'
                 + ('' if all_versions else ' AND '+CURRENT_VERSION_FILTER)
-                + (' AND '+TAG_FILTER if tag else ''),
+                + (' AND '+TAG_FILTER if tag else '')
+                + (' AND '+ACTIVE_FILTER if active_only else ''),
                 (tag.casefold(),) if tag else ())), dtype=numpy.int64)
             rows = numpy.nonzero(numpy.isin(cached.documents, allowed))[0]
             if not rows.size:
@@ -495,7 +555,8 @@ class Store(DocumentMetadata, ChunkStrategies, VectorIndex):
         'documents': {
             'id':('INTEGER',0,None,1), 'title':('TEXT',1,None,0), 'category':('TEXT',1,None,0),
             'filename':('TEXT',0,None,0), 'original':('BLOB',0,None,0), 'content':('TEXT',1,None,0),
-            'sha256':('TEXT',1,None,0), 'created_at':('TEXT',1,'current_timestamp',0)},
+            'sha256':('TEXT',1,None,0), 'created_at':('TEXT',1,'current_timestamp',0),
+            'status':('TEXT',1,"'new'",0), 'owner':('TEXT',1,"''",0), 'review_date':('TEXT',0,None,0)},
         'chunks': {
             'id':('INTEGER',0,None,1), 'document_id':('INTEGER',1,None,0),
             'ordinal':('INTEGER',1,None,0), 'content':('TEXT',1,None,0)},
@@ -577,7 +638,9 @@ class Store(DocumentMetadata, ChunkStrategies, VectorIndex):
                       'document_versions','email_attachments'}),
         9: frozenset(schema_contract) - {'chunk_vectors'},
         10: frozenset(schema_contract),
-        CURRENT_SCHEMA_VERSION: frozenset(schema_contract),  # 11 changes only PostgreSQL
+        11: frozenset(schema_contract),  # 11 changes only PostgreSQL
+        12: frozenset(schema_contract),  # metadata_changes is not part of this contract
+        CURRENT_SCHEMA_VERSION: frozenset(schema_contract),
     }
     primary_keys = {
         'documents': ('id',), 'chunks': ('id',), 'ai_runs': ('id',),
@@ -655,7 +718,9 @@ class Store(DocumentMetadata, ChunkStrategies, VectorIndex):
             for table in present_tables:
                 columns={row[1]:(str(row[2]).upper(),row[3],self._sqlite_default(row[4]),row[5])
                          for row in connection.execute(f'PRAGMA table_info("{table}")')}
-                if columns != self.column_contract[table]:
+                expected={column:value for column,value in self.column_contract[table].items()
+                          if SQLITE_COLUMN_VERSIONS.get((table,column),0) <= version}
+                if columns != expected:
                     raise ValueError('SQLite-Anwendungsschema ist unvollständig.')
             for table,expected in self.primary_keys.items():
                 if table not in present_tables:
@@ -796,7 +861,7 @@ class Store(DocumentMetadata, ChunkStrategies, VectorIndex):
             db.execute('DELETE FROM documents WHERE id=?', (doc_id,))
             _bump_vector_generation(db)
 
-    def search(self, query, limit=8, all_versions=False, tag=None):
+    def search(self, query, limit=8, all_versions=False, tag=None, active_only=False):
         words = search_words(query)
         if not words:
             return []
@@ -807,7 +872,8 @@ class Store(DocumentMetadata, ChunkStrategies, VectorIndex):
                   FROM search_index JOIN chunks c ON c.id=search_index.rowid
                   JOIN documents d ON d.id=c.document_id WHERE search_index MATCH ?'''
                   + ('' if all_versions else ' AND '+CURRENT_VERSION_FILTER)
-                  + (' AND '+TAG_FILTER if tag else '') + '''
+                  + (' AND '+TAG_FILTER if tag else '')
+                  + (' AND '+ACTIVE_FILTER if active_only else '') + '''
                   ORDER BY rank,c.id LIMIT ?''',
                   (fts, *((tag.casefold(),) if tag else ()), max(1, min(limit, CANDIDATE_LIMIT)))).fetchall()
             return [dict(r) for r in rows]
@@ -860,6 +926,8 @@ class PostgresStore(DocumentMetadata, ChunkStrategies, VectorIndex):
             'original':('bytea','bytea','YES',None,'NO'), 'content':('text','text','NO',None,'NO'),
             'sha256':('text','text','NO',None,'NO'),
             'created_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO'),
+            'status':('text','text','NO',"'new'",'NO'), 'owner':('text','text','NO',"''",'NO'),
+            'review_date':('text','text','YES',None,'NO'),
             'search_vector':('tsvector','tsvector','YES',None,'NO')},
         'chunks': {
             'id':('bigint','int8','NO',None,'YES'), 'document_id':('bigint','int8','NO',None,'NO'),
@@ -1199,7 +1267,7 @@ class PostgresStore(DocumentMetadata, ChunkStrategies, VectorIndex):
             db.execute('DELETE FROM documents WHERE id=?',(doc_id,))
             _bump_vector_generation(db)
 
-    def search(self,query,limit=8,all_versions=False,tag=None):
+    def search(self,query,limit=8,all_versions=False,tag=None,active_only=False):
         words=search_words(query)
         if not words:
             return []
@@ -1217,7 +1285,8 @@ class PostgresStore(DocumentMetadata, ChunkStrategies, VectorIndex):
                   FROM hits h JOIN chunks c ON c.id=h.id JOIN documents d ON d.id=c.document_id,q
                   WHERE 1=1'''
                   + ('' if all_versions else ' AND '+CURRENT_VERSION_FILTER)
-                  + (' AND '+TAG_FILTER if tag else '') + '''
+                  + (' AND '+TAG_FILTER if tag else '')
+                  + (' AND '+ACTIVE_FILTER if active_only else '') + '''
                   ORDER BY rank,c.id LIMIT ?''',(expression,
                                                  *((tag.casefold(),) if tag else ()),max(1,min(limit,CANDIDATE_LIMIT)))).fetchall()
         return [dict(row) for row in rows]
@@ -1717,7 +1786,9 @@ class AI:
                               WEAK, WEAK_ANSWER, WEAK_NOTICE, AnswerResult, Assessment, assess, unavailable)
         from retrieval import Retriever, as_sources
         try:
-            retrieval = Retriever(self.store).search(question, limit=8)  # same path as the search list
+            # Same path as the search list; outdated and archived documents stay out unless switched on (8A.2).
+            active_only = getattr(self.store, 'exclude_retired', lambda: False)()
+            retrieval = Retriever(self.store).search(question, limit=8, active_only=active_only)
         except Exception:  # database error or no usable search mode: no AI request, no internal details
             return AnswerResult(UNAVAILABLE_MESSAGE, [], unavailable(), 'unavailable', None)
         assessment = assess(retrieval, question)

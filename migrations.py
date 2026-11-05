@@ -9,7 +9,7 @@ import uuid
 from contextlib import closing, contextmanager
 from pathlib import Path
 
-CURRENT_SCHEMA_VERSION = 12
+CURRENT_SCHEMA_VERSION = 13
 # Unversioned PostgreSQL schemas predate schema_migrations and match version 4.
 POSTGRES_LEGACY_SCHEMA_VERSION = 4
 # ponytail: source_type is validated in application code (core.SOURCE_TYPES), not by a
@@ -196,6 +196,13 @@ SQLITE_MIGRATIONS = (
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )""",
     )),
+    # Release 2.2, step 8A.2: document status, owner and review date; outdated and archived
+    # documents can be kept out of AI answers. Existing documents start as 'new'.
+    (13, (
+        "ALTER TABLE documents ADD COLUMN status TEXT NOT NULL DEFAULT 'new'",
+        "ALTER TABLE documents ADD COLUMN owner TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE documents ADD COLUMN review_date TEXT",
+    )),
 )
 
 
@@ -370,10 +377,19 @@ POSTGRES_MIGRATIONS = (
             created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
         )""",
     )),
+    (13, (
+        "ALTER TABLE documents ADD COLUMN status TEXT NOT NULL DEFAULT 'new'",
+        "ALTER TABLE documents ADD COLUMN owner TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE documents ADD COLUMN review_date TEXT",
+    )),
 )
 
 # Columns added to an existing table by a later migration: (table, column) -> version.
-POSTGRES_COLUMN_VERSIONS = {('chunks', 'search_vector'): 11, ('documents', 'search_vector'): 11}
+POSTGRES_COLUMN_VERSIONS = {('chunks', 'search_vector'): 11, ('documents', 'search_vector'): 11,
+                            ('documents', 'status'): 13, ('documents', 'owner'): 13,
+                            ('documents', 'review_date'): 13}
+# Columns added to an existing SQLite table by a later migration: (table, column) -> version.
+SQLITE_COLUMN_VERSIONS = {('documents', 'status'): 13, ('documents', 'owner'): 13, ('documents', 'review_date'): 13}
 # Generated columns and their expression as PostgreSQL reports it (whitespace-insensitive).
 POSTGRES_GENERATED_COLUMNS = {
     ('chunks', 'search_vector'): "to_tsvector('simple'::regconfig, content)",
@@ -401,7 +417,8 @@ SQLITE_COLUMNS = {
                   ('category','TEXT',1,None,0), ('filename','TEXT',0,None,0),
                   ('original','BLOB',0,None,0), ('content','TEXT',1,None,0),
                   ('sha256','TEXT',1,None,0),
-                  ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
+                  ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0), ('status','TEXT',1,"'new'",0),
+                  ('owner','TEXT',1,"''",0), ('review_date','TEXT',0,None,0)),
     'chunks': (('id','INTEGER',0,None,1), ('document_id','INTEGER',1,None,0),
                ('ordinal','INTEGER',1,None,0), ('content','TEXT',1,None,0)),
     'ai_runs': (('id','INTEGER',0,None,1), ('kind','TEXT',1,None,0),
@@ -618,6 +635,9 @@ POSTGRES_LEGACY_COLUMNS = {
     ('metadata_changes','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
     ('chunks','search_vector','tsvector','YES','NO',None,None),
     ('documents','search_vector','tsvector','YES','NO',None,None),
+    ('documents','status','text','NO','NO',"'new'::text",None),
+    ('documents','owner','text','NO','NO',"''::text",None),
+    ('documents','review_date','text','YES','NO',None,None),
 }
 
 POSTGRES_LEGACY_CONSTRAINTS = {
@@ -779,7 +799,8 @@ def validate_sqlite(db, version=CURRENT_SCHEMA_VERSION):
     for table in expected_tables:
         columns = tuple((row[1], str(row[2]).upper(), row[3], row[4], row[5])
                         for row in db.execute(f'PRAGMA table_info({table})'))
-        if columns != SQLITE_COLUMNS[table]:
+        if columns != tuple(column for column in SQLITE_COLUMNS[table]
+                            if SQLITE_COLUMN_VERSIONS.get((table, column[0]), 0) <= version):
             raise ValueError('SQLite-Schema ist unvollständig oder inkompatibel.')
 
         unique = set()

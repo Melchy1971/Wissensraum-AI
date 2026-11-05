@@ -158,6 +158,15 @@ SQLITE_HISTORICAL_MIGRATIONS = (
         )""",
     )),
     (11, ()),
+    (12, (
+        """CREATE TABLE metadata_changes (
+            id INTEGER PRIMARY KEY,
+            document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            field TEXT NOT NULL, old_value TEXT NOT NULL DEFAULT '', new_value TEXT NOT NULL DEFAULT '',
+            origin TEXT NOT NULL, run_id INTEGER REFERENCES rule_runs(id) ON DELETE SET NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+    )),
 )
 
 
@@ -273,6 +282,14 @@ class FakePostgres:
                                  'is_nullable': 'YES', 'is_identity': 'NO', 'column_default': None,
                                  'identity_generation': None,
                                  'generation_expression': POSTGRES_GENERATED_COLUMNS[(table, 'search_vector')]})
+        for column, data_type, nullable, default in (('status', 'text', 'NO', "'new'::text"),
+                                                     ('owner', 'text', 'NO', "''::text"),
+                                                     ('review_date', 'text', 'YES', None)):
+            if normalized.startswith('ALTER TABLE ') and f' ADD COLUMN {column} ' in normalized:
+                self.columns.append({'table_name': normalized.split()[2], 'column_name': column,
+                                     'data_type': data_type, 'is_nullable': nullable, 'is_identity': 'NO',
+                                     'column_default': default, 'identity_generation': None,
+                                     'generation_expression': None})
         if normalized.startswith('DROP INDEX '):
             self.indexes = [row for row in self.indexes if row['index_name'] != normalized.split()[2]]
         if normalized.startswith('CREATE INDEX ') and 'USING GIN (search_vector)' in normalized:
@@ -377,6 +394,9 @@ class SQLiteMigrationTests(unittest.TestCase):
                     self.assertEqual(db.execute('SELECT id FROM chunks').fetchone()[0], 1)
                     # Migration 12 adds an empty metadata history; content and original stay unchanged.
                     self.assertEqual(db.execute('SELECT count(*) FROM metadata_changes').fetchone()[0], 0)
+                    # Migration 13: existing documents start as new, without owner or review date.
+                    self.assertEqual(db.execute('SELECT status,owner,review_date FROM documents').fetchone(),
+                                     ('new', '', None))
 
     def test_historical_fixtures_do_not_depend_on_runtime_migrations(self):
         with tempfile.TemporaryDirectory() as directory:

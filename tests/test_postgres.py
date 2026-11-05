@@ -186,7 +186,7 @@ class PostgresStoreTests(unittest.TestCase):
         store = PostgresStore(self.profile, self.password)
         with store.connect() as db:
             self.assertEqual([row['version'] for row in db.execute(
-                'SELECT version FROM schema_migrations ORDER BY version')], list(range(1, 13)))
+                'SELECT version FROM schema_migrations ORDER BY version')], list(range(1, 14)))
             old = db.execute("""SELECT -ts_rank_cd(to_tsvector('simple',d.title || ' ' || d.category || ' ' || c.content),
                                 websearch_to_tsquery('simple','Wartung OR Haus')) AS rank
                                 FROM chunks c JOIN documents d ON d.id=c.document_id""").fetchone()['rank']
@@ -432,6 +432,10 @@ class PostgresStoreTests(unittest.TestCase):
     def test_metadata_history_on_real_postgresql(self):
         from test_metadata import check_metadata_contract
         check_metadata_contract(self, PostgresStore(self.profile, self.password))
+
+    def test_document_status_on_real_postgresql(self):
+        from test_metadata import check_status_contract
+        check_status_contract(self, PostgresStore(self.profile, self.password))
 
     def test_chunk_strategies_on_real_postgresql(self):
         from test_chunking import check_chunking_contract

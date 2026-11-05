@@ -122,6 +122,7 @@ def show_startup_failure(results):
 
 ALL_TAGS = 'alle Tags'
 LIST_COLUMNS = ('title','category','tags')
+STATUS_LABELS = {'new':'neu','reviewed':'geprüft','outdated':'veraltet','archived':'archiviert'}
 SEARCH_COLUMNS = ('title','section','hit','score')
 
 
@@ -464,18 +465,23 @@ class App(tk.Tk if tk is not None else object):
             hit = self.hits.get(doc['id'])
             found = (f'Fundstelle: Abschnitt {hit["ordinal"]} · {score_text(hit)}\n{hit["fundstelle"]}\n'
                      if hit else '')
-            self.write(self.detail,f'{doc["title"]}\nBereich: {doc["category"]}\nTags: {tags}\n'
+            care = f'Status: {STATUS_LABELS.get(doc["status"],doc["status"])}'
+            if doc['owner']:
+                care += f' · Verantwortlich: {doc["owner"]}'
+            if doc['review_date']:
+                care += f' · Wiedervorlage: {doc["review_date"]}'
+            self.write(self.detail,f'{doc["title"]}\nBereich: {doc["category"]}\nTags: {tags}\n{care}\n'
                                    f'Erfasst: {doc["created_at"]} UTC\n{line}\n{found}\n{doc["content"]}')
 
     def edit_metadata(self):
-        """Title, area and tags of the selected document with its change history (step 8A.1)."""
+        """Title, area, tags, status, owner and review date with the change history (steps 8A.1, 8A.2)."""
         doc_id=self.selected()
         doc=self.store.get(doc_id)
         with self.store.connect() as db:
             tags=rules.document_tags(db,doc_id)
         window=tk.Toplevel(self)
         window.title('Metadaten')
-        window.geometry('760x560')
+        window.geometry('760x640')
         window.transient(self)
         ttk.Label(window,text='Metadaten',font=('Segoe UI',18,'bold'),padding=(18,16,18,0)).pack(anchor='w')
         ttk.Label(window,text='Inhalt und Originaldatei bleiben unverändert. Jede Änderung wird im Verlauf protokolliert.',
@@ -487,18 +493,33 @@ class App(tk.Tk if tk is not None else object):
             ttk.Label(form,text=label).grid(row=row,column=0,sticky='w',pady=3)
             fields[name]=tk.StringVar(value=value)
             ttk.Entry(form,textvariable=fields[name],width=70).grid(row=row,column=1,sticky='we',pady=3,padx=(10,0))
+        ttk.Label(form,text='Status').grid(row=3,column=0,sticky='w',pady=3)
+        fields['status']=tk.StringVar(value=STATUS_LABELS[doc['status']])
+        ttk.Combobox(form,textvariable=fields['status'],values=list(STATUS_LABELS.values()),state='readonly',
+                     width=20).grid(row=3,column=1,sticky='w',pady=3,padx=(10,0))
+        for row,(name,label,value) in enumerate([('owner','Verantwortlich',doc['owner']),
+                                                 ('review_date','Wiedervorlage (JJJJ-MM-TT)',doc['review_date'] or '')],4):
+            ttk.Label(form,text=label).grid(row=row,column=0,sticky='w',pady=3)
+            fields[name]=tk.StringVar(value=value)
+            ttk.Entry(form,textvariable=fields[name],width=70).grid(row=row,column=1,sticky='we',pady=3,padx=(10,0))
+        ttk.Label(form,text='Veraltete und archivierte Dokumente bleiben suchbar; KI-Antworten lassen sie '
+                            'standardmäßig aus.',foreground='#666').grid(row=6,column=0,columnspan=2,sticky='w',pady=(4,0))
         form.columnconfigure(1,weight=1)
         tree=ttk.Treeview(window,columns=('created','field','old','new','origin'),show='headings',height=10)
         for col,title,width in [('created','Zeitpunkt (UTC)',140),('field','Feld',80),('old','Vorher',170),
                                 ('new','Nachher',170),('origin','Herkunft',90)]:
             tree.heading(col,text=title); tree.column(col,width=width)
-        labels={'title':'Titel','category':'Bereich','tag':'Tag'}
+        labels={'title':'Titel','category':'Bereich','tag':'Tag','status':'Status','owner':'Verantwortlich',
+                'review_date':'Wiedervorlage'}
+        def shown(row,key):
+            value=row[key]
+            return STATUS_LABELS.get(value,value) if row['field']=='status' else value
         origins={'manual':'manuell','rule':'Regel','rule_revert':'Regel zurück'}
         def show_history():
             tree.delete(*tree.get_children())
             for number,row in enumerate(reversed(self.store.metadata_history(doc_id))):
                 tree.insert('','end',iid=str(number),values=(row['created_at'],labels.get(row['field'],row['field']),
-                                                             row['old_value'],row['new_value'],
+                                                             shown(row,'old_value'),shown(row,'new_value'),
                                                              origins.get(row['origin'],row['origin'])))
         def save():
             try:
@@ -506,8 +527,10 @@ class App(tk.Tk if tk is not None else object):
                 with self.store.connect() as db:
                     current=rules.document_tags(db,doc_id)
                 keep={name.casefold() for name in wanted}
+                status={label:value for value,label in STATUS_LABELS.items()}[fields['status'].get()]
                 self.store.update_metadata(doc_id,fields['title'].get(),fields['category'].get(),wanted,
-                                           [name for name in current if name.casefold() not in keep])
+                                           [name for name in current if name.casefold() not in keep],
+                                           status,fields['owner'].get(),fields['review_date'].get())
             except ValueError as error:
                 messagebox.showerror('Metadaten',str(error),parent=window)
                 return

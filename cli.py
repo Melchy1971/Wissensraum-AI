@@ -3,7 +3,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from core import Store, import_document
+from core import DOCUMENT_STATUSES, Store, import_document
 from migrations import restore_sqlite
 from settings import PROVIDERS, Settings
 from settings import SystemVault
@@ -93,12 +93,20 @@ def main(argv=None):
     commands.add_parser('rules-runs',help='Angewendete Läufe anzeigen')
     rules_revert = commands.add_parser('rules-revert',help='Lauf vollständig zurücknehmen')
     rules_revert.add_argument('run_id',type=int)
-    edit = commands.add_parser('edit',help='Titel, Bereich oder Tags eines Dokuments ändern (Original bleibt unverändert)')
+    edit = commands.add_parser('edit',help='Titel, Bereich, Tags, Status, Verantwortlichen oder Wiedervorlage ändern '
+                                            '(Original bleibt unverändert)')
     edit.add_argument('id',type=int)
     edit.add_argument('--title')
     edit.add_argument('--category')
     edit.add_argument('--add-tags',help='kommagetrennt')
     edit.add_argument('--remove-tags',help='kommagetrennt')
+    edit.add_argument('--status',choices=DOCUMENT_STATUSES)
+    edit.add_argument('--owner',help='Verantwortlicher, leer entfernt ihn')
+    edit.add_argument('--review-date',help='Wiedervorlage JJJJ-MM-TT, leer entfernt sie')
+    due = commands.add_parser('review-due',help='Dokumente mit fälliger Wiedervorlage')
+    due.add_argument('--until',help='Stichtag JJJJ-MM-TT, Standard heute')
+    retired = commands.add_parser('ai-retired',help='Veraltete und archivierte Dokumente in KI-Antworten')
+    retired.add_argument('mode',nargs='?',choices=('exclude','include'),help='ohne Angabe: aktuelle Einstellung')
     metadata = commands.add_parser('history',help='Verlauf der Metadatenänderungen eines Dokuments')
     metadata.add_argument('id',type=int)
     versions = commands.add_parser('versions',help='Alle Versionen eines Dokuments anzeigen')
@@ -263,7 +271,14 @@ def main(argv=None):
                                        for name,(size,overlap) in store.chunk_strategies().items()}}
             elif args.command == 'edit':
                 result = {'aenderungen':store.update_metadata(args.id,args.title,args.category,
-                                                               args.add_tags,args.remove_tags)}
+                                                               args.add_tags,args.remove_tags,args.status,
+                                                               args.owner,args.review_date)}
+            elif args.command == 'review-due':
+                result = store.due_reviews(args.until)
+            elif args.command == 'ai-retired':
+                if args.mode:
+                    store.set_exclude_retired(args.mode == 'exclude')
+                result = {'ki_antworten_ohne_veraltete_und_archivierte':store.exclude_retired()}
             elif args.command == 'history':
                 result = store.metadata_history(args.id)
             elif args.command == 'versions':
