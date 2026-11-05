@@ -583,7 +583,23 @@ class InterfaceTests(unittest.TestCase):
             dialog.metadata_fields['title'].set(' '); dialog.metadata_save()
         error.assert_called_once()
         self.assertEqual(window.store.get(doc_id)['title'],'Heizungsplan')
+        dialog.metadata_fields['title'].set('Heizungsplan')
+        dialog.metadata_fields['status'].set('veraltet')
+        dialog.metadata_fields['owner'].set('Hausverwaltung')
+        dialog.metadata_fields['review_date'].set('2026-12-01')
+        dialog.metadata_save(); window.update()
+        doc=window.store.get(doc_id)
+        self.assertEqual((doc['status'],doc['owner'],doc['review_date']),('outdated','Hausverwaltung','2026-12-01'))
+        self.assertEqual(dialog.metadata_tree.item(dialog.metadata_tree.get_children()[2],'values')[1:4],
+                         ('Status','neu','veraltet'))
+        with patch.object(app.messagebox,'showerror') as error:
+            dialog.metadata_fields['review_date'].set('1.12.2026'); dialog.metadata_save()
+        error.assert_called_once()
+        self.assertEqual(window.store.get(doc_id)['review_date'],'2026-12-01')
         dialog.destroy()
+        window.show_document()
+        self.assertIn('Status: veraltet · Verantwortlich: Hausverwaltung · Wiedervorlage: 2026-12-01',
+                      window.detail.get('1.0','end'))
 
     def test_search_shows_hybrid_status_and_falls_back_to_full_text(self):
         from test_retrieval import WordEmbedder, embed_all

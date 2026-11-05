@@ -125,8 +125,11 @@ class Retriever:
             self.questions.popitem(last=False)
         return vector
 
-    def search(self, question, limit=RESULT_LIMIT, mode=None, tag=None, all_versions=False):
-        """Ranked documents with their best passage; ``mode`` None means hybrid when possible."""
+    def search(self, question, limit=RESULT_LIMIT, mode=None, tag=None, all_versions=False, active_only=False):
+        """Ranked documents with their best passage; ``mode`` None means hybrid when possible.
+
+        ``active_only`` leaves out outdated and archived documents (AI answers, step 8A.2).
+        """
         if mode is not None and mode not in MODES:
             raise ValueError('Suchmodus: fulltext, vector oder hybrid.')
         timings = {}
@@ -135,17 +138,18 @@ class Retriever:
         def full_text():
             if mode == VECTOR:
                 return []
-            hits = self.store.search(question, limit=CANDIDATE_LIMIT, all_versions=all_versions, tag=tag)
+            hits = self.store.search(question, limit=CANDIDATE_LIMIT, all_versions=all_versions, tag=tag,
+                                     **({'active_only': True} if active_only else {}))
             timings['fulltext'] = self.clock() - started
             return hits
         pending = self.pool.submit(full_text)
         try:
-            return self._combine(question, limit, mode, tag, all_versions, pending, timings, started)
+            return self._combine(question, limit, mode, tag, all_versions, pending, timings, started, active_only)
         except Exception:
             pending.result()  # a full-text error comes first, as when both ran one after the other
             raise
 
-    def _combine(self, question, limit, mode, tag, all_versions, pending, timings, started):
+    def _combine(self, question, limit, mode, tag, all_versions, pending, timings, started, active_only=False):
         model = self._semantic_model() if mode != FULLTEXT else None
         if model is None:
             if mode == VECTOR:
@@ -163,7 +167,8 @@ class Retriever:
             return self._fallback(mode, pending.result(), limit, STATUS_FALLBACK, timings, started, (done, total))
         try:
             step = self.clock()
-            vector = self.store.vector_search(model, probe, limit=CANDIDATE_LIMIT, all_versions=all_versions, tag=tag)
+            vector = self.store.vector_search(model, probe, limit=CANDIDATE_LIMIT, all_versions=all_versions, tag=tag,
+                                              **({'active_only': True} if active_only else {}))
             timings['vector'] = self.clock() - step
         except ValueError:  # wrong dimension or damaged vector: drop the matrix, the next search reloads it
             VECTOR_CACHE.clear()

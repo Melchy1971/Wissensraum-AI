@@ -413,10 +413,12 @@ class EvaluationStockBuilderTests(unittest.TestCase):
         with closing(sqlite3.connect(self.base)) as db:
             with db:
                 db.execute('DROP TABLE metadata_changes')  # a real version-11 base
+                for column in ('status', 'owner', 'review_date'):
+                    db.execute(f'ALTER TABLE documents DROP COLUMN {column}')
                 db.execute('PRAGMA user_version=11')
         before = builder.sha256_file(self.base)
         report = self.build()
-        self.assertEqual(report['schema_version'], 12)
+        self.assertEqual(report['schema_version'], 13)
         self.assertEqual(builder.sha256_file(self.base), before)
         with closing(sqlite3.connect(self.base)) as db:
             self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 11)

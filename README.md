@@ -78,7 +78,7 @@ Grenzen: 50 MB lokale Originaldatei und je E-Mail-Anhang, Dateiinhalt passend zu
 | `rule_runs`, `rule_run_changes` | Bestätigte Anwendungen auf vorhandene Dokumente mit vorherigem Bereich und hinzugefügten Tags, für die Rücknahme (Schema 9) |
 | `chunk_vectors` | Ein Vektor je Textabschnitt mit Modell und Dimension, L2-normiert als float16; SQLite `BLOB`, PostgreSQL `BYTEA`; wird mit dem Abschnitt gelöscht. Ein Modellwechsel macht vorhandene Vektoren ungültig (Schema 10). Genutzt von der hybriden Suche |
 | Suchvektoren (PostgreSQL) | Gespeicherte, automatisch berechnete Spalten `chunks.search_vector` und `documents.search_vector` mit GIN-Index (Schema 11); SQLite nutzt weiter FTS5 |
-| `metadata_changes` | Verlauf jeder Änderung von Titel, Bereich und Tags mit altem und neuem Wert, Herkunft (manuell, Regel, Rücknahme einer Regel), Regellauf und Zeitpunkt; wird mit dem Dokument gelöscht (Schema 12) |
+| `metadata_changes` | Verlauf jeder Änderung von Titel, Bereich und Tags mit altem und neuem Wert, Herkunft (manuell, Regel, Rücknahme einer Regel), Regellauf und Zeitpunkt; wird mit dem Dokument gelöscht (Schema 12); seit Schema 13 auch Status, Verantwortlicher und Wiedervorlage |
 
 `schema.sql` dokumentiert das SQLite-Schema. Die ausführbare Schema-Historie liegt in den geordneten, versionierten SQLite- und PostgreSQL-Migrationen in `migrations.py`. SQLite speichert die Version in `PRAGMA user_version`, PostgreSQL in `wissensraum.schema_migrations`. Beide Backends haben denselben fachlichen Speicherumfang, verwenden aber unterschiedliche Volltexttechnik. SQL-Werte werden parametrisiert gebunden. KI-Ausgaben werden niemals als SQL oder Programmcode ausgeführt.
 
@@ -313,6 +313,10 @@ Regeln wirken beim Import. Vorhandene Dokumente ändern sich nur über „Vorsch
 ### Metadaten bearbeiten (Release 2.2, Schritt 8A.1)
 
 In „Dokumente & Suche“ öffnet **Metadaten** für das ausgewählte Dokument Titel, Bereich und Tags. **Speichern** übernimmt nur tatsächliche Änderungen. Inhalt, Originaldatei und Hash bleiben unverändert, die Suche findet den neuen Titel sofort. Darunter steht der Verlauf, neueste Änderung zuerst: Zeitpunkt (UTC), Feld, vorher, nachher und Herkunft. Auch Regelläufe und ihre Rücknahme erscheinen dort. CLI: `python cli.py edit <id> --title … --category … --add-tags … --remove-tags …` und `python cli.py history <id>`. Der Verlauf wird mit dem Dokument gelöscht. Die Datenbank wird beim ersten Start auf Schema 12 migriert, SQLite vorher mit geprüfter Sicherung.
+
+### Dokumentstatus, Verantwortlicher und Wiedervorlage (Release 2.2, Schritt 8A.2)
+
+Der Dialog **Metadaten** enthält zusätzlich Status (neu, geprüft, veraltet, archiviert), Verantwortlich und Wiedervorlage (Datum JJJJ-MM-TT, leer entfernt es). Die Detailansicht zeigt alle drei Angaben, jede Änderung steht im Verlauf. Veraltete und archivierte Dokumente bleiben in der Suche sichtbar. KI-Antworten lassen sie standardmäßig aus: Volltext- und Vektorsuche für die Antwort berücksichtigen nur Dokumente mit Status neu oder geprüft. Solange kein Dokument als veraltet oder archiviert markiert ist, ändert sich an Treffern und Antworten nichts. CLI: `python cli.py edit <id> --status reviewed --owner … --review-date 2026-12-01`, `python cli.py review-due [--until JJJJ-MM-TT]` für fällige Wiedervorlagen und `python cli.py ai-retired [exclude|include]` für die Einstellung. Schema 13 ergänzt in `documents` die Spalten `status` (Standard `new`), `owner` und `review_date`; vorhandene Dokumente erhalten den Status neu.
 
 ### Postfachsynchronisation (Release 2.0.1, Schritt S3)
 
