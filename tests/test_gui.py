@@ -571,6 +571,16 @@ class InterfaceTests(unittest.TestCase):
         window.retriever.embedder=WordEmbedder
         window.query.set('Wartung'); window.refresh(); self.wait_until_idle(window)
         self.assertIn('Volltextsuche',window.status.get())
+        doc_id=str(window.store.list()[0]['id'])
+        self.assertEqual(tuple(window.tree['displaycolumns']),('title','section','hit','score'))
+        values=window.tree.item(doc_id,'values')
+        self.assertEqual(str(values[3]),'1')  # Abschnitt
+        self.assertIn('»Wartung«',values[4])  # Fundstelle with the search word marked
+        self.assertIn('Volltext 1',values[5])  # RRF score with the ranks, no reranking score
+        window.tree.selection_set(doc_id); window.update()
+        self.assertIn('Fundstelle: Abschnitt 1',window.detail.get('1.0','end'))
+        window.clear_search(); window.update()
+        self.assertEqual(tuple(window.tree['displaycolumns']),('title','category','tags'))
         embed_all(window.store)
         window.query.set('Heizung'); window.refresh(); self.wait_until_idle(window)
         self.assertEqual(window.tree.get_children(),(str(window.store.list()[0]['id']),))

@@ -17,7 +17,7 @@ import rules
 from rules_view import RulesPage
 from sync_view import SyncPanel
 from vector_view import VectorPanel
-from retrieval import Retriever
+from retrieval import Retriever, snippet
 from settings import Settings, SystemVault, PROVIDERS
 from database import DatabaseSettings, resolve_sqlite_path
 from diagnostics import DiagnosticResult, format_diagnostics, health_overview, run_diagnostics
@@ -121,6 +121,15 @@ def show_startup_failure(results):
 
 
 ALL_TAGS = 'alle Tags'
+LIST_COLUMNS = ('title','category','tags')
+SEARCH_COLUMNS = ('title','section','hit','score')
+
+
+def score_text(hit):
+    """RRF score with the ranks in both lists; no reranking score, there is no reranker (D-019)."""
+    ranks = ', '.join(f'{name} {hit[key]}' for name,key in (('Volltext','fulltext_rank'),('Vektor','vector_rank'))
+                      if hit.get(key))
+    return f'{hit["rrf_score"]:.4f} ({ranks})' if 'rrf_score' in hit else ranks
 
 
 class App(tk.Tk if tk is not None else object):
@@ -226,13 +235,14 @@ class App(tk.Tk if tk is not None else object):
         left, right = ttk.Frame(split), ttk.Frame(split)
         split.add(left,weight=2)
         split.add(right,weight=3)
-        self.tree = ttk.Treeview(left,columns=('title','category','tags'),show='headings',selectmode='browse')
-        self.tree.heading('title',text='Titel')
-        self.tree.heading('category',text='Bereich')
-        self.tree.heading('tags',text='Tags')
-        self.tree.column('title',width=230)
-        self.tree.column('category',width=110)
-        self.tree.column('tags',width=110)
+        self.tree = ttk.Treeview(left,columns=('title','category','tags','section','hit','score'),show='headings',
+                                 selectmode='browse')
+        for col,title,width in [('title','Titel',230),('category','Bereich',110),('tags','Tags',110),
+                                ('section','Abschnitt',70),('hit','Fundstelle',320),('score','Score',150)]:
+            self.tree.heading(col,text=title)
+            self.tree.column(col,width=width)
+        self.tree.configure(displaycolumns=LIST_COLUMNS)
+        self.hits = {}  # document id -> search result of the last search (Fundstelle, ranks, score)
         scroll = ttk.Scrollbar(left,orient='vertical',command=self.tree.yview)
         self.tree.configure(yscrollcommand=scroll.set)
         scroll.pack(side='right',fill='y')
@@ -418,21 +428,28 @@ class App(tk.Tk if tk is not None else object):
                 # both run in the worker thread so the window stays responsive.
                 self.work(lambda:self.retriever.search(query,limit=30,tag=tag),
                           lambda retrieval:self.show_rows([self.store.get(r['document_id']) for r in retrieval.results],
-                                                          f' · {retrieval.status}'+(f' · Tag {tag}' if tag else '')))
+                                                          f' · {retrieval.status}'+(f' · Tag {tag}' if tag else ''),
+                                                          {r['document_id']:dict(r,fundstelle=snippet(r['content'],query))
+                                                           for r in retrieval.results}))
                 return
             self.show_rows(self.store.list(tag=tag),f' · Tag {tag}' if tag else '')
         except Exception as e:
             messagebox.showerror('Suche fehlgeschlagen',str(e),parent=self)
 
-    def show_rows(self,rows,suffix):
+    def show_rows(self,rows,suffix,hits=None):
+        """Documents of the library; with ``hits`` (search) also section, Fundstelle and score of each hit."""
         with self.store.connect() as db:
             tags = rules.tags_by_document(db)
             counts = rules.tag_counts(db)
         self.tag_box.configure(values=[ALL_TAGS]+[f'{name} ({count})' for name,count in counts])
+        self.hits = hits or {}
+        self.tree.configure(displaycolumns=SEARCH_COLUMNS if hits is not None else LIST_COLUMNS)
         self.tree.delete(*self.tree.get_children())
         for r in rows:
+            hit = self.hits.get(r['id'])
+            found = (hit['ordinal'],hit['fundstelle'],score_text(hit)) if hit else ('','','')
             self.tree.insert('', 'end', iid=str(r['id']),values=(r['title'],r['category'],
-                                                                 ', '.join(tags.get(r['id'],[]))))
+                                                                 ', '.join(tags.get(r['id'],[])),*found))
         self.status.set(f'{len(rows)} Dokumente angezeigt{suffix}')
 
     def show_document(self):
@@ -443,8 +460,11 @@ class App(tk.Tk if tk is not None else object):
             line = f'Version {version} von {len(versions)}' if len(versions)>1 else 'Version 1'
             with self.store.connect() as db:
                 tags = ', '.join(rules.document_tags(db,doc['id'])) or 'keine'
+            hit = self.hits.get(doc['id'])
+            found = (f'Fundstelle: Abschnitt {hit["ordinal"]} · {score_text(hit)}\n{hit["fundstelle"]}\n'
+                     if hit else '')
             self.write(self.detail,f'{doc["title"]}\nBereich: {doc["category"]}\nTags: {tags}\n'
-                                   f'Erfasst: {doc["created_at"]} UTC\n{line}\n\n{doc["content"]}')
+                                   f'Erfasst: {doc["created_at"]} UTC\n{line}\n{found}\n{doc["content"]}')
 
     def show_versions(self):
         doc_id=self.selected()
