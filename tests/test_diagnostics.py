@@ -454,6 +454,7 @@ class DiagnosticTests(unittest.TestCase):
                 store = Store(path)
                 store.add('Altbestand', f'Migration Version {version}')
                 with store.connect() as connection:
+                    connection.execute('DROP TABLE metadata_changes')
                     connection.execute('DROP TABLE chunk_vectors')
                     if version < 9:
                         for table in ('rule_run_changes', 'rule_runs', 'rules', 'document_tags', 'tags'):

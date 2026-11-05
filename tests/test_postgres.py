@@ -186,7 +186,7 @@ class PostgresStoreTests(unittest.TestCase):
         store = PostgresStore(self.profile, self.password)
         with store.connect() as db:
             self.assertEqual([row['version'] for row in db.execute(
-                'SELECT version FROM schema_migrations ORDER BY version')], list(range(1, 12)))
+                'SELECT version FROM schema_migrations ORDER BY version')], list(range(1, 13)))
             old = db.execute("""SELECT -ts_rank_cd(to_tsvector('simple',d.title || ' ' || d.category || ' ' || c.content),
                                 websearch_to_tsquery('simple','Wartung OR Haus')) AS rank
                                 FROM chunks c JOIN documents d ON d.id=c.document_id""").fetchone()['rank']
@@ -429,6 +429,10 @@ class PostgresStoreTests(unittest.TestCase):
         from test_vectors import check_vector_contract
         check_vector_contract(self, PostgresStore(self.profile, self.password))
 
+    def test_metadata_history_on_real_postgresql(self):
+        from test_metadata import check_metadata_contract
+        check_metadata_contract(self, PostgresStore(self.profile, self.password))
+
     def test_chunk_strategies_on_real_postgresql(self):
         from test_chunking import check_chunking_contract
         check_chunking_contract(self, PostgresStore(self.profile, self.password))
@@ -633,7 +637,8 @@ class PostgresStoreTests(unittest.TestCase):
         self.assertEqual(reset['tables'], [
             'ai_runs', 'chunk_vectors', 'chunks', 'document_tags', 'document_versions', 'documents',
             'email_accounts', 'email_attachments', 'email_imports',
-            'import_item_errors', 'import_items', 'import_jobs', 'rule_run_changes', 'rule_runs', 'rules',
+            'import_item_errors', 'import_items', 'import_jobs', 'metadata_changes', 'rule_run_changes',
+            'rule_runs', 'rules',
             'schema_migrations', 'settings', 'sources', 'tags'])
         with PostgresStore(self.profile, self.password).connect() as db:
             data_tables = [table for table in reset['tables'] if table != 'schema_migrations']

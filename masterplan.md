@@ -8,13 +8,23 @@
 
 **Repository:** `Melchy1971/Wissensraum-AI`
 
-**Geprüfte Codebasis:** Letzter produktcodewirksamer Stand `4957182` (05.11.2026, Chunk-Strategie je Dokumenttyp und Fundstellenanzeige, Schemaversion 11). Lokales Matrix-Gate an `b0b41de`: 7 von 7 Jobs grün (`local-ci-gate-b0b41de.md`); GitHub Actions für PR #7: 14 von 14 Checks grün. Davor `8bdd4f7` (03.11.2026, Schritt 7.4 Zweitabschnitt im erweiterten Antwortfenster): Lokales Matrix-Gate an `8bdd4f7`: 6 von 7 Jobs grün, windows-3.11 lokal durch Dateisperren des Virenscanners gestört; GitHub Actions für PR #6: 14 von 14 Checks grün (D-020). Davor: Lokales Matrix-Gate `tests/local_ci.py`: 7 von 7 Jobs grün an `5ca9021`, `4ef9545`, `6e1a9e3`, `ebd2475`, `72f0fbf`, `7b85460`, `3cb3aaa`, `d7decfe`, `c7ef78a` und `17aa5d2` (D-015, GitHub Actions ohne Budget). Vorheriger Abnahmestand `84f9ecf`: CI-Lauf [40185408996](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40185408996): alle sieben Jobs grün. Release 2.0 wurde am 26.10.2026 mit eigenen Daten abgenommen; nachfolgende Commits bis zu dieser Planaktualisierung betreffen ausschließlich README und Masterplan.
+**Geprüfte Codebasis:** Letzter produktcodewirksamer Stand `4d2ecbe` (05.11.2026, Schritt 8A.1 Metadaten bearbeiten mit Verlauf, Schemaversion 12). Lokales Matrix-Gate an `7f6c43c`: 7 von 7 Jobs grün (`local-ci-gate-7f6c43c.md`); GitHub Actions für PR #8: 14 von 14 Checks grün. Davor `4957182` (05.11.2026, Chunk-Strategie je Dokumenttyp und Fundstellenanzeige, Schemaversion 11). Lokales Matrix-Gate an `b0b41de`: 7 von 7 Jobs grün (`local-ci-gate-b0b41de.md`); GitHub Actions für PR #7: 14 von 14 Checks grün. Davor `8bdd4f7` (03.11.2026, Schritt 7.4 Zweitabschnitt im erweiterten Antwortfenster): Lokales Matrix-Gate an `8bdd4f7`: 6 von 7 Jobs grün, windows-3.11 lokal durch Dateisperren des Virenscanners gestört; GitHub Actions für PR #6: 14 von 14 Checks grün (D-020). Davor: Lokales Matrix-Gate `tests/local_ci.py`: 7 von 7 Jobs grün an `5ca9021`, `4ef9545`, `6e1a9e3`, `ebd2475`, `72f0fbf`, `7b85460`, `3cb3aaa`, `d7decfe`, `c7ef78a` und `17aa5d2` (D-015, GitHub Actions ohne Budget). Vorheriger Abnahmestand `84f9ecf`: CI-Lauf [40185408996](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40185408996): alle sieben Jobs grün. Release 2.0 wurde am 26.10.2026 mit eigenen Daten abgenommen; nachfolgende Commits bis zu dieser Planaktualisierung betreffen ausschließlich README und Masterplan.
 
 **Ablage:** Einziger Masterplan ist diese Datei `masterplan.md`. Die frühere Kopie `docs/masterplan.md` wurde am 22.10.2026 entfernt.
 
 **Status:** Phasen- und Testplan · Release 1.9 freigegeben, Release 2.0 abgenommen 26.10.2026, Phasen 0 bis 6 ✅ · Release 2.0.1 (Soll-Umfang von Phase 6, D-013) abgenommen 26.10.2026, Phase 7 (Release 2.1) ✅, Release 2.1 freigegeben 05.11.2026 (D-021): 7.1 Evaluationsdatensatz ✅, 7.2a Vektorspeicher und Embedding-Adapter ✅, 7.2b Einbettung im Hintergrund ✅, 7.3 hybride Suche ✅, 7.4 Quellenabsicherung ✅ (eingefrorener Bestand V2 mit `qwen3:8b`: False Reject 3 von 66, False Accept 1 von 24 in zwei Läufen, synthetisch 9,3 % und 3,1 %), Chunk-Strategie je Dokumenttyp ✅ und Fundstellenanzeige ✅ (Gate 7 von 7 an `b0b41de`)
 
 **Legende:** ✅ vollständig implementiert und gesamtes Gate nachweislich bestanden · 🟡 implementiert oder teilweise geprüft, aber noch nicht vollständig abgenommen · ❌ Gate fehlgeschlagen oder Freigabe blockiert · ⬜ geplant und noch nicht begonnen
+
+## Aktualisierung 05.11.2026 (Mittag) – Phase 8A, Schritt 8A.1 Metadaten bearbeiten ✅
+
+**Plan Phase 8A (freigegeben vom Product Owner 05.11.2026):** 8A.1 Metadaten bearbeiten mit Verlauf · 8A.2 Dokumentstatus, Verantwortlicher, Wiedervorlage, Ausschluss veralteter Inhalte aus KI-Antworten · 8A.3 Sammlungen, Favoriten, gespeicherte Suchen · 8A.4 Beziehungen zwischen Dokumenten, Vergleich zweier Fassungen · 8A.5 Export einer Sammlung mit Quellenmanifest. Jeder Schritt mit eigener Migration, Tests für beide Backends, Matrix-Gate 7 von 7 und eigenem PR.
+
+**Umfang (`4d2ecbe`, README `2067c9d`, Test `7f6c43c`):** Schema 12 mit der Tabelle `metadata_changes` (Feld, alter und neuer Wert, Herkunft `manual`, `rule` oder `rule_revert`, Regellauf, Zeitpunkt; wird mit dem Dokument gelöscht), Migration für SQLite mit geprüfter Sicherung und für PostgreSQL unter Advisory Lock, Schema-Kataloge und `schema.sql` angepasst. `Store.update_metadata` ändert Titel, Bereich und Tags und protokolliert nur tatsächliche Änderungen; `Store.metadata_history` liefert den Verlauf mit UTC-Zeit auf beiden Backends. Regelläufe und ihre Rücknahme schreiben in denselben Verlauf. Oberfläche: Schaltfläche „Metadaten“ mit Bearbeitung und Verlauf; CLI: `edit` und `history`.
+
+**Nachweise:** Gemeinsamer Vertrag `check_metadata_contract` (SQLite und PostgreSQL): Änderungen und Verlauf, Inhalt, Original, Hash und Dateiname unverändert, neuer Titel durchsuchbar, keine Einträge ohne tatsächliche Änderung, ungültige Eingaben ohne Spur, Regellauf und Rücknahme im Verlauf, Löschung entfernt den Verlauf. Dazu CLI- und Oberflächentest, Migrations- und Diagnosetests auf Schema 12. Lokales Matrix-Gate an `7f6c43c`: 7 von 7 grün. Windows 3.11, 3.12, 3.13 je 602 Tests bestanden, 32 übersprungen (windows-3.11 mit 7 wiederholten Tests nach WinError 145 beim Aufräumen); Linux 3.11, 3.12, 3.13 je 602 bestanden, 28 übersprungen; PostgreSQL 18.6 28 von 28. GitHub Actions für PR #8: 14 von 14 grün. Der erste PostgreSQL-Lauf an `2067c9d` scheiterte, weil zwei Tests gegen echtes PostgreSQL noch Schema 11 erwarteten; korrigiert in `7f6c43c`.
+
+**Status:** 8A.1 ✅. Phase 8A 🟡, als Nächstes 8A.2.
 
 ## Aktualisierung 05.11.2026 – Phase 7 abgeschlossen, Release 2.1 freigegeben ✅
 
@@ -616,7 +626,7 @@ Die Phasen werden in der angegebenen Reihenfolge getestet. Eine Phase wird erst 
 | 5 | Release 1.9 Betriebsfähigkeit | ✅ | freigegeben 23.10.2026 |
 | 6 | Release 2.0 Importplattform | ✅ | freigegeben 23.10.2026, in vier Teilschritten (D-010); 6.1 ✅ (23.10.2026, CI [39925457254](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39925457254) auf `ca5bce6`), 6.2 ✅ (23.10.2026, CI [39932577799](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39932577799) auf `4cdb50e`), 6.3a ✅ (23.10.2026, CI [39942033441](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39942033441) auf `e36be53`), 6.3 ✅ (6.3b 23.10.2026, CI [39976859099](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39976859099) auf `e4d1f95`), alle vier Teilschritte ✅ (6.4 24.10.2026, CI [40097227667](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40097227667) auf `d05ef87`); abgenommen 26.10.2026 durch den Product Owner mit eigenen Daten; Soll-Umfang folgt als Release 2.0.1 (D-013), S1 in Arbeit |
 | 7 | Release 2.1 Hybrid-RAG | ✅ freigegeben 05.11.2026 (D-021) | nach Phase 6 |
-| 8 | Wissensorganisation und Wissensgraph | ⬜ | nach Phase 7 |
+| 8 | Wissensorganisation und Wissensgraph | 🟡 8A.1 ✅ | nach Phase 7 |
 | 9 | Betrieb und Governance | ⬜ | nach Phase 8 |
 | 10 | Release 3.0 Sicherheitskern und Mehrbenutzerbetrieb | ⬜ | separates Architektur- und Sicherheits-Gate |
 | 11 | Release 3.1 VPS-Webanwendung und eigene Domain | ⬜ | erst nach Phase 10; öffentliche Bereitstellung nur mit vollständigem Sicherheits- und Betriebs-Gate |
@@ -902,7 +912,7 @@ Frühere Zwischenstände: Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33
 
 **Gate:** Die Qualitätswerte werden automatisiert aus einem versionierten Evaluationsdatensatz erzeugt; Einzelbeispiele reichen nicht aus.
 
-### Phase 8A – Release 2.2 Wissensorganisation ⬜
+### Phase 8A – Release 2.2 Wissensorganisation 🟡
 
 **Ziel:** Dokumente werden über reine Suche hinaus als gepflegter Wissensbestand verwaltet.
 
@@ -912,7 +922,7 @@ Frühere Zwischenstände: Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33
 - Dokumentstatus: neu, geprüft, veraltet, archiviert
 - Verantwortlicher und Wiedervorlagedatum
 - Beziehungen zwischen Dokumenten
-- Metadatenbearbeitung ohne Veränderung des Originals
+- Metadatenbearbeitung ohne Veränderung des Originals ✅ 8A.1 (`4d2ecbe`): Titel, Bereich, Tags mit Verlauf
 - kontrollierte Versionierung und Vergleich zweier Fassungen
 - Export einzelner Sammlungen mit Quellenmanifest
 

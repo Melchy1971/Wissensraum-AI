@@ -412,13 +412,14 @@ class EvaluationStockBuilderTests(unittest.TestCase):
     def test_old_schema_is_migrated_only_in_output(self):
         with closing(sqlite3.connect(self.base)) as db:
             with db:
-                db.execute('PRAGMA user_version=10')
+                db.execute('DROP TABLE metadata_changes')  # a real version-11 base
+                db.execute('PRAGMA user_version=11')
         before = builder.sha256_file(self.base)
         report = self.build()
-        self.assertEqual(report['schema_version'], 11)
+        self.assertEqual(report['schema_version'], 12)
         self.assertEqual(builder.sha256_file(self.base), before)
         with closing(sqlite3.connect(self.base)) as db:
-            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 10)
+            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 11)
 
     def test_repeated_build_has_stable_semantic_hash_despite_timestamp_metadata(self):
         first = self.build()['reproducible_content_sha256']

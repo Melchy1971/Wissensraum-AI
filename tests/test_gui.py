@@ -563,6 +563,28 @@ class InterfaceTests(unittest.TestCase):
         panel.deactivate()
         self.assertIn('ist aus. 1 von 1',panel.status.get())
 
+    def test_metadata_dialog_saves_changes_with_history(self):
+        window=self.window
+        doc_id,_=window.store.add('Wartungsplan','Die Therme bekommt jährlich eine Wartung.',category='Haus')
+        window.refresh(); window.tree.selection_set(str(doc_id)); window.update()
+        dialog=window.edit_metadata()
+        self.assertEqual(dialog.metadata_fields['title'].get(),'Wartungsplan')
+        dialog.metadata_fields['title'].set('Heizungsplan')
+        dialog.metadata_fields['tags'].set('Heizung, Wartung')
+        dialog.metadata_save(); window.update()
+        self.assertEqual(window.store.get(doc_id)['title'],'Heizungsplan')
+        rows=[dialog.metadata_tree.item(iid,'values') for iid in dialog.metadata_tree.get_children()]
+        self.assertEqual([(row[1],row[2],row[3],row[4]) for row in rows],
+                         [('Tag','','Wartung','manuell'),('Tag','','Heizung','manuell'),
+                          ('Titel','Wartungsplan','Heizungsplan','manuell')])
+        dialog.metadata_fields['tags'].set('Heizung'); dialog.metadata_save(); window.update()
+        self.assertEqual(dialog.metadata_tree.item(dialog.metadata_tree.get_children()[0],'values')[2],'Wartung')
+        with patch.object(app.messagebox,'showerror') as error:
+            dialog.metadata_fields['title'].set(' '); dialog.metadata_save()
+        error.assert_called_once()
+        self.assertEqual(window.store.get(doc_id)['title'],'Heizungsplan')
+        dialog.destroy()
+
     def test_search_shows_hybrid_status_and_falls_back_to_full_text(self):
         from test_retrieval import WordEmbedder, embed_all
         window=self.window
