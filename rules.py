@@ -223,17 +223,47 @@ def tags_by_document(db):
 
 
 # --- documents -----------------------------------------------------------------------------
-def set_category(db, backend, document_id, category):
-    """Change a document's area; SQLite also refreshes its full-text entries."""
+METADATA_ORIGINS = ('manual', 'rule', 'rule_revert')
+
+
+def log_change(db, document_id, field, old, new, origin, run_id=None):
+    """One entry of the metadata history (step 8A.1); tags are logged one per entry."""
+    db.execute('INSERT INTO metadata_changes(document_id,field,old_value,new_value,origin,run_id) '
+               'VALUES(?,?,?,?,?,?)', (document_id, field, old, new, origin, run_id))
+
+
+def history(db, document_id):
+    """Metadata changes of a document, oldest first; times as UTC text on both backends."""
+    from datetime import timezone
+    rows = [dict(row) for row in db.execute(
+        'SELECT field,old_value,new_value,origin,run_id,created_at FROM metadata_changes '
+        'WHERE document_id=? ORDER BY id', (document_id,))]
+    for row in rows:
+        if hasattr(row['created_at'], 'astimezone'):  # PostgreSQL TIMESTAMPTZ
+            row['created_at'] = row['created_at'].astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+    return rows
+
+
+def _set_indexed(db, backend, document_id, column, value):
+    """Change title or area; SQLite also refreshes the full-text entries of the document."""
     if backend == 'sqlite':
         db.execute("INSERT INTO search_index(search_index,rowid,title,category,content) "
                    "SELECT 'delete',c.id,d.title,d.category,c.content FROM chunks c JOIN documents d "
                    "ON d.id=c.document_id WHERE d.id=?", (document_id,))
-    db.execute('UPDATE documents SET category=? WHERE id=?', (category, document_id))
+    db.execute(f'UPDATE documents SET {column}=? WHERE id=?', (value, document_id))  # column: fixed names only
     if backend == 'sqlite':
         db.execute('INSERT INTO search_index(rowid,title,category,content) '
                    'SELECT c.id,d.title,d.category,c.content FROM chunks c JOIN documents d '
                    'ON d.id=c.document_id WHERE d.id=?', (document_id,))
+
+
+def set_category(db, backend, document_id, category):
+    """Change a document's area; SQLite also refreshes its full-text entries."""
+    _set_indexed(db, backend, document_id, 'category', category)
+
+
+def set_title(db, backend, document_id, title):
+    _set_indexed(db, backend, document_id, 'title', title)
 
 
 def decide_for_import(db, title, content, filename, source):
@@ -277,7 +307,10 @@ def apply(db, backend, rows):
             continue
         if row['new_category'] != row['category']:
             set_category(db, backend, row['document_id'], row['new_category'])
+            log_change(db, row['document_id'], 'category', row['category'], row['new_category'], 'rule', run_id)
         added = add_tags(db, row['document_id'], row['new_tags'])
+        for name in added:
+            log_change(db, row['document_id'], 'tag', '', name, 'rule', run_id)
         if row['new_category'] == row['category'] and not added:
             skipped += 1
             continue
@@ -314,9 +347,16 @@ def revert(db, backend, run_id):
         if change['previous_category'] != change['new_category']:
             if current['category'] == change['new_category']:
                 set_category(db, backend, change['document_id'], change['previous_category'])
+                log_change(db, change['document_id'], 'category', change['new_category'],
+                           change['previous_category'], 'rule_revert', run_id)
             else:
                 conflicts += 1
-        remove_tags(db, change['document_id'], json.loads(change['added_tags'] or '[]'))
+        names = json.loads(change['added_tags'] or '[]')
+        attached = {name.casefold() for name in document_tags(db, change['document_id'])}
+        remove_tags(db, change['document_id'], names)
+        for name in names:
+            if name.casefold() in attached:
+                log_change(db, change['document_id'], 'tag', name, '', 'rule_revert', run_id)
         restored += 1
     db.execute("UPDATE rule_runs SET status='reverted',reverted_at=CURRENT_TIMESTAMP WHERE id=?", (run_id,))
     return {'restored': restored, 'conflicts': conflicts}

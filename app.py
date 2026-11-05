@@ -250,7 +250,8 @@ class App(tk.Tk if tk is not None else object):
         self.tree.bind('<<TreeviewSelect>>',lambda _:self.show_document())
         row = ttk.Frame(right)
         row.pack(fill='x',padx=(14,0),pady=(0,8))
-        for label,command in [('Zusammenfassen',self.summarize),('Versionen',self.show_versions),
+        for label,command in [('Zusammenfassen',self.summarize),('Metadaten',self.edit_metadata),
+                              ('Versionen',self.show_versions),
                               ('Original exportieren',self.export),('Löschen',self.delete)]:
             b = ttk.Button(row,text=label,command=command)
             b.pack(side='left',padx=(0,5))
@@ -465,6 +466,62 @@ class App(tk.Tk if tk is not None else object):
                      if hit else '')
             self.write(self.detail,f'{doc["title"]}\nBereich: {doc["category"]}\nTags: {tags}\n'
                                    f'Erfasst: {doc["created_at"]} UTC\n{line}\n{found}\n{doc["content"]}')
+
+    def edit_metadata(self):
+        """Title, area and tags of the selected document with its change history (step 8A.1)."""
+        doc_id=self.selected()
+        doc=self.store.get(doc_id)
+        with self.store.connect() as db:
+            tags=rules.document_tags(db,doc_id)
+        window=tk.Toplevel(self)
+        window.title('Metadaten')
+        window.geometry('760x560')
+        window.transient(self)
+        ttk.Label(window,text='Metadaten',font=('Segoe UI',18,'bold'),padding=(18,16,18,0)).pack(anchor='w')
+        ttk.Label(window,text='Inhalt und Originaldatei bleiben unverändert. Jede Änderung wird im Verlauf protokolliert.',
+                  padding=(18,5,18,10)).pack(anchor='w')
+        form=ttk.Frame(window,padding=(18,0,18,8)); form.pack(fill='x')
+        fields={}
+        for row,(name,label,value) in enumerate([('title','Titel',doc['title']),('category','Bereich',doc['category']),
+                                                 ('tags','Tags (kommagetrennt)',', '.join(tags))]):
+            ttk.Label(form,text=label).grid(row=row,column=0,sticky='w',pady=3)
+            fields[name]=tk.StringVar(value=value)
+            ttk.Entry(form,textvariable=fields[name],width=70).grid(row=row,column=1,sticky='we',pady=3,padx=(10,0))
+        form.columnconfigure(1,weight=1)
+        tree=ttk.Treeview(window,columns=('created','field','old','new','origin'),show='headings',height=10)
+        for col,title,width in [('created','Zeitpunkt (UTC)',140),('field','Feld',80),('old','Vorher',170),
+                                ('new','Nachher',170),('origin','Herkunft',90)]:
+            tree.heading(col,text=title); tree.column(col,width=width)
+        labels={'title':'Titel','category':'Bereich','tag':'Tag'}
+        origins={'manual':'manuell','rule':'Regel','rule_revert':'Regel zurück'}
+        def show_history():
+            tree.delete(*tree.get_children())
+            for number,row in enumerate(reversed(self.store.metadata_history(doc_id))):
+                tree.insert('','end',iid=str(number),values=(row['created_at'],labels.get(row['field'],row['field']),
+                                                             row['old_value'],row['new_value'],
+                                                             origins.get(row['origin'],row['origin'])))
+        def save():
+            try:
+                wanted=rules.parse_tags(fields['tags'].get())
+                with self.store.connect() as db:
+                    current=rules.document_tags(db,doc_id)
+                keep={name.casefold() for name in wanted}
+                self.store.update_metadata(doc_id,fields['title'].get(),fields['category'].get(),wanted,
+                                           [name for name in current if name.casefold() not in keep])
+            except ValueError as error:
+                messagebox.showerror('Metadaten',str(error),parent=window)
+                return
+            show_history()
+            self.refresh()
+            if self.tree.exists(str(doc_id)):
+                self.tree.selection_set(str(doc_id))
+        buttons=ttk.Frame(window,padding=(18,0,18,8)); buttons.pack(fill='x')
+        ttk.Button(buttons,text='Speichern',command=save,style='Accent.TButton').pack(side='left')
+        ttk.Label(window,text='Verlauf (neueste zuerst)',padding=(18,4,18,4)).pack(anchor='w')
+        tree.pack(fill='both',expand=True,padx=18,pady=(0,16))
+        show_history()
+        window.metadata_fields=fields; window.metadata_save=save; window.metadata_tree=tree
+        return window
 
     def show_versions(self):
         doc_id=self.selected()

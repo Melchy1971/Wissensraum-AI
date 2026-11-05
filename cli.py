@@ -93,6 +93,14 @@ def main(argv=None):
     commands.add_parser('rules-runs',help='Angewendete Läufe anzeigen')
     rules_revert = commands.add_parser('rules-revert',help='Lauf vollständig zurücknehmen')
     rules_revert.add_argument('run_id',type=int)
+    edit = commands.add_parser('edit',help='Titel, Bereich oder Tags eines Dokuments ändern (Original bleibt unverändert)')
+    edit.add_argument('id',type=int)
+    edit.add_argument('--title')
+    edit.add_argument('--category')
+    edit.add_argument('--add-tags',help='kommagetrennt')
+    edit.add_argument('--remove-tags',help='kommagetrennt')
+    metadata = commands.add_parser('history',help='Verlauf der Metadatenänderungen eines Dokuments')
+    metadata.add_argument('id',type=int)
     versions = commands.add_parser('versions',help='Alle Versionen eines Dokuments anzeigen')
     versions.add_argument('id',type=int)
     strip = commands.add_parser('strip-mail-attachments',
@@ -253,6 +261,11 @@ def main(argv=None):
                     result = {'standard':{'zeichen':DEFAULT_CHUNKING[0],'ueberlappung':DEFAULT_CHUNKING[1]},
                               'typen':{name:{'zeichen':size,'ueberlappung':overlap}
                                        for name,(size,overlap) in store.chunk_strategies().items()}}
+            elif args.command == 'edit':
+                result = {'aenderungen':store.update_metadata(args.id,args.title,args.category,
+                                                               args.add_tags,args.remove_tags)}
+            elif args.command == 'history':
+                result = store.metadata_history(args.id)
             elif args.command == 'versions':
                 result = store.versions(args.id)
             elif args.command == 'preview':

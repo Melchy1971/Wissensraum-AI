@@ -72,6 +72,52 @@ def _chunking(db, doc_type):
     return tuple(int(part) for part in row['value'].split(',')) if row else DEFAULT_CHUNKING
 
 
+MAX_TITLE_LENGTH, MAX_CATEGORY_LENGTH = 300, 100
+
+
+class DocumentMetadata:
+    """Editing of title, area and tags (Release 2.2, step 8A.1), shared by both backends.
+
+    Every actual change is logged with old and new value in ``metadata_changes``; content,
+    original and hash of the document are never touched. Unchanged values log nothing.
+    """
+
+    def update_metadata(self, doc_id, title=None, category=None, add_tags=None, remove_tags=None):
+        import rules
+        if title is not None:
+            title = ' '.join(str(title).split())
+            if not title or len(title) > MAX_TITLE_LENGTH:
+                raise ValueError(f'Titel muss 1 bis {MAX_TITLE_LENGTH} Zeichen haben.')
+        if category is not None:
+            category = ' '.join(str(category).split())
+            if not category or len(category) > MAX_CATEGORY_LENGTH:
+                raise ValueError(f'Bereich muss 1 bis {MAX_CATEGORY_LENGTH} Zeichen haben.')
+        add_tags, remove_tags = rules.parse_tags(add_tags or ''), rules.parse_tags(remove_tags or '')
+        changes = []
+        with self.connect() as db:
+            doc = db.execute('SELECT title,category FROM documents WHERE id=?', (doc_id,)).fetchone()
+            if doc is None:
+                raise ValueError('Dokument wurde nicht gefunden.')
+            for field, value, setter in (('title', title, rules.set_title),
+                                         ('category', category, rules.set_category)):
+                if value is not None and value != doc[field]:
+                    setter(db, self.backend, doc_id, value)
+                    changes.append((field, doc[field], value))
+            attached = {name.casefold(): name for name in rules.document_tags(db, doc_id)}
+            removed = [attached[name.casefold()] for name in remove_tags if name.casefold() in attached]
+            rules.remove_tags(db, doc_id, removed)
+            changes += [('tag', name, '') for name in removed]
+            changes += [('tag', '', name) for name in rules.add_tags(db, doc_id, add_tags)]
+            for field, old, new in changes:
+                rules.log_change(db, doc_id, field, old, new, 'manual')
+        return [{'field': field, 'old_value': old, 'new_value': new} for field, old, new in changes]
+
+    def metadata_history(self, doc_id):
+        import rules
+        with self.connect() as db:
+            return rules.history(db, doc_id)
+
+
 class ChunkStrategies:
     """Chunk strategy per document type (Release 2.1), shared by both backends through ``connect()``.
 
@@ -442,7 +488,7 @@ class VectorIndex:
         return [{**details[chunk_id], 'score': score} for chunk_id, score in chosen.items() if chunk_id in details]
 
 
-class Store(ChunkStrategies, VectorIndex):
+class Store(DocumentMetadata, ChunkStrategies, VectorIndex):
     backend = 'sqlite'
     # Declared type, PRAGMA not-null flag, normalized default, primary-key position.
     column_contract = {
@@ -803,7 +849,7 @@ class _PostgresConnection:
             return cursor.executemany(self.sql(query),parameters)
 
 
-class PostgresStore(ChunkStrategies, VectorIndex):
+class PostgresStore(DocumentMetadata, ChunkStrategies, VectorIndex):
     """PostgreSQL implementation used after explicit activation in database settings."""
     backend = 'postgresql'
     # information_schema: data_type, udt_name, is_nullable, normalized default, is_identity.

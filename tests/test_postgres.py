@@ -429,6 +429,10 @@ class PostgresStoreTests(unittest.TestCase):
         from test_vectors import check_vector_contract
         check_vector_contract(self, PostgresStore(self.profile, self.password))
 
+    def test_metadata_history_on_real_postgresql(self):
+        from test_metadata import check_metadata_contract
+        check_metadata_contract(self, PostgresStore(self.profile, self.password))
+
     def test_chunk_strategies_on_real_postgresql(self):
         from test_chunking import check_chunking_contract
         check_chunking_contract(self, PostgresStore(self.profile, self.password))

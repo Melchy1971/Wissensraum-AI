@@ -157,6 +157,7 @@ SQLITE_HISTORICAL_MIGRATIONS = (
             model TEXT NOT NULL, dimension INTEGER NOT NULL, vector BLOB NOT NULL
         )""",
     )),
+    (11, ()),
 )
 
 
@@ -303,7 +304,7 @@ class FakePostgres:
                        'email_imports', 'sources', 'import_jobs', 'import_items',
                        'import_item_errors', 'document_versions', 'email_attachments',
                        'tags', 'document_tags', 'rules', 'rule_runs', 'rule_run_changes',
-                       'chunk_vectors'}
+                       'chunk_vectors', 'metadata_changes'}
         return tables
 
 
@@ -374,6 +375,8 @@ class SQLiteMigrationTests(unittest.TestCase):
                     # Migration 10 adds an empty vector table; existing chunks keep their ids.
                     self.assertEqual(db.execute('SELECT count(*) FROM chunk_vectors').fetchone()[0], 0)
                     self.assertEqual(db.execute('SELECT id FROM chunks').fetchone()[0], 1)
+                    # Migration 12 adds an empty metadata history; content and original stay unchanged.
+                    self.assertEqual(db.execute('SELECT count(*) FROM metadata_changes').fetchone()[0], 0)
 
     def test_historical_fixtures_do_not_depend_on_runtime_migrations(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -675,7 +678,8 @@ class PostgresMigrationTests(unittest.TestCase):
               for table,kind,columns,referenced,referenced_columns,action in POSTGRES_LEGACY_CONSTRAINTS
               if table.startswith('import_') or table in ('document_versions', 'email_attachments', 'tags',
                                                           'document_tags', 'rules', 'rule_runs',
-                                                          'rule_run_changes', 'chunk_vectors')),
+                                                          'rule_run_changes', 'chunk_vectors',
+                                                          'metadata_changes')),
         ]
         indexes = [
             {'table_name':'chunks','index_name':'chunks_document_id_idx','index_definition':'CREATE INDEX chunks_document_id_idx ON wissensraum.chunks USING btree (document_id)'},

@@ -60,7 +60,7 @@ class FakeResetConnection:
         if 'FROM information_schema.tables' in query:
             tables=['ai_runs','chunk_vectors','chunks','document_tags','document_versions','documents','email_accounts',
                     'email_attachments','email_imports','import_item_errors','import_items','import_jobs',
-                    'rule_run_changes','rule_runs','rules','schema_migrations','settings','sources',
+                    'metadata_changes','rule_run_changes','rule_runs','rules','schema_migrations','settings','sources',
                     'tags'] if self.schema == 'new' else []
             rows=[(name,) for name in tables] if self.tuple_rows else [{'table_name':name} for name in tables]
             return type('Result',(),{'fetchall':lambda _:rows})()
@@ -477,7 +477,8 @@ class DatabaseSettingsTests(unittest.TestCase):
                         next(i for i,q in enumerate(queries) if 'pg_advisory_xact_lock' in q))
         self.assertEqual(result['tables'],['ai_runs','chunk_vectors','chunks','document_tags','document_versions','documents',
                                            'email_accounts','email_attachments','email_imports',
-                                           'import_item_errors','import_items','import_jobs','rule_run_changes',
+                                           'import_item_errors','import_items','import_jobs','metadata_changes',
+                                           'rule_run_changes',
                                            'rule_runs','rules','schema_migrations','settings','sources','tags'])
         self.assertTrue(connection.closed)
 

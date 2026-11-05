@@ -9,7 +9,7 @@ import uuid
 from contextlib import closing, contextmanager
 from pathlib import Path
 
-CURRENT_SCHEMA_VERSION = 11
+CURRENT_SCHEMA_VERSION = 12
 # Unversioned PostgreSQL schemas predate schema_migrations and match version 4.
 POSTGRES_LEGACY_SCHEMA_VERSION = 4
 # ponytail: source_type is validated in application code (core.SOURCE_TYPES), not by a
@@ -185,6 +185,17 @@ SQLITE_MIGRATIONS = (
     # Version 11 changes only PostgreSQL (stored search vectors); SQLite keeps its FTS5 index and
     # takes the version number so that both backends share one schema version.
     (11, ()),
+    # Release 2.2, step 8A.1: every change of a document's metadata with old and new value,
+    # manual or by a rule run; the content, the original and its hash never change.
+    (12, (
+        """CREATE TABLE IF NOT EXISTS metadata_changes (
+            id INTEGER PRIMARY KEY,
+            document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            field TEXT NOT NULL, old_value TEXT NOT NULL DEFAULT '', new_value TEXT NOT NULL DEFAULT '',
+            origin TEXT NOT NULL, run_id INTEGER REFERENCES rule_runs(id) ON DELETE SET NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+    )),
 )
 
 
@@ -350,6 +361,15 @@ POSTGRES_MIGRATIONS = (
         'CREATE INDEX chunks_search_idx ON chunks USING GIN (search_vector)',
         'CREATE INDEX documents_search_idx ON documents USING GIN (search_vector)',
     )),
+    (12, (
+        """CREATE TABLE IF NOT EXISTS metadata_changes (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            document_id BIGINT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            field TEXT NOT NULL, old_value TEXT NOT NULL DEFAULT '', new_value TEXT NOT NULL DEFAULT '',
+            origin TEXT NOT NULL, run_id BIGINT REFERENCES rule_runs(id) ON DELETE SET NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+    )),
 )
 
 # Columns added to an existing table by a later migration: (table, column) -> version.
@@ -369,7 +389,7 @@ SQLITE_TABLE_VERSIONS = {
     'email_accounts': 3, 'email_imports': 4, 'sources': 5,
     'import_jobs': 6, 'import_items': 6, 'import_item_errors': 6, 'document_versions': 7,
     'email_attachments': 8, 'tags': 9, 'document_tags': 9, 'rules': 9, 'rule_runs': 9,
-    'rule_run_changes': 9, 'chunk_vectors': 10,
+    'rule_run_changes': 9, 'chunk_vectors': 10, 'metadata_changes': 12,
 }
 
 # Constant SQL list of all application tables, derived from the catalog so that
@@ -438,6 +458,10 @@ SQLITE_COLUMNS = {
                          ('added_tags','TEXT',1,"''",0)),
     'chunk_vectors': (('chunk_id','INTEGER',0,None,1), ('model','TEXT',1,None,0),
                       ('dimension','INTEGER',1,None,0), ('vector','BLOB',1,None,0)),
+    'metadata_changes': (('id','INTEGER',0,None,1), ('document_id','INTEGER',1,None,0),
+                         ('field','TEXT',1,None,0), ('old_value','TEXT',1,"''",0),
+                         ('new_value','TEXT',1,"''",0), ('origin','TEXT',1,None,0),
+                         ('run_id','INTEGER',0,None,0), ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
 }
 
 SQLITE_UNIQUE_CONSTRAINTS = {
@@ -447,7 +471,7 @@ SQLITE_UNIQUE_CONSTRAINTS = {
     'import_jobs': set(), 'import_items': {('job_id','ordinal')}, 'import_item_errors': set(),
     'document_versions': {('lineage_id','version')}, 'email_attachments': set(),
     'tags': {('normalized',)}, 'document_tags': set(), 'rules': set(), 'rule_runs': set(),
-    'rule_run_changes': set(), 'chunk_vectors': set(),
+    'rule_run_changes': set(), 'chunk_vectors': set(), 'metadata_changes': set(),
 }
 
 SQLITE_FOREIGN_KEYS = {
@@ -475,6 +499,8 @@ SQLITE_FOREIGN_KEYS = {
     'rule_run_changes': {('run_id','rule_runs','id','NO ACTION','CASCADE'),
                          ('document_id','documents','id','NO ACTION','CASCADE')},
     'chunk_vectors': {('chunk_id','chunks','id','NO ACTION','CASCADE')},
+    'metadata_changes': {('document_id','documents','id','NO ACTION','CASCADE'),
+                         ('run_id','rule_runs','id','NO ACTION','SET NULL')},
 }
 
 POSTGRES_LEGACY_COLUMNS = {
@@ -582,6 +608,14 @@ POSTGRES_LEGACY_COLUMNS = {
     ('chunk_vectors','model','text','NO','NO',None,None),
     ('chunk_vectors','dimension','integer','NO','NO',None,None),
     ('chunk_vectors','vector','bytea','NO','NO',None,None),
+    ('metadata_changes','id','bigint','NO','YES',None,'ALWAYS'),
+    ('metadata_changes','document_id','bigint','NO','NO',None,None),
+    ('metadata_changes','field','text','NO','NO',None,None),
+    ('metadata_changes','old_value','text','NO','NO',"''::text",None),
+    ('metadata_changes','new_value','text','NO','NO',"''::text",None),
+    ('metadata_changes','origin','text','NO','NO',None,None),
+    ('metadata_changes','run_id','bigint','YES','NO',None,None),
+    ('metadata_changes','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
     ('chunks','search_vector','tsvector','YES','NO',None,None),
     ('documents','search_vector','tsvector','YES','NO',None,None),
 }
@@ -625,6 +659,9 @@ POSTGRES_LEGACY_CONSTRAINTS = {
     ('rule_run_changes', 'f', ('document_id',), 'documents', ('id',), 'c'),
     ('chunk_vectors', 'p', ('chunk_id',), None, (), ' '),
     ('chunk_vectors', 'f', ('chunk_id',), 'chunks', ('id',), 'c'),
+    ('metadata_changes', 'p', ('id',), None, (), ' '),
+    ('metadata_changes', 'f', ('document_id',), 'documents', ('id',), 'c'),
+    ('metadata_changes', 'f', ('run_id',), 'rule_runs', ('id',), 'n'),
 }
 
 
