@@ -52,6 +52,78 @@ def chunks(text: str, size: int = 1800, overlap: int = 200):
             break
 
 
+DEFAULT_CHUNKING = (1800, 200)  # characters per section and overlap; every type without its own strategy
+CHUNKING_SETTING = 'chunking.'  # settings row per document type: "<size>,<overlap>"
+CHUNK_SIZE_RANGE = (300, 8000)
+DOCUMENT_TYPE = re.compile(r'[a-z0-9]{1,16}')
+
+
+def document_type(filename, source_type):
+    """The type that selects the chunk strategy: the file suffix of files and attachments, else the source."""
+    if source_type in ('file', 'attachment') and filename:
+        suffix = Path(filename).suffix.lower().lstrip('.')
+        if DOCUMENT_TYPE.fullmatch(suffix):
+            return suffix
+    return source_type
+
+
+def _chunking(db, doc_type):
+    row = db.execute('SELECT value FROM settings WHERE name=?', (CHUNKING_SETTING + doc_type,)).fetchone()
+    return tuple(int(part) for part in row['value'].split(',')) if row else DEFAULT_CHUNKING
+
+
+class ChunkStrategies:
+    """Chunk strategy per document type (Release 2.1), shared by both backends through ``connect()``.
+
+    Without a stored strategy every type keeps ``DEFAULT_CHUNKING``, so existing sections, vectors and
+    measurements stay valid. Changing or removing the strategy of a type splits exactly the documents
+    of that type again; their vectors go with the old sections and are embedded again in the background.
+    """
+
+    def chunk_strategies(self):
+        with self.connect() as db:
+            rows = db.execute('SELECT name,value FROM settings WHERE name LIKE ? ORDER BY name',
+                              (CHUNKING_SETTING + '%',)).fetchall()
+        return {row['name'][len(CHUNKING_SETTING):]: tuple(int(part) for part in row['value'].split(','))
+                for row in rows}
+
+    def set_chunk_strategy(self, doc_type, size=None, overlap=None):
+        """Store (or with ``size`` None remove) the strategy of ``doc_type``; returns the re-split documents."""
+        doc_type = str(doc_type).strip().lower().lstrip('.')
+        if not DOCUMENT_TYPE.fullmatch(doc_type):
+            raise ValueError('Ungültiger Dokumenttyp.')
+        if size is not None:
+            size, overlap = int(size), int(overlap or 0)
+            if not CHUNK_SIZE_RANGE[0] <= size <= CHUNK_SIZE_RANGE[1] or not 0 <= overlap <= size // 2:
+                raise ValueError(f'Abschnittslänge {CHUNK_SIZE_RANGE[0]} bis {CHUNK_SIZE_RANGE[1]} Zeichen, '
+                                 'Überlappung höchstens die halbe Länge.')
+        name, changed = CHUNKING_SETTING + doc_type, 0
+        with self.connect() as db:
+            db.execute('DELETE FROM settings WHERE name=?', (name,))
+            if size is not None:
+                db.execute('INSERT INTO settings(name,value) VALUES(?,?)', (name, f'{size},{overlap}'))
+            strategy = _chunking(db, doc_type)
+            candidates = db.execute('SELECT d.id,d.filename,s.source_type FROM documents d '
+                                    'LEFT JOIN sources s ON s.document_id=d.id ORDER BY d.id').fetchall()
+            for row in candidates:
+                source_type = row['source_type'] or ('file' if row['filename'] else 'note')
+                if document_type(row['filename'], source_type) != doc_type:
+                    continue
+                content = db.execute('SELECT content FROM documents WHERE id=?', (row['id'],)).fetchone()['content']
+                parts = list(chunks(content, *strategy))
+                current = [r['content'] for r in db.execute(
+                    'SELECT content FROM chunks WHERE document_id=? ORDER BY ordinal', (row['id'],)).fetchall()]
+                if parts == current:
+                    continue
+                db.execute('DELETE FROM chunks WHERE document_id=?', (row['id'],))  # vectors cascade
+                db.executemany('INSERT INTO chunks(document_id,ordinal,content) VALUES(?,?,?)',
+                               ((row['id'], number, part) for number, part in enumerate(parts, start=1)))
+                changed += 1
+            if changed:
+                _bump_vector_generation(db)
+        return changed
+
+
 # A document is current unless a newer version exists in its lineage.
 CURRENT_VERSION_FILTER = ('NOT EXISTS (SELECT 1 FROM document_versions mine JOIN document_versions newer '
                           'ON newer.lineage_id=mine.lineage_id AND newer.version>mine.version '
@@ -165,8 +237,9 @@ def _insert_document(db, title, content, category, filename, original, digest, s
                             ).fetchone()['id']
     else:
         doc_id = db.execute(query, (title, category, filename, original, content, digest)).lastrowid
+    strategy = _chunking(db, document_type(filename, source[0]))
     db.executemany('INSERT INTO chunks(document_id,ordinal,content) VALUES(?,?,?)',
-                   ((doc_id, i+1, part) for i, part in enumerate(chunks(content))))
+                   ((doc_id, i+1, part) for i, part in enumerate(chunks(content, *strategy))))
     db.execute('INSERT INTO sources(document_id,source_type,account_id,locator) VALUES(?,?,?,?)',
                (doc_id, *source))
     rules.add_tags(db, doc_id, ruled_tags)
@@ -369,7 +442,7 @@ class VectorIndex:
         return [{**details[chunk_id], 'score': score} for chunk_id, score in chosen.items() if chunk_id in details]
 
 
-class Store(VectorIndex):
+class Store(ChunkStrategies, VectorIndex):
     backend = 'sqlite'
     # Declared type, PRAGMA not-null flag, normalized default, primary-key position.
     column_contract = {
@@ -730,7 +803,7 @@ class _PostgresConnection:
             return cursor.executemany(self.sql(query),parameters)
 
 
-class PostgresStore(VectorIndex):
+class PostgresStore(ChunkStrategies, VectorIndex):
     """PostgreSQL implementation used after explicit activation in database settings."""
     backend = 'postgresql'
     # information_schema: data_type, udt_name, is_nullable, normalized default, is_identity.

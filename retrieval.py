@@ -190,6 +190,30 @@ class Retriever:
         return Retrieval(results, FULLTEXT, status, timings, vectors)
 
 
+def snippet(text, query, width=160):
+    """The passage around the first search word of ``query`` in ``text``, search words marked with »…«.
+
+    Words match at their start, case-insensitively, as in the full-text search. Without any match
+    (a hit of the vector search alone) the start of the section is shown. Whitespace is collapsed.
+    """
+    import re
+    from core import search_words
+    text = ' '.join(text.split())
+    words = [re.escape(word) for word in search_words(query) if len(word) > 1]
+    pattern = re.compile(r'(?<!\w)(?:' + '|'.join(words) + r')\w*', re.IGNORECASE) if words else None
+    found = pattern.search(text) if pattern else None
+    start = max(0, found.start() - width // 3) if found else 0
+    if start:
+        start = text.find(' ', start) + 1 or start
+    end = min(len(text), start + width)
+    if end < len(text):
+        end = text.rfind(' ', start, end) if text.rfind(' ', start, end) > start else end
+    part = text[start:end]
+    if pattern:
+        part = pattern.sub(lambda match: f'»{match.group(0)}«', part)
+    return ('…' if start else '') + part + ('…' if end < len(text) else '')
+
+
 def as_sources(retrieval):
     """The passages in the shape the AI adapter expects (title, document, section, text)."""
     return [{'chunk_id': r['chunk_id'], 'document_id': r['document_id'], 'title': r['title'],

@@ -19,7 +19,7 @@ Lies vor jeder nicht-trivialen Änderung mindestens:
 1. `masterplan.md` – verbindliche Phasen, Status, Test-Gates und Release-Freigaben
 2. `README.md` – Bedienung, Produktgrenzen, Datenhaltung und unterstützte Konfiguration
 3. die betroffenen Implementierungsdateien und Tests
-4. `tests/local_ci.py` – verbindliches lokales Matrix-Gate (7 Jobs); `.github/workflows/tests.yml` beschreibt dieselbe Matrix, läuft aber seit 28.10.2026 mangels Actions-Budget nicht
+4. `tests/local_ci.py` – verbindliches lokales Matrix-Gate (7 Jobs); `.github/workflows/tests.yml` beschreibt dieselbe Matrix und läuft seit 03.11.2026 wieder für Pull Requests und `main`
 
 Bei Widersprüchen gilt der ausführbare Code zusammen mit reproduzierbaren Tests als Ist-Stand. Widersprüche zwischen Code, Tests, README und Masterplan müssen ausdrücklich benannt und im passenden Dokument korrigiert werden.
 
@@ -27,15 +27,15 @@ Statusangaben im Masterplan dürfen nur aufgrund nachprüfbarer Ergebnisse geän
 
 ## 4. Aktueller Arbeitsschwerpunkt
 
-Phasen 0 bis 6 sind abgenommen, Release 2.0 und 2.0.1 freigegeben. In Arbeit ist **Phase 7 – Release 2.1 Hybrid-RAG und Antwortqualität**. Den verbindlichen Stand je Schritt, die offenen Gate-Kriterien und die IDs verbleibender Fehlklassifikationen enthält `masterplan.md` (Abschnitte „Aktualisierung“ am Anfang und Phase 7).
+Phasen 0 bis 7 sind abgenommen. Release 2.0, 2.0.1 und 2.1 sind freigegeben, Release 2.1 am 05.11.2026 (Tag `v2.1`, D-021). Den verbindlichen Stand je Phase, offene Gate-Kriterien und Entscheidungen enthält `masterplan.md` (Abschnitte „Aktualisierung“ am Anfang und Entscheidungstabelle).
 
-Stand 30.10.2026:
+Stand 05.11.2026:
 
-- 7.1 Evaluationsdatensatz, 7.2a und 7.2b Vektorspeicher und Einbettung, 7.3 hybride Suche sind ✅.
-- 7.4 Quellenabsicherung ist 🟡: umgesetzt und mit Gate 7 von 7 geprüft, aber das Kriterium False Reject auf den eigenen Fragen des Product Owners (höchstens 7 von 70) ist nicht erreicht.
-- Offen in Phase 7: Chunk-Strategie und Fundstellenanzeige.
+- Phase 7 (Release 2.1 Hybrid-RAG): 7.1 bis 7.4, Chunk-Strategie je Dokumenttyp und Fundstellenanzeige ✅. Produktionsvariante der Quellenabsicherung ist B2 (Zweitabschnitt des besten Dokuments im Fenster von 9.216 Token, zweiter Beleglauf aus, D-020).
+- Reihenfolge nach Masterplan (Entscheidung Product Owner 05.11.2026): Release 2.2 (Phase 8A Wissensorganisation), 2.3 (Phase 8B Wissensgraph), 2.4 (Phase 9 Betrieb und Governance), 3.0 (Phase 10 Mehrbenutzerbetrieb), danach 3.1 (VPS und Domain). 3.1 beginnt erst nach dem Sicherheits- und Mehrbenutzer-Gate von 3.0.
+- Nächster Schritt: Teilschritte und Gates von Phase 8A planen und vom Product Owner freigeben lassen.
 
-Eigene Fragen und Messkopien der Datenbank des Product Owners bleiben lokal (`data/` ist von Git ausgeschlossen). Messkopien nach der Messung löschen. Keine Fragetexte, Dokumenttexte oder privaten Dokumentnamen in Repository, Logs oder Berichte übernehmen, nur Frage-IDs.
+Messwerte der Antwortqualität stammen aus dem eingefrorenen Bestand V2 (`data/eval-set-v2.freeze.json`). Eigene Fragen und Messkopien der Datenbank des Product Owners bleiben lokal (`data/` ist von Git ausgeschlossen). Messkopien nach der Messung löschen. Einzelfalldaten nur anonymisiert behalten (Frage-IDs, Ränge, Abschnittsnummern, Kategorien). Keine Fragetexte, Dokumenttexte oder privaten Dokumentnamen in Repository, Logs oder Berichte übernehmen, nur Frage-IDs. Für Messungen muss Ollama exklusiv laufen; andere Clients verfälschen die Antwortzeiten.
 
 Ohne ausdrückliche Anweisung keine Arbeit aus einer späteren Phase beginnen, solange die laufende Phase nicht abgenommen ist.
 
@@ -190,7 +190,7 @@ PGTEST_ALLOW_DESTRUCTIVE=1 python -m unittest tests.test_postgres -v
 
 Vor Ausführung sicherstellen, dass der konfigurierte Datenbankname auf `_test` endet. Fehlt `migrations.py` im ausgecheckten Stand, zuerst Repository-Stand und Branch klären; die Prüfung nicht stillschweigend abschwächen.
 
-Matrix-Gate seit 28.10.2026: GitHub Actions hat kein Budget mehr. Das lokale Gate `tests/local_ci.py` ersetzt die Actions-Matrix mit denselben sieben Jobs: Windows und Linux jeweils mit Python 3.11, 3.12 und 3.13 sowie der PostgreSQL-18-Vertrag gegen einen Wegwerf-Cluster. Jede Maschine führt `python tests/local_ci.py run` für ihre Plattform aus, der PostgreSQL-Job läuft mit `--postgres --pg-bin <PostgreSQL-18-bin>`. Die Ergebnisdateien beider Plattformen gehören nach `.local-ci/results/<commit>/`. `python tests/local_ci.py report` schreibt `local-ci-gate-<commit>.md` und gilt nur bei 7 von 7 grünen Jobs am selben Commit als bestanden. Einzelne lokale Testläufe ohne dieses Protokoll ersetzen das Gate nicht.
+Matrix-Gate: Das lokale Gate `tests/local_ci.py` bildet die Actions-Matrix mit denselben sieben Jobs ab (seit 28.10.2026 verbindlich, als GitHub Actions kein Budget hatte): Windows und Linux jeweils mit Python 3.11, 3.12 und 3.13 sowie der PostgreSQL-18-Vertrag gegen einen Wegwerf-Cluster. Jede Maschine führt `python tests/local_ci.py run` für ihre Plattform aus, der PostgreSQL-Job läuft mit `--postgres --pg-bin <PostgreSQL-18-bin>`. Die Ergebnisdateien beider Plattformen gehören nach `.local-ci/results/<commit>/`. `python tests/local_ci.py report` schreibt `local-ci-gate-<commit>.md` und gilt nur bei 7 von 7 grünen Jobs am selben Commit als bestanden. Einzelne lokale Testläufe ohne dieses Protokoll ersetzen das Gate nicht. GitHub Actions läuft seit 03.11.2026 wieder; ein Pull Request wird nur bei vollständig grünem Workflow gemergt. Scheitert windows-3.11 lokal nur an Dateisperren des Virenscanners beim Aufräumen der Temp-Ordner, gilt Windows 3.11 über GitHub Actions als nachgewiesen (D-020).
 
 ## 10. Phasen- und Statusregeln
 

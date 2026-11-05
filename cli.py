@@ -107,6 +107,14 @@ def main(argv=None):
     vector_action.add_argument('--deactivate',action='store_true')
     vector_action.add_argument('--run',action='store_true',help='alle Abschnitte ohne Vektor jetzt einbetten')
     vectors.add_argument('--model',help='Ollama-Modell beim Aktivieren (Standard qwen3-embedding:0.6b)')
+    chunking = commands.add_parser('chunking',help='Abschnittslänge je Dokumenttyp anzeigen oder ändern '
+                                   '(Standard 1.800 Zeichen, 200 Überlappung)')
+    chunking.add_argument('type',nargs='?',help='Dokumenttyp: Dateiendung (pdf, docx, md, eml) oder Quelle '
+                          '(note, pst, imap, graph)')
+    chunking_action = chunking.add_mutually_exclusive_group()
+    chunking_action.add_argument('--size',type=int,help='Zeichen je Abschnitt (300 bis 8.000)')
+    chunking_action.add_argument('--reset',action='store_true',help='Typ auf den Standard zurücksetzen')
+    chunking.add_argument('--overlap',type=int,default=200,help='Überlappung in Zeichen (Standard 200)')
     commands.add_parser('retry-no-text',help='Quarantäne „kein lesbarer Text“ erneut verarbeiten (z. B. nach OCR-Installation)')
     preview = commands.add_parser('preview',help='Datei oder Ordner prüfen, ohne etwas zu speichern')
     preview.add_argument('path',type=Path)
@@ -232,6 +240,19 @@ def main(argv=None):
             elif args.command == 'strip-mail-attachments':
                 result = mail_cleanup.strip_stored_attachments(store,dry_run=args.dry_run,
                                                                backup_confirmed=args.backup_confirmed)
+            elif args.command == 'chunking':
+                from core import DEFAULT_CHUNKING
+                if args.type and (args.size or args.reset):
+                    changed = store.set_chunk_strategy(args.type,None if args.reset else args.size,args.overlap)
+                    result = {'typ':args.type,'neu_zerlegt':changed,
+                              'hinweis':'Neue Abschnitte werden bei aktiver semantischer Suche im Hintergrund '
+                                        'eingebettet.' if changed else 'Keine Dokumente dieses Typs geändert.'}
+                elif args.size or args.reset:
+                    raise ValueError('Dokumenttyp angeben.')
+                else:
+                    result = {'standard':{'zeichen':DEFAULT_CHUNKING[0],'ueberlappung':DEFAULT_CHUNKING[1]},
+                              'typen':{name:{'zeichen':size,'ueberlappung':overlap}
+                                       for name,(size,overlap) in store.chunk_strategies().items()}}
             elif args.command == 'versions':
                 result = store.versions(args.id)
             elif args.command == 'preview':
@@ -261,11 +282,12 @@ def main(argv=None):
                 _log_event(logger,'command_completed',metadata=metadata)
                 return 1 if any(result.status == 'FAIL' for result in results) else 0
             elif args.command == 'search':
-                from retrieval import Retriever
+                from retrieval import Retriever, snippet
                 retrieval = Retriever(store).search(args.query,tag=args.tag,mode=args.mode)
                 print(retrieval.status,file=sys.stderr)
                 diagnosis = ('fulltext_rank','vector_rank','fulltext_score','vector_score','rrf_score')
-                result = [{key:value for key,value in row.items() if args.diagnose or key not in diagnosis}
+                result = [{**{key:value for key,value in row.items() if args.diagnose or key not in diagnosis},
+                           'fundstelle':snippet(row['content'],args.query)}
                           for row in retrieval.results]
                 if args.diagnose:
                     result = {'modus':retrieval.mode,'status':retrieval.status,'vektoren':list(retrieval.vectors),

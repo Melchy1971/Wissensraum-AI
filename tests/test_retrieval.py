@@ -58,6 +58,18 @@ def embed_all(store, model='m'):
     return sync
 
 
+class SnippetTests(unittest.TestCase):
+    def test_marks_search_words_around_the_first_match(self):
+        text = 'Einleitung ' * 40 + 'Die Therme bekommt jährlich eine Wartung im März.' + ' Schluss' * 40
+        found = retrieval.snippet(text, 'Wann ist die Wartung der Therme?', width=80)
+        self.assertIn('»Therme«', found)
+        self.assertIn('»Wartung«', found)
+        self.assertTrue(found.startswith('…') and found.endswith('…'))
+        self.assertLessEqual(len(found), 80 + 2 + 4 * 2)
+        self.assertIn('»Wartungsplan«', retrieval.snippet('Der Wartungsplan liegt vor.', 'Wartungs'))  # whole word
+        self.assertEqual(retrieval.snippet('Kurzer  Text\nohne Treffer', 'Zebra'), 'Kurzer Text ohne Treffer')
+
+
 class RrfTests(unittest.TestCase):
     def test_exact_scores_ranks_and_methods(self):
         fulltext = [chunk(1, 10, rank=-3.0), chunk(2, 20, rank=-2.0)]
@@ -321,12 +333,14 @@ class SqliteRetrievalTests(unittest.TestCase):
             return json.loads(out.getvalue()), err.getvalue()
         rows, status = run('Heizung')
         self.assertEqual(status.strip(), STATUS_HYBRID)
+        self.assertTrue(rows[0]['fundstelle'].startswith('Die Therme'))  # vector hit: start of the section
         self.assertEqual((rows[0]['title'], rows[0]['retrieval_method']), ('Wartungsplan', 'vector'))
         self.assertNotIn('rrf_score', rows[0])
         report, _ = run('Wartung', '--diagnose')
         self.assertEqual(report['modus'], 'hybrid')
         self.assertIn('embedding', report['laufzeit_ms'])
         self.assertEqual(report['treffer'][0]['fulltext_rank'], 1)
+        self.assertIn('»Wartung«', report['treffer'][0]['fundstelle'])
         rows, status = run('Wartung', '--mode', 'fulltext')
         self.assertEqual(status.strip(), STATUS_FULLTEXT)
 
