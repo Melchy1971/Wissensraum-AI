@@ -2,19 +2,30 @@
 
 **Dokumentversion:** 1.9
 
-**Stand:** 03.11.2026
+**Stand:** 05.11.2026
 
 **Produktstand:** 2.0 abgenommen am 26.10.2026 (Code-Stand `84f9ecf`) · 1.9 freigegeben am 23.10.2026
 
 **Repository:** `Melchy1971/Wissensraum-AI`
 
-**Geprüfte Codebasis:** Letzter produktcodewirksamer Stand `8bdd4f7` (03.11.2026, Schritt 7.4 Zweitabschnitt im erweiterten Antwortfenster, Schemaversion 11). Lokales Matrix-Gate an `8bdd4f7`: 6 von 7 Jobs grün, windows-3.11 lokal durch Dateisperren des Virenscanners gestört; GitHub Actions für PR #6: 14 von 14 Checks grün (D-020). Davor: Lokales Matrix-Gate `tests/local_ci.py`: 7 von 7 Jobs grün an `5ca9021`, `4ef9545`, `6e1a9e3`, `ebd2475`, `72f0fbf`, `7b85460`, `3cb3aaa`, `d7decfe`, `c7ef78a` und `17aa5d2` (D-015, GitHub Actions ohne Budget). Vorheriger Abnahmestand `84f9ecf`: CI-Lauf [40185408996](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40185408996): alle sieben Jobs grün. Release 2.0 wurde am 26.10.2026 mit eigenen Daten abgenommen; nachfolgende Commits bis zu dieser Planaktualisierung betreffen ausschließlich README und Masterplan.
+**Geprüfte Codebasis:** Letzter produktcodewirksamer Stand `4957182` (05.11.2026, Chunk-Strategie je Dokumenttyp und Fundstellenanzeige, Schemaversion 11). Lokales Matrix-Gate an `b0b41de`: 7 von 7 Jobs grün (`local-ci-gate-b0b41de.md`); GitHub Actions für PR #7: 14 von 14 Checks grün. Davor `8bdd4f7` (03.11.2026, Schritt 7.4 Zweitabschnitt im erweiterten Antwortfenster): Lokales Matrix-Gate an `8bdd4f7`: 6 von 7 Jobs grün, windows-3.11 lokal durch Dateisperren des Virenscanners gestört; GitHub Actions für PR #6: 14 von 14 Checks grün (D-020). Davor: Lokales Matrix-Gate `tests/local_ci.py`: 7 von 7 Jobs grün an `5ca9021`, `4ef9545`, `6e1a9e3`, `ebd2475`, `72f0fbf`, `7b85460`, `3cb3aaa`, `d7decfe`, `c7ef78a` und `17aa5d2` (D-015, GitHub Actions ohne Budget). Vorheriger Abnahmestand `84f9ecf`: CI-Lauf [40185408996](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40185408996): alle sieben Jobs grün. Release 2.0 wurde am 26.10.2026 mit eigenen Daten abgenommen; nachfolgende Commits bis zu dieser Planaktualisierung betreffen ausschließlich README und Masterplan.
 
 **Ablage:** Einziger Masterplan ist diese Datei `masterplan.md`. Die frühere Kopie `docs/masterplan.md` wurde am 22.10.2026 entfernt.
 
-**Status:** Phasen- und Testplan · Release 1.9 freigegeben, Release 2.0 abgenommen 26.10.2026, Phasen 0 bis 6 ✅ · Release 2.0.1 (Soll-Umfang von Phase 6, D-013) abgenommen 26.10.2026, Phase 7 (Release 2.1) in Arbeit: 7.1 Evaluationsdatensatz ✅, 7.2a Vektorspeicher und Embedding-Adapter ✅, 7.2b Einbettung im Hintergrund ✅, 7.3 hybride Suche ✅, 7.4 Quellenabsicherung ✅ (eingefrorener Bestand V2 mit `qwen3:8b`: False Reject 3 von 66, False Accept 1 von 24 in zwei Läufen, synthetisch 9,3 % und 3,1 %), Phase 7 noch nicht freigegeben (Chunk-Strategie, Fundstellenanzeige offen)
+**Status:** Phasen- und Testplan · Release 1.9 freigegeben, Release 2.0 abgenommen 26.10.2026, Phasen 0 bis 6 ✅ · Release 2.0.1 (Soll-Umfang von Phase 6, D-013) abgenommen 26.10.2026, Phase 7 (Release 2.1) in Arbeit: 7.1 Evaluationsdatensatz ✅, 7.2a Vektorspeicher und Embedding-Adapter ✅, 7.2b Einbettung im Hintergrund ✅, 7.3 hybride Suche ✅, 7.4 Quellenabsicherung ✅ (eingefrorener Bestand V2 mit `qwen3:8b`: False Reject 3 von 66, False Accept 1 von 24 in zwei Läufen, synthetisch 9,3 % und 3,1 %), Chunk-Strategie je Dokumenttyp ✅ und Fundstellenanzeige ✅ (Gate 7 von 7 an `b0b41de`), Phase 7 und Release 2.1 noch nicht freigegeben (offen: Geltung des 95-%-Kriteriums für die Hauptquelle, gemessen 86 %)
 
 **Legende:** ✅ vollständig implementiert und gesamtes Gate nachweislich bestanden · 🟡 implementiert oder teilweise geprüft, aber noch nicht vollständig abgenommen · ❌ Gate fehlgeschlagen oder Freigabe blockiert · ⬜ geplant und noch nicht begonnen
+
+## Aktualisierung 05.11.2026 – Phase 7, Chunk-Strategie je Dokumenttyp und Fundstellenanzeige ✅
+
+**Umfang (`4957182`, README `b0b41de`):**
+
+- Chunk-Strategie je Dokumenttyp: `cli.py chunking` zeigt Standard und Einstellungen, `cli.py chunking <typ> --size N --overlap M` setzt eine eigene Abschnittslänge (300 bis 8.000 Zeichen, Überlappung höchstens die halbe Länge), `--reset` stellt den Standard her. Typ ist die Dateiendung bei Dateien und Anhängen, sonst die Quelle (`note`, `pst`, `imap`, `graph`). Ohne Einstellung bleibt jeder Typ bei 1.800/200 Zeichen; Bestand, Vektoren und die Messwerte von 7.4 bleiben gültig (Entscheidung Product Owner 05.11.2026). Eine Änderung zerlegt genau die Dokumente dieses Typs neu, alle Versionen eingeschlossen; ihre Vektoren entfallen mit den alten Abschnitten und werden im Hintergrund neu berechnet. Ablage in der Tabelle `settings`, keine Migration, gleicher Vertrag für SQLite und PostgreSQL. Eine Einstellungsseite in der Oberfläche gibt es nicht.
+- Fundstellenanzeige: Die Suchliste zeigt je Treffer Abschnitt, Fundstelle (Textstelle um das erste Suchwort, Suchwörter mit »…« markiert) und den RRF-Score mit den Rängen in Volltext- und Vektorsuche; die Detailansicht nennt dieselben Angaben, `cli.py search` gibt `fundstelle` aus. Ein Reranking-Score entfällt, weil es keinen Reranker gibt (D-019, Entscheidung Product Owner 05.11.2026).
+
+**Nachweise:** Neuer gemeinsamer Vertrag `check_chunking_contract` (SQLite und PostgreSQL), Tests für Dokumenttyp, E-Mail-Quellen, CLI `chunking`, Fundstelle, CLI `search` und die Oberfläche. Lokales Matrix-Gate an `b0b41de`: 7 von 7 grün. Windows 3.11, 3.12, 3.13 je 598 Tests bestanden, 31 übersprungen (windows-3.11 mit 5 wiederholten Tests nach WinError 145 beim Aufräumen); Linux 3.11, 3.12, 3.13 je 598 bestanden, 27 übersprungen; PostgreSQL 18.6 27 von 27. GitHub Actions für PR #7: 14 von 14 Checks grün.
+
+**Status:** Beide Muss-Punkte ✅. Phase 7 bleibt 🟡, bis der Product Owner über das Abnahmekriterium „mindestens 95 % der beantworteten Testfragen enthalten die erwartete Hauptquelle“ für Release 2.1 entscheidet (gemessen auf dem Bestand V2: 54 von 63, 86 %; für 7.4 gestrichen nach D-020). Alle übrigen Abnahmekriterien von Phase 7 sind erfüllt.
 
 ## Aktualisierung 03.11.2026 (Abend) – Phase 7, Schritt 7.4 Quellenabsicherung abgeschlossen ✅
 
@@ -602,7 +613,7 @@ Die Phasen werden in der angegebenen Reihenfolge getestet. Eine Phase wird erst 
 | 4 | Versionierte SQLite-/PostgreSQL-Migrationen | ✅ | freigegeben 23.10.2026 |
 | 5 | Release 1.9 Betriebsfähigkeit | ✅ | freigegeben 23.10.2026 |
 | 6 | Release 2.0 Importplattform | ✅ | freigegeben 23.10.2026, in vier Teilschritten (D-010); 6.1 ✅ (23.10.2026, CI [39925457254](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39925457254) auf `ca5bce6`), 6.2 ✅ (23.10.2026, CI [39932577799](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39932577799) auf `4cdb50e`), 6.3a ✅ (23.10.2026, CI [39942033441](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39942033441) auf `e36be53`), 6.3 ✅ (6.3b 23.10.2026, CI [39976859099](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39976859099) auf `e4d1f95`), alle vier Teilschritte ✅ (6.4 24.10.2026, CI [40097227667](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40097227667) auf `d05ef87`); abgenommen 26.10.2026 durch den Product Owner mit eigenen Daten; Soll-Umfang folgt als Release 2.0.1 (D-013), S1 in Arbeit |
-| 7 | Release 2.1 Hybrid-RAG | 🟡 7.1 bis 7.4 ✅, Chunk-Strategie und Fundstellenanzeige offen | nach Phase 6 |
+| 7 | Release 2.1 Hybrid-RAG | 🟡 7.1 bis 7.4, Chunk-Strategie und Fundstellenanzeige ✅, Freigabe offen | nach Phase 6 |
 | 8 | Wissensorganisation und Wissensgraph | ⬜ | nach Phase 7 |
 | 9 | Betrieb und Governance | ⬜ | nach Phase 8 |
 | 10 | Release 3.0 Sicherheitskern und Mehrbenutzerbetrieb | ⬜ | separates Architektur- und Sicherheits-Gate |
@@ -874,17 +885,17 @@ Frühere Zwischenstände: Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33
 - `pgvector` für PostgreSQL; definierte lokale Strategie für SQLite ✅ nach D-016 auf beiden Backends Byte-Spalte und exakte Suche mit numpy (7.2a); `pgvector` verschoben
 - hybride Fusion aus Volltext- und Vektorsuche ✅ RRF (7.3, `d7decfe`), auf 70 eigenen Fragen bei Recall@1 und MRR vor der Vektorsuche
 - optionaler Reranker: nicht erforderlich (7.4, D-019), Hybrid erreicht Recall@1 und MRR
-- konfigurierbare Chunk-Strategie nach Dokumenttyp
-- Anzeige von Dokument, Abschnitt, Fundstelle, Retrieval-Score und Reranking-Score
+- konfigurierbare Chunk-Strategie nach Dokumenttyp ✅ `cli.py chunking`, Standard 1.800/200 unverändert (`4957182`)
+- Anzeige von Dokument, Abschnitt, Fundstelle, Retrieval-Score und Reranking-Score ✅ ohne Reranking-Score, weil es keinen Reranker gibt (D-019, `4957182`)
 - Antwort verweigern oder kennzeichnen, wenn die Quellenlage nicht ausreicht ✅ (7.4, D-019, D-020); mit `qwen3:8b` synthetisch False Accept 3,1 % und False Reject 9,3 %, auf dem eingefrorenen Bestand V2 False Reject 3 von 66 und False Accept 1 von 24 in zwei Läufen (`9371775`)
 - Evaluationsdatensatz mit Fragen, erwarteten Quellen und Ausschlussfällen ✅ synthetischer Teil mit Ausschlussfragen (Schritt 7.1); 90 eigene Fragen des Product Owners lokal (70 beantwortbare zu 44 Dokumenten, 20 Ausschlussfragen)
 
 **Test und Abnahme:**
 
-- Recall@10 mindestens 0,85 auf dem freigegebenen Evaluationsdatensatz
+- Recall@10 mindestens 0,85 auf dem freigegebenen Evaluationsdatensatz ✅ synthetisch hybrid 0,963
 - ~~mindestens 95 % der beantworteten Testfragen enthalten die erwartete Hauptquelle~~ gestrichen für 7.4 (D-020); gemessen 54 von 63 (86 %)
-- 100 % der Tatsachenantworten enthalten mindestens einen gültigen Quellenverweis
-- unbelegte Antworten werden sichtbar markiert und nicht als gesichert dargestellt
+- 100 % der Tatsachenantworten enthalten mindestens einen gültigen Quellenverweis ✅ Bestand V2: 63 von 63
+- unbelegte Antworten werden sichtbar markiert und nicht als gesichert dargestellt ✅ (7.4)
 - Retrieval-P95 unter 2 Sekunden für den vereinbarten Referenzbestand (7.3: erfüllt, siehe Benchmark vom 29.10.2026)
 
 **Gate:** Die Qualitätswerte werden automatisiert aus einem versionierten Evaluationsdatensatz erzeugt; Einzelbeispiele reichen nicht aus.
