@@ -78,6 +78,7 @@ Grenzen: 50 MB lokale Originaldatei und je E-Mail-Anhang, Dateiinhalt passend zu
 | `rule_runs`, `rule_run_changes` | Bestätigte Anwendungen auf vorhandene Dokumente mit vorherigem Bereich und hinzugefügten Tags, für die Rücknahme (Schema 9) |
 | `chunk_vectors` | Ein Vektor je Textabschnitt mit Modell und Dimension, L2-normiert als float16; SQLite `BLOB`, PostgreSQL `BYTEA`; wird mit dem Abschnitt gelöscht. Ein Modellwechsel macht vorhandene Vektoren ungültig (Schema 10). Genutzt von der hybriden Suche |
 | Suchvektoren (PostgreSQL) | Gespeicherte, automatisch berechnete Spalten `chunks.search_vector` und `documents.search_vector` mit GIN-Index (Schema 11); SQLite nutzt weiter FTS5 |
+| `metadata_changes` | Verlauf jeder Änderung von Titel, Bereich und Tags mit altem und neuem Wert, Herkunft (manuell, Regel, Rücknahme einer Regel), Regellauf und Zeitpunkt; wird mit dem Dokument gelöscht (Schema 12) |
 
 `schema.sql` dokumentiert das SQLite-Schema. Die ausführbare Schema-Historie liegt in den geordneten, versionierten SQLite- und PostgreSQL-Migrationen in `migrations.py`. SQLite speichert die Version in `PRAGMA user_version`, PostgreSQL in `wissensraum.schema_migrations`. Beide Backends haben denselben fachlichen Speicherumfang, verwenden aber unterschiedliche Volltexttechnik. SQL-Werte werden parametrisiert gebunden. KI-Ausgaben werden niemals als SQL oder Programmcode ausgeführt.
 
@@ -308,6 +309,10 @@ HTML-Seiten werden ohne Skripte und Formatangaben gelesen, der Seitentitel wird 
 Unter Einstellungen > Regeln legst du Regeln an. Bedingungen: Quellentyp (Datei, IMAP, Microsoft 365, PST, E-Mail-Anhang), Ordner- oder Dateimuster, Absenderdomäne, Dateiendung, Stichwort in Titel oder Text. Alle Bedingungen einer Regel müssen zutreffen. Aktionen: Bereich setzen, Tags setzen. Die Regeln gelten in ihrer Reihenfolge: Den Bereich setzt die erste passende Regel, Tags kommen von allen passenden Regeln. Ein Muster ohne `*` oder `?` trifft jeden Pfad, der den Text enthält, mit Platzhaltern gilt das ganze Muster (`*/Rechnungen/*.pdf`). Die Absenderdomäne kommt aus der Zeile „Von:“ und umfasst ihre Unterdomänen. Regeln dürfen auch den Bereich von E-Mails ändern, die Herkunft bleibt in der Quellentabelle erhalten. Notizen ändern Regeln nie.
 
 Regeln wirken beim Import. Vorhandene Dokumente ändern sich nur über „Vorschau für vorhandene Dokumente“ und „Änderungen übernehmen“ (CLI: `rules-apply --confirm`). Jede Übernahme ist ein Lauf. „Ausgewählten Lauf zurücknehmen“ setzt Bereiche und Tags auf den Stand davor. Hat jemand den Bereich eines Dokuments nach dem Lauf erneut geändert, bleibt dieser neuere Bereich und die Rücknahme meldet ihn als Konflikt. In „Dokumente & Suche“ zeigt eine Spalte die Tags. Das Feld „Tag“ filtert Liste und Suche.
+
+### Metadaten bearbeiten (Release 2.2, Schritt 8A.1)
+
+In „Dokumente & Suche“ öffnet **Metadaten** für das ausgewählte Dokument Titel, Bereich und Tags. **Speichern** übernimmt nur tatsächliche Änderungen. Inhalt, Originaldatei und Hash bleiben unverändert, die Suche findet den neuen Titel sofort. Darunter steht der Verlauf, neueste Änderung zuerst: Zeitpunkt (UTC), Feld, vorher, nachher und Herkunft. Auch Regelläufe und ihre Rücknahme erscheinen dort. CLI: `python cli.py edit <id> --title … --category … --add-tags … --remove-tags …` und `python cli.py history <id>`. Der Verlauf wird mit dem Dokument gelöscht. Die Datenbank wird beim ersten Start auf Schema 12 migriert, SQLite vorher mit geprüfter Sicherung.
 
 ### Postfachsynchronisation (Release 2.0.1, Schritt S3)
 
