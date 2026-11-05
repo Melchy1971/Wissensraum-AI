@@ -9,7 +9,7 @@ import uuid
 from contextlib import closing, contextmanager
 from pathlib import Path
 
-CURRENT_SCHEMA_VERSION = 13
+CURRENT_SCHEMA_VERSION = 14
 # Unversioned PostgreSQL schemas predate schema_migrations and match version 4.
 POSTGRES_LEGACY_SCHEMA_VERSION = 4
 # ponytail: source_type is validated in application code (core.SOURCE_TYPES), not by a
@@ -203,6 +203,28 @@ SQLITE_MIGRATIONS = (
         "ALTER TABLE documents ADD COLUMN owner TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE documents ADD COLUMN review_date TEXT",
     )),
+    # Release 2.2, step 8A.3: collections, favorites and saved searches; documents keep every field.
+    (14, (
+        """CREATE TABLE IF NOT EXISTS collections (
+            id INTEGER PRIMARY KEY, name TEXT NOT NULL, normalized TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE IF NOT EXISTS collection_documents (
+            collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+            document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(collection_id, document_id)
+        )""",
+        """CREATE TABLE IF NOT EXISTS favorites (
+            document_id INTEGER PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE IF NOT EXISTS saved_searches (
+            id INTEGER PRIMARY KEY, name TEXT NOT NULL, normalized TEXT NOT NULL UNIQUE,
+            query TEXT NOT NULL, mode TEXT, tag TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+    )),
 )
 
 
@@ -382,6 +404,27 @@ POSTGRES_MIGRATIONS = (
         "ALTER TABLE documents ADD COLUMN owner TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE documents ADD COLUMN review_date TEXT",
     )),
+    (14, (
+        """CREATE TABLE IF NOT EXISTS collections (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, name TEXT NOT NULL, normalized TEXT NOT NULL UNIQUE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE IF NOT EXISTS collection_documents (
+            collection_id BIGINT NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+            document_id BIGINT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            added_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(collection_id, document_id)
+        )""",
+        """CREATE TABLE IF NOT EXISTS favorites (
+            document_id BIGINT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE IF NOT EXISTS saved_searches (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, name TEXT NOT NULL, normalized TEXT NOT NULL UNIQUE,
+            query TEXT NOT NULL, mode TEXT, tag TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+    )),
 )
 
 # Columns added to an existing table by a later migration: (table, column) -> version.
@@ -406,6 +449,7 @@ SQLITE_TABLE_VERSIONS = {
     'import_jobs': 6, 'import_items': 6, 'import_item_errors': 6, 'document_versions': 7,
     'email_attachments': 8, 'tags': 9, 'document_tags': 9, 'rules': 9, 'rule_runs': 9,
     'rule_run_changes': 9, 'chunk_vectors': 10, 'metadata_changes': 12,
+    'collections': 14, 'collection_documents': 14, 'favorites': 14, 'saved_searches': 14,
 }
 
 # Constant SQL list of all application tables, derived from the catalog so that
@@ -479,6 +523,14 @@ SQLITE_COLUMNS = {
                          ('field','TEXT',1,None,0), ('old_value','TEXT',1,"''",0),
                          ('new_value','TEXT',1,"''",0), ('origin','TEXT',1,None,0),
                          ('run_id','INTEGER',0,None,0), ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
+    'collections': (('id','INTEGER',0,None,1), ('name','TEXT',1,None,0), ('normalized','TEXT',1,None,0),
+                    ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
+    'collection_documents': (('collection_id','INTEGER',1,None,1), ('document_id','INTEGER',1,None,2),
+                             ('added_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
+    'favorites': (('document_id','INTEGER',0,None,1), ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
+    'saved_searches': (('id','INTEGER',0,None,1), ('name','TEXT',1,None,0), ('normalized','TEXT',1,None,0),
+                       ('query','TEXT',1,None,0), ('mode','TEXT',0,None,0), ('tag','TEXT',0,None,0),
+                       ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
 }
 
 SQLITE_UNIQUE_CONSTRAINTS = {
@@ -489,6 +541,8 @@ SQLITE_UNIQUE_CONSTRAINTS = {
     'document_versions': {('lineage_id','version')}, 'email_attachments': set(),
     'tags': {('normalized',)}, 'document_tags': set(), 'rules': set(), 'rule_runs': set(),
     'rule_run_changes': set(), 'chunk_vectors': set(), 'metadata_changes': set(),
+    'collections': {('normalized',)}, 'collection_documents': set(), 'favorites': set(),
+    'saved_searches': {('normalized',)},
 }
 
 SQLITE_FOREIGN_KEYS = {
@@ -518,6 +572,11 @@ SQLITE_FOREIGN_KEYS = {
     'chunk_vectors': {('chunk_id','chunks','id','NO ACTION','CASCADE')},
     'metadata_changes': {('document_id','documents','id','NO ACTION','CASCADE'),
                          ('run_id','rule_runs','id','NO ACTION','SET NULL')},
+    'collections': set(),
+    'collection_documents': {('collection_id','collections','id','NO ACTION','CASCADE'),
+                             ('document_id','documents','id','NO ACTION','CASCADE')},
+    'favorites': {('document_id','documents','id','NO ACTION','CASCADE')},
+    'saved_searches': set(),
 }
 
 POSTGRES_LEGACY_COLUMNS = {
@@ -638,6 +697,22 @@ POSTGRES_LEGACY_COLUMNS = {
     ('documents','status','text','NO','NO',"'new'::text",None),
     ('documents','owner','text','NO','NO',"''::text",None),
     ('documents','review_date','text','YES','NO',None,None),
+    ('collections','id','bigint','NO','YES',None,'ALWAYS'),
+    ('collections','name','text','NO','NO',None,None),
+    ('collections','normalized','text','NO','NO',None,None),
+    ('collections','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('collection_documents','collection_id','bigint','NO','NO',None,None),
+    ('collection_documents','document_id','bigint','NO','NO',None,None),
+    ('collection_documents','added_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('favorites','document_id','bigint','NO','NO',None,None),
+    ('favorites','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('saved_searches','id','bigint','NO','YES',None,'ALWAYS'),
+    ('saved_searches','name','text','NO','NO',None,None),
+    ('saved_searches','normalized','text','NO','NO',None,None),
+    ('saved_searches','query','text','NO','NO',None,None),
+    ('saved_searches','mode','text','YES','NO',None,None),
+    ('saved_searches','tag','text','YES','NO',None,None),
+    ('saved_searches','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
 }
 
 POSTGRES_LEGACY_CONSTRAINTS = {
@@ -682,6 +757,15 @@ POSTGRES_LEGACY_CONSTRAINTS = {
     ('metadata_changes', 'p', ('id',), None, (), ' '),
     ('metadata_changes', 'f', ('document_id',), 'documents', ('id',), 'c'),
     ('metadata_changes', 'f', ('run_id',), 'rule_runs', ('id',), 'n'),
+    ('collections', 'p', ('id',), None, (), ' '),
+    ('collections', 'u', ('normalized',), None, (), ' '),
+    ('collection_documents', 'p', ('collection_id', 'document_id'), None, (), ' '),
+    ('collection_documents', 'f', ('collection_id',), 'collections', ('id',), 'c'),
+    ('collection_documents', 'f', ('document_id',), 'documents', ('id',), 'c'),
+    ('favorites', 'p', ('document_id',), None, (), ' '),
+    ('favorites', 'f', ('document_id',), 'documents', ('id',), 'c'),
+    ('saved_searches', 'p', ('id',), None, (), ' '),
+    ('saved_searches', 'u', ('normalized',), None, (), ' '),
 }
 
 

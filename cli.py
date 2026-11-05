@@ -79,6 +79,8 @@ def main(argv=None):
     listing = commands.add_parser('list')
     listing.add_argument('--all-versions',action='store_true',help='auch ältere Versionen anzeigen')
     listing.add_argument('--tag',help='nur Dokumente mit diesem Tag')
+    listing.add_argument('--collection',type=int,help='nur Dokumente dieser Sammlung')
+    listing.add_argument('--favorites',action='store_true',help='nur Favoriten')
     commands.add_parser('tags',help='Alle Tags mit Anzahl der Dokumente')
     commands.add_parser('rules',help='Regeln für Bereich und Tags in ihrer Reihenfolge anzeigen')
     rule_add = commands.add_parser('rule-add',help='Regel anlegen (mindestens eine Bedingung, Bereich oder Tags)')
@@ -105,6 +107,23 @@ def main(argv=None):
     edit.add_argument('--review-date',help='Wiedervorlage JJJJ-MM-TT, leer entfernt sie')
     due = commands.add_parser('review-due',help='Dokumente mit fälliger Wiedervorlage')
     due.add_argument('--until',help='Stichtag JJJJ-MM-TT, Standard heute')
+    commands.add_parser('collections',help='Sammlungen mit Anzahl der Dokumente')
+    for name,help_text in (('collection-create','Sammlung anlegen'),):
+        commands.add_parser(name,help=help_text).add_argument('name')
+    rename = commands.add_parser('collection-rename',help='Sammlung umbenennen')
+    rename.add_argument('id',type=int); rename.add_argument('name')
+    commands.add_parser('collection-delete',help='Sammlung löschen (Dokumente bleiben erhalten)').add_argument('id',type=int)
+    for name,help_text in (('collection-add','Dokumente in eine Sammlung aufnehmen'),
+                           ('collection-remove','Dokumente aus einer Sammlung entfernen')):
+        member = commands.add_parser(name,help=help_text)
+        member.add_argument('id',type=int); member.add_argument('documents',type=int,nargs='+')
+    favorite = commands.add_parser('favorite',help='Dokument als Favorit markieren')
+    favorite.add_argument('id',type=int); favorite.add_argument('--remove',action='store_true')
+    commands.add_parser('searches',help='Gespeicherte Suchen')
+    save = commands.add_parser('search-save',help='Suche speichern (gleicher Name ersetzt sie)')
+    save.add_argument('name'); save.add_argument('query')
+    save.add_argument('--mode',choices=('fulltext','vector','hybrid')); save.add_argument('--tag')
+    commands.add_parser('search-delete',help='Gespeicherte Suche löschen').add_argument('id',type=int)
     retired = commands.add_parser('ai-retired',help='Veraltete und archivierte Dokumente in KI-Antworten')
     retired.add_argument('mode',nargs='?',choices=('exclude','include'),help='ohne Angabe: aktuelle Einstellung')
     metadata = commands.add_parser('history',help='Verlauf der Metadatenänderungen eines Dokuments')
@@ -242,7 +261,28 @@ def main(argv=None):
         try:
             exit_code = 0
             if args.command == 'list':
-                result = store.list(all_versions=args.all_versions,tag=args.tag)
+                result = store.list(all_versions=args.all_versions,tag=args.tag,collection=args.collection,
+                                    favorites=args.favorites)
+            elif args.command == 'collections':
+                result = store.collections()
+            elif args.command == 'collection-create':
+                result = {'id':store.create_collection(args.name)}
+            elif args.command == 'collection-rename':
+                store.rename_collection(args.id,args.name); result = {'id':args.id}
+            elif args.command == 'collection-delete':
+                store.delete_collection(args.id); result = {'geloescht':args.id}
+            elif args.command == 'collection-add':
+                result = {'aufgenommen':store.add_to_collection(args.id,args.documents)}
+            elif args.command == 'collection-remove':
+                result = {'entfernt':store.remove_from_collection(args.id,args.documents)}
+            elif args.command == 'favorite':
+                store.set_favorite(args.id,not args.remove); result = {'id':args.id,'favorit':not args.remove}
+            elif args.command == 'searches':
+                result = store.saved_searches()
+            elif args.command == 'search-save':
+                result = {'id':store.save_search(args.name,args.query,args.mode,args.tag)}
+            elif args.command == 'search-delete':
+                store.delete_saved_search(args.id); result = {'geloescht':args.id}
             elif args.command in RULE_COMMANDS:
                 result = rule_command(store,args)
             elif args.command == 'ocr-status':

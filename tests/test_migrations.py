@@ -167,6 +167,11 @@ SQLITE_HISTORICAL_MIGRATIONS = (
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )""",
     )),
+    (13, (
+        "ALTER TABLE documents ADD COLUMN status TEXT NOT NULL DEFAULT 'new'",
+        "ALTER TABLE documents ADD COLUMN owner TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE documents ADD COLUMN review_date TEXT",
+    )),
 )
 
 
@@ -321,7 +326,7 @@ class FakePostgres:
                        'email_imports', 'sources', 'import_jobs', 'import_items',
                        'import_item_errors', 'document_versions', 'email_attachments',
                        'tags', 'document_tags', 'rules', 'rule_runs', 'rule_run_changes',
-                       'chunk_vectors', 'metadata_changes'}
+                       'chunk_vectors', 'metadata_changes', 'collections', 'collection_documents', 'favorites', 'saved_searches'}
         return tables
 
 
@@ -397,6 +402,9 @@ class SQLiteMigrationTests(unittest.TestCase):
                     # Migration 13: existing documents start as new, without owner or review date.
                     self.assertEqual(db.execute('SELECT status,owner,review_date FROM documents').fetchone(),
                                      ('new', '', None))
+                    # Migration 14 adds empty collections, favorites and saved searches.
+                    for table in ('collections', 'collection_documents', 'favorites', 'saved_searches'):
+                        self.assertEqual(db.execute(f'SELECT count(*) FROM {table}').fetchone()[0], 0)
 
     def test_historical_fixtures_do_not_depend_on_runtime_migrations(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -699,7 +707,7 @@ class PostgresMigrationTests(unittest.TestCase):
               if table.startswith('import_') or table in ('document_versions', 'email_attachments', 'tags',
                                                           'document_tags', 'rules', 'rule_runs',
                                                           'rule_run_changes', 'chunk_vectors',
-                                                          'metadata_changes')),
+                                                          'metadata_changes', 'collections', 'collection_documents', 'favorites', 'saved_searches')),
         ]
         indexes = [
             {'table_name':'chunks','index_name':'chunks_document_id_idx','index_definition':'CREATE INDEX chunks_document_id_idx ON wissensraum.chunks USING btree (document_id)'},

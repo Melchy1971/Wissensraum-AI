@@ -121,6 +121,9 @@ def show_startup_failure(results):
 
 
 ALL_TAGS = 'alle Tags'
+ALL_DOCUMENTS = 'alle Dokumente'
+FAVORITES = '★ Favoriten'
+NO_SAVED_SEARCH = 'gespeicherte Suchen'
 LIST_COLUMNS = ('title','category','tags')
 STATUS_LABELS = {'new':'neu','reviewed':'geprüft','outdated':'veraltet','archived':'archiviert'}
 SEARCH_COLUMNS = ('title','section','hit','score')
@@ -231,6 +234,19 @@ class App(tk.Tk if tk is not None else object):
         self.tag_box = ttk.Combobox(search,textvariable=self.tag_filter,state='readonly',width=22,values=[ALL_TAGS])
         self.tag_box.pack(side='left')
         self.tag_box.bind('<<ComboboxSelected>>',lambda _:self.refresh())
+        ttk.Label(search,text='Auswahl').pack(side='left',padx=(16,4))
+        self.scope_filter = tk.StringVar(value=ALL_DOCUMENTS)
+        self.scope_choices = {ALL_DOCUMENTS:None}  # label -> None, 'favorites' or collection id (step 8A.3)
+        self.scope_box = ttk.Combobox(search,textvariable=self.scope_filter,state='readonly',width=22,
+                                      values=[ALL_DOCUMENTS])
+        self.scope_box.pack(side='left')
+        self.scope_box.bind('<<ComboboxSelected>>',lambda _:self.refresh())
+        self.saved_search = tk.StringVar(value=NO_SAVED_SEARCH)
+        self.saved_box = ttk.Combobox(search,textvariable=self.saved_search,state='readonly',width=22,
+                                      values=[NO_SAVED_SEARCH])
+        self.saved_box.pack(side='left',padx=(16,0))
+        self.saved_box.bind('<<ComboboxSelected>>',lambda _:self.run_saved_search())
+        ttk.Button(search,text='Suche speichern',command=self.save_search).pack(side='left',padx=(8,0))
         split = ttk.Panedwindow(self.library,orient='horizontal')
         split.pack(fill='both',expand=True)
         left, right = ttk.Frame(split), ttk.Frame(split)
@@ -252,6 +268,7 @@ class App(tk.Tk if tk is not None else object):
         row = ttk.Frame(right)
         row.pack(fill='x',padx=(14,0),pady=(0,8))
         for label,command in [('Zusammenfassen',self.summarize),('Metadaten',self.edit_metadata),
+                              ('Favorit',self.toggle_favorite),('Sammlungen',self.edit_collections),
                               ('Versionen',self.show_versions),
                               ('Original exportieren',self.export),('Löschen',self.delete)]:
             b = ttk.Button(row,text=label,command=command)
@@ -425,16 +442,21 @@ class App(tk.Tk if tk is not None else object):
             query = self.query.get().strip()
             tag = self.tag_filter.get()
             tag = None if tag == ALL_TAGS else tag.rsplit(' (',1)[0]
+            scope = self.scope_choices.get(self.scope_filter.get())
+            within = dict(collection=scope if isinstance(scope,int) else None,favorites=scope=='favorites')
+            suffix = '' if scope is None else f' · {self.scope_filter.get()}'
             if query:
+                allowed = None if scope is None else {row['id'] for row in self.store.list(tag=tag,**within)}
                 # The question vector comes from Ollama and the first search loads the vector matrix:
                 # both run in the worker thread so the window stays responsive.
                 self.work(lambda:self.retriever.search(query,limit=30,tag=tag),
-                          lambda retrieval:self.show_rows([self.store.get(r['document_id']) for r in retrieval.results],
-                                                          f' · {retrieval.status}'+(f' · Tag {tag}' if tag else ''),
+                          lambda retrieval:self.show_rows([self.store.get(r['document_id']) for r in retrieval.results
+                                                           if allowed is None or r['document_id'] in allowed],
+                                                          f' · {retrieval.status}'+(f' · Tag {tag}' if tag else '')+suffix,
                                                           {r['document_id']:dict(r,fundstelle=snippet(r['content'],query))
                                                            for r in retrieval.results}))
                 return
-            self.show_rows(self.store.list(tag=tag),f' · Tag {tag}' if tag else '')
+            self.show_rows(self.store.list(tag=tag,**within),(f' · Tag {tag}' if tag else '')+suffix)
         except Exception as e:
             messagebox.showerror('Suche fehlgeschlagen',str(e),parent=self)
 
@@ -444,6 +466,7 @@ class App(tk.Tk if tk is not None else object):
             tags = rules.tags_by_document(db)
             counts = rules.tag_counts(db)
         self.tag_box.configure(values=[ALL_TAGS]+[f'{name} ({count})' for name,count in counts])
+        self.refresh_organization()
         self.hits = hits or {}
         self.tree.configure(displaycolumns=SEARCH_COLUMNS if hits is not None else LIST_COLUMNS)
         self.tree.delete(*self.tree.get_children())
@@ -453,6 +476,111 @@ class App(tk.Tk if tk is not None else object):
             self.tree.insert('', 'end', iid=str(r['id']),values=(r['title'],r['category'],
                                                                  ', '.join(tags.get(r['id'],[])),*found))
         self.status.set(f'{len(rows)} Dokumente angezeigt{suffix}')
+
+    def refresh_organization(self):
+        """Choices of the selection and saved-search boxes (step 8A.3)."""
+        self.scope_choices = {ALL_DOCUMENTS:None,FAVORITES:'favorites'}
+        for row in self.store.collections():
+            self.scope_choices.setdefault(f'{row["name"]} ({row["documents"]})',row['id'])
+        if self.scope_filter.get() not in self.scope_choices:
+            self.scope_filter.set(ALL_DOCUMENTS)
+        self.scope_box.configure(values=list(self.scope_choices))
+        self.saved_searches = {row['name']:row for row in self.store.saved_searches()}
+        self.saved_box.configure(values=[NO_SAVED_SEARCH]+list(self.saved_searches))
+
+    def run_saved_search(self):
+        saved = self.saved_searches.get(self.saved_search.get())
+        if saved:
+            self.query.set(saved['query'])
+            tags = [value for value in self.tag_box.cget('values') if value.rsplit(' (',1)[0] == saved['tag']]
+            self.tag_filter.set(tags[0] if tags else ALL_TAGS)
+            self.saved_search.set(NO_SAVED_SEARCH)
+            self.refresh()
+
+    def save_search(self):
+        query = self.query.get().strip()
+        if not query:
+            messagebox.showerror('Suche speichern','Zuerst einen Suchbegriff eingeben.',parent=self)
+            return
+        name = simpledialog.askstring('Suche speichern','Name der Suche (gleicher Name ersetzt sie):',parent=self)
+        if name is None:
+            return
+        tag = self.tag_filter.get()
+        try:
+            self.store.save_search(name,query,tag=None if tag == ALL_TAGS else tag.rsplit(' (',1)[0])
+        except ValueError as error:
+            messagebox.showerror('Suche speichern',str(error),parent=self)
+            return
+        self.refresh_organization()
+
+    def toggle_favorite(self):
+        doc_id = self.selected()
+        self.store.set_favorite(doc_id,not self.store.is_favorite(doc_id))
+        self.refresh()
+        if self.tree.exists(str(doc_id)):
+            self.tree.selection_set(str(doc_id))
+
+    def edit_collections(self):
+        """Collections of the selected document: create, add, remove, delete (step 8A.3)."""
+        doc_id = self.selected()
+        window = tk.Toplevel(self)
+        window.title('Sammlungen')
+        window.geometry('520x420')
+        window.transient(self)
+        ttk.Label(window,text='Sammlungen',font=('Segoe UI',18,'bold'),padding=(18,16,18,0)).pack(anchor='w')
+        ttk.Label(window,text='Markierte Sammlungen enthalten das ausgewählte Dokument. Das Dokument selbst '
+                             'bleibt unverändert.',padding=(18,5,18,10),wraplength=480).pack(anchor='w')
+        box = tk.Listbox(window,selectmode='multiple',exportselection=False,height=10)
+        box.pack(fill='both',expand=True,padx=18)
+        rows = []
+        def show():
+            nonlocal rows
+            rows = self.store.collections()
+            member = {row['id'] for row in self.store.document_collections(doc_id)}
+            box.delete(0,'end')
+            for index,row in enumerate(rows):
+                box.insert('end',f'{row["name"]} ({row["documents"]})')
+                if row['id'] in member:
+                    box.selection_set(index)
+        def save():
+            chosen = {rows[index]['id'] for index in box.curselection()}
+            for row in rows:
+                if row['id'] in chosen:
+                    self.store.add_to_collection(row['id'],[doc_id])
+                else:
+                    self.store.remove_from_collection(row['id'],[doc_id])
+            show(); self.refresh()
+        def create():
+            name = simpledialog.askstring('Sammlungen','Name der neuen Sammlung:',parent=window)
+            if name is None:
+                return
+            try:
+                self.store.create_collection(name)
+            except ValueError as error:
+                messagebox.showerror('Sammlungen',str(error),parent=window)
+                return
+            chosen = {rows[index]['id'] for index in box.curselection()}
+            show()
+            for index,row in enumerate(rows):
+                if row['id'] in chosen:
+                    box.selection_set(index)
+            self.refresh_organization()
+        def delete():
+            names = ', '.join(rows[index]['name'] for index in box.curselection())
+            if not names or not messagebox.askyesno('Sammlungen',f'Sammlungen löschen: {names}?\n'
+                                                    'Die Dokumente bleiben erhalten.',parent=window):
+                return
+            for index in box.curselection():
+                self.store.delete_collection(rows[index]['id'])
+            show(); self.refresh()
+        buttons = ttk.Frame(window,padding=(18,10,18,16)); buttons.pack(fill='x')
+        ttk.Button(buttons,text='Übernehmen',command=save,style='Accent.TButton').pack(side='left')
+        ttk.Button(buttons,text='Neue Sammlung',command=create).pack(side='left',padx=(8,0))
+        ttk.Button(buttons,text='Markierte löschen',command=delete).pack(side='left',padx=(8,0))
+        show()
+        window.collection_box = box; window.collection_save = save; window.collection_create = create
+        window.collection_delete = delete
+        return window
 
     def show_document(self):
         if self.tree.selection():
@@ -470,6 +598,8 @@ class App(tk.Tk if tk is not None else object):
                 care += f' · Verantwortlich: {doc["owner"]}'
             if doc['review_date']:
                 care += f' · Wiedervorlage: {doc["review_date"]}'
+            groups = ', '.join(row['name'] for row in self.store.document_collections(doc['id']))
+            care += ('\nFavorit' if self.store.is_favorite(doc['id']) else '') + (f'\nSammlungen: {groups}' if groups else '')
             self.write(self.detail,f'{doc["title"]}\nBereich: {doc["category"]}\nTags: {tags}\n{care}\n'
                                    f'Erfasst: {doc["created_at"]} UTC\n{line}\n{found}\n{doc["content"]}')
 
