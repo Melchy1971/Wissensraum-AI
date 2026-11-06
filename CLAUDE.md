@@ -27,13 +27,14 @@ Statusangaben im Masterplan dürfen nur aufgrund nachprüfbarer Ergebnisse geän
 
 ## 4. Aktueller Arbeitsschwerpunkt
 
-Phasen 0 bis 7 sind abgenommen. Release 2.0, 2.0.1 und 2.1 sind freigegeben, Release 2.1 am 05.11.2026 (Tag `v2.1`, D-021). Den verbindlichen Stand je Phase, offene Gate-Kriterien und Entscheidungen enthält `masterplan.md` (Abschnitte „Aktualisierung“ am Anfang und Entscheidungstabelle).
+Phasen 0 bis 7 und 8A sind abgenommen. Release 2.0, 2.0.1, 2.1 und 2.2 sind freigegeben, Release 2.1 am 05.11.2026 (Tag `v2.1`, D-021), Release 2.2 am 06.11.2026 (Tag `v2.2`, D-022). Den verbindlichen Stand je Phase, offene Gate-Kriterien und Entscheidungen enthält `masterplan.md` (Abschnitte „Aktualisierung“ am Anfang und Entscheidungstabelle).
 
-Stand 05.11.2026:
+Stand 06.11.2026:
 
 - Phase 7 (Release 2.1 Hybrid-RAG): 7.1 bis 7.4, Chunk-Strategie je Dokumenttyp und Fundstellenanzeige ✅. Produktionsvariante der Quellenabsicherung ist B2 (Zweitabschnitt des besten Dokuments im Fenster von 9.216 Token, zweiter Beleglauf aus, D-020).
 - Reihenfolge nach Masterplan (Entscheidung Product Owner 05.11.2026): Release 2.2 (Phase 8A Wissensorganisation), 2.3 (Phase 8B Wissensgraph), 2.4 (Phase 9 Betrieb und Governance), 3.0 (Phase 10 Mehrbenutzerbetrieb), danach 3.1 (VPS und Domain). 3.1 beginnt erst nach dem Sicherheits- und Mehrbenutzer-Gate von 3.0.
-- Phase 8A (Release 2.2) läuft nach dem freigegebenen Plan 8A.1 bis 8A.5 (Masterplan). 8A.1 Metadaten bearbeiten mit Verlauf ✅ (Schema 12), 8A.2 Dokumentstatus, Verantwortlicher, Wiedervorlage und Ausschluss veralteter Inhalte aus KI-Antworten ✅ (Schema 13). 8A.3 Sammlungen, Favoriten, gespeicherte Suchen ✅ (Schema 14). 8A.4 Beziehungen und Fassungsvergleich ✅ (Schema 15), 8A.5 Sammlungsexport mit Quellenmanifest ✅. Offen: Abnahme von Release 2.2 durch den Product Owner (offene Punkte im Masterplan).
+- Phase 8A (Release 2.2 Wissensorganisation) ✅: Metadaten mit Verlauf, Dokumentstatus und Ausschluss aus KI-Antworten, Sammlungen, Favoriten, gespeicherte Suchen, Beziehungen, Fassungsvergleich, Sammlungsexport mit Quellenmanifest. Datenbankschema 15.
+- Nächster Schritt: Phase 8B (Release 2.3 Wissensgraph). Teilschritte und Gates zuerst planen und vom Product Owner freigeben lassen.
 
 Messwerte der Antwortqualität stammen aus dem eingefrorenen Bestand V2 (`data/eval-set-v2.freeze.json`). Eigene Fragen und Messkopien der Datenbank des Product Owners bleiben lokal (`data/` ist von Git ausgeschlossen). Messkopien nach der Messung löschen. Einzelfalldaten nur anonymisiert behalten (Frage-IDs, Ränge, Abschnittsnummern, Kategorien). Keine Fragetexte, Dokumenttexte oder privaten Dokumentnamen in Repository, Logs oder Berichte übernehmen, nur Frage-IDs. Für Messungen muss Ollama exklusiv laufen; andere Clients verfälschen die Antwortzeiten.
 
