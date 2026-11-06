@@ -83,6 +83,10 @@ Grenzen: 50 MB lokale Originaldatei und je E-Mail-Anhang, Dateiinhalt passend zu
 | `favorites` | Als Favorit markierte Dokumente (Schema 14) |
 | `saved_searches` | Gespeicherte Suchen mit Name, Suchbegriff, optionalem Suchmodus und Tag (Schema 14) |
 | `document_relations` | Beziehungen zwischen zwei Dokumenten: verweist auf, ersetzt, gehört zu (ohne Richtung), mit Notiz; jede Art je Paar höchstens einmal, wird mit einem der beiden Dokumente gelöscht (Schema 15) |
+| `entity_types`, `relation_types` | Konfigurierbare Entitäts- und Relationsarten des Wissensgraphen; Start mit Person, Organisation, Prozess, System, Entscheidung bzw. arbeitet für, verantwortet, nutzt, entscheidet über, gehört zu (Schema 16) |
+| `entities`, `entity_mentions` | Entitäten mit Art und Name sowie ihre Erwähnungen als exakte Textstelle eines Dokuments (Start, Ende, Zitat) |
+| `graph_relations` | Relationen zwischen zwei Entitäten, jede mit Pflichtbeleg (Dokument, Start, Ende, Zitat); wird mit dem Belegdokument gelöscht |
+| `graph_changes` | Protokoll jeder Änderung am Wissensgraphen mit Rücknahmezeitpunkt; Entitäten, Erwähnungen und Relationen werden nur als gelöscht markiert, damit jede Änderung zurückgenommen werden kann |
 
 `schema.sql` dokumentiert das SQLite-Schema. Die ausführbare Schema-Historie liegt in den geordneten, versionierten SQLite- und PostgreSQL-Migrationen in `migrations.py`. SQLite speichert die Version in `PRAGMA user_version`, PostgreSQL in `wissensraum.schema_migrations`. Beide Backends haben denselben fachlichen Speicherumfang, verwenden aber unterschiedliche Volltexttechnik. SQL-Werte werden parametrisiert gebunden. KI-Ausgaben werden niemals als SQL oder Programmcode ausgeführt.
 
@@ -333,6 +337,10 @@ In „Dokumente & Suche“ markiert **Favorit** das ausgewählte Dokument oder h
 ### Sammlung exportieren (Release 2.2, Schritt 8A.5)
 
 Im Dialog **Sammlungen** schreibt **Exportieren** die markierte Sammlung als ZIP-Archiv. Es enthält unter `dokumente/` jedes Original bytegetreu (Notizen ohne Original als UTF-8-Text) und `manifest.json` mit Format und Version, Schemaversion, Exportzeit (UTC), Name der Sammlung und für jedes Dokument Kennung, Titel, Bereich, Tags, Status, Verantwortlichen, Wiedervorlage, Erfassungszeit, Version, Quelltyp, ursprünglichen Dateinamen, Pfad im Archiv, Größe und SHA-256 der Datei sowie den Hash des gespeicherten Textes. Beziehungen werden nur aufgeführt, wenn beide Dokumente zur Sammlung gehören. Fundorte (lokale Pfade, Postfach- oder Kontokennungen) stehen bewusst nicht im Manifest. Das Archiv entsteht zuerst als temporäre Datei und erscheint vollständig oder gar nicht. CLI: `python cli.py collection-export <id> <ziel.zip> [--overwrite]`; ohne `--overwrite` wird eine vorhandene Datei nicht ersetzt.
+
+### Wissensgraph (Release 2.3, Schritt 8B.1)
+
+**Wissensgraph** zeigt für das ausgewählte Dokument alle Entitäten, die dort erwähnt werden, und alle Relationen, deren Beleg im Dokument steht. Ein Beleg ist immer eine wörtliche Textstelle: in der Detailansicht Text markieren, im Dialog **Markierung übernehmen**, dann **Entität anlegen** (Art und Name), **Erwähnung hinzufügen** (vorhandene Entität) oder **Relation anlegen** (Quelle, Relationsart, Ziel). Ohne markierte Textstelle entsteht nichts; ein Zitat, das so nicht im Dokument steht, wird abgelehnt. Wird das Belegdokument gelöscht, verschwinden seine Erwähnungen und Relationen. **Änderungen** listet jede Änderung am Graphen; **Markierte zurücknehmen** macht sie einmal rückgängig. Das Dokument selbst bleibt unverändert. Entitäts- und Relationsarten sind konfigurierbar. CLI: `entity-types`, `relation-types`, `entity-type-add`, `relation-type-add`, `entity-create <art> <name> <dokument> <zitat> [--start …]`, `entity-relate <quelle> <ziel> <art> <dokument> <zitat> [--start …]`, `entities [--type …] [--query …]`, `entity <id>`, `entity-delete`, `graph-relation-delete`, `graph-changes`, `graph-revert <änderung>`. Schema 16 legt die Tabellen an und füllt nur die beiden Artenkataloge.
 
 ### Postfachsynchronisation (Release 2.0.1, Schritt S3)
 

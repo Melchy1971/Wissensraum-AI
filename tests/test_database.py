@@ -59,8 +59,9 @@ class FakeResetConnection:
             self.schema=None
         if 'FROM information_schema.tables' in query:
             tables=['ai_runs','chunk_vectors','chunks','collection_documents','collections','document_relations','document_tags','document_versions','documents','email_accounts',
-                    'email_attachments','email_imports','favorites','import_item_errors','import_items','import_jobs',
-                    'metadata_changes','rule_run_changes','rule_runs','rules','saved_searches','schema_migrations','settings','sources',
+                    'email_attachments','email_imports','entities','entity_mentions','entity_types','favorites','graph_changes',
+                    'graph_relations','import_item_errors','import_items','import_jobs',
+                    'metadata_changes','relation_types','rule_run_changes','rule_runs','rules','saved_searches','schema_migrations','settings','sources',
                     'tags'] if self.schema == 'new' else []
             rows=[(name,) for name in tables] if self.tuple_rows else [{'table_name':name} for name in tables]
             return type('Result',(),{'fetchall':lambda _:rows})()
@@ -477,9 +478,10 @@ class DatabaseSettingsTests(unittest.TestCase):
                         next(i for i,q in enumerate(queries) if 'pg_advisory_xact_lock' in q))
         self.assertEqual(result['tables'],['ai_runs','chunk_vectors','chunks','collection_documents','collections',
                                            'document_relations','document_tags','document_versions','documents',
-                                           'email_accounts','email_attachments','email_imports','favorites',
-                                           'import_item_errors','import_items','import_jobs','metadata_changes',
-                                           'rule_run_changes',
+                                           'email_accounts','email_attachments','email_imports','entities',
+                                           'entity_mentions','entity_types','favorites','graph_changes',
+                                           'graph_relations','import_item_errors','import_items','import_jobs',
+                                           'metadata_changes','relation_types','rule_run_changes',
                                            'rule_runs','rules','saved_searches','schema_migrations','settings','sources','tags'])
         self.assertTrue(connection.closed)
 

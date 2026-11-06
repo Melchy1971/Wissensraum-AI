@@ -572,6 +572,42 @@ class InterfaceTests(unittest.TestCase):
         panel.deactivate()
         self.assertIn('ist aus. 1 von 1',panel.status.get())
 
+    def test_graph_dialog_uses_the_marked_text_as_evidence(self):
+        window=self.window
+        text='Anna Berg leitet den Einkauf bei der Nordwerk GmbH.'
+        doc,_=window.store.add('Organigramm',text)
+        window.refresh(); window.tree.selection_set(str(doc)); window.update()
+        def mark(quote):
+            start=f'content_start+{text.index(quote)}c'
+            window.detail.tag_remove('sel','1.0','end')
+            window.detail.tag_add('sel',start,f'{start}+{len(quote)}c')
+        dialog=window.edit_graph()  # nothing marked
+        with patch.object(app.messagebox,'showerror') as error:
+            dialog.graph_create()
+        error.assert_called_once()
+        fields=dialog.graph_fields
+        mark('Anna Berg'); dialog.graph_take()
+        self.assertEqual(fields['name'].get(),'Anna Berg')
+        fields['entity_type'].set('Person'); dialog.graph_create()
+        mark('Nordwerk GmbH'); fields['name'].set(''); dialog.graph_take()
+        fields['entity_type'].set('Organisation'); dialog.graph_create()
+        self.assertEqual([dialog.graph_trees['mentions'].item(i,'values')[:2]
+                          for i in dialog.graph_trees['mentions'].get_children()],
+                         [('Anna Berg','Person'),('Nordwerk GmbH','Organisation')])
+        mark('Anna Berg leitet den Einkauf bei der Nordwerk GmbH'); dialog.graph_take()
+        fields['source'].set('Anna Berg (Person)'); fields['relation_type'].set('arbeitet für')
+        fields['target'].set('Nordwerk GmbH (Organisation)'); dialog.graph_relate()
+        relation=window.store.document_graph(doc)['relations'][0]
+        self.assertEqual((relation['start_offset'],relation['quote']),(0,'Anna Berg leitet den Einkauf bei der Nordwerk GmbH'))
+        dialog.graph_trees['relations'].selection_set(dialog.graph_trees['relations'].get_children()[0])
+        dialog.graph_remove()
+        self.assertEqual(window.store.document_graph(doc)['relations'],[])
+        changes=window.show_graph_changes()
+        changes.change_tree.selection_set(changes.change_tree.get_children()[0])  # the removal
+        changes.change_revert()
+        self.assertEqual(len(window.store.document_graph(doc)['relations']),1)
+        changes.destroy(); dialog.destroy()
+
     def test_relations_dialog_adds_opens_and_removes(self):
         window=self.window
         plan,_=window.store.add('Wartungsplan','Die Therme bekommt jährlich eine Wartung.')

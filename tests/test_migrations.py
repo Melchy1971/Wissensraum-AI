@@ -193,6 +193,16 @@ SQLITE_HISTORICAL_MIGRATIONS = (
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )""",
     )),
+    (15, (
+        """CREATE TABLE document_relations (
+            id INTEGER PRIMARY KEY,
+            source_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            target_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            kind TEXT NOT NULL, note TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(source_id, target_id, kind)
+        )""",
+    )),
 )
 
 
@@ -348,7 +358,7 @@ class FakePostgres:
                        'import_item_errors', 'document_versions', 'email_attachments',
                        'tags', 'document_tags', 'rules', 'rule_runs', 'rule_run_changes',
                        'chunk_vectors', 'metadata_changes', 'collections', 'collection_documents', 'favorites', 'saved_searches',
-                       'document_relations'}
+                       'document_relations', 'entity_types', 'relation_types', 'entities', 'entity_mentions', 'graph_relations', 'graph_changes'}
         return tables
 
 
@@ -429,6 +439,10 @@ class SQLiteMigrationTests(unittest.TestCase):
                         self.assertEqual(db.execute(f'SELECT count(*) FROM {table}').fetchone()[0], 0)
                     # Migration 15 adds an empty relation table.
                     self.assertEqual(db.execute('SELECT count(*) FROM document_relations').fetchone()[0], 0)
+                    # Migration 16 adds the knowledge graph: only the two type catalogues are filled.
+                    self.assertEqual(db.execute('SELECT count(*) FROM entity_types').fetchone()[0], 5)
+                    self.assertEqual(db.execute('SELECT count(*) FROM relation_types').fetchone()[0], 5)
+                    self.assertEqual(db.execute('SELECT count(*) FROM entities').fetchone()[0], 0)
 
     def test_historical_fixtures_do_not_depend_on_runtime_migrations(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -732,7 +746,7 @@ class PostgresMigrationTests(unittest.TestCase):
                                                           'document_tags', 'rules', 'rule_runs',
                                                           'rule_run_changes', 'chunk_vectors',
                                                           'metadata_changes', 'collections', 'collection_documents', 'favorites', 'saved_searches',
-                                                          'document_relations')),
+                                                          'document_relations', 'entity_types', 'relation_types', 'entities', 'entity_mentions', 'graph_relations', 'graph_changes')),
         ]
         indexes = [
             {'table_name':'chunks','index_name':'chunks_document_id_idx','index_definition':'CREATE INDEX chunks_document_id_idx ON wissensraum.chunks USING btree (document_id)'},

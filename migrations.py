@@ -9,7 +9,7 @@ import uuid
 from contextlib import closing, contextmanager
 from pathlib import Path
 
-CURRENT_SCHEMA_VERSION = 15
+CURRENT_SCHEMA_VERSION = 16
 # Unversioned PostgreSQL schemas predate schema_migrations and match version 4.
 POSTGRES_LEGACY_SCHEMA_VERSION = 4
 # ponytail: source_type is validated in application code (core.SOURCE_TYPES), not by a
@@ -237,6 +237,46 @@ SQLITE_MIGRATIONS = (
             UNIQUE(source_id, target_id, kind)
         )""",
     )),
+    # Release 2.3, step 8B.1: knowledge graph. Every relation carries its evidence (document and
+    # exact text span); entities, mentions and relations are soft-deleted so that every change can be
+    # reverted. Configurable entity and relation types start with a small German catalogue.
+    (16, (
+        """CREATE TABLE IF NOT EXISTS entity_types (
+            id INTEGER PRIMARY KEY, name TEXT NOT NULL, normalized TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE IF NOT EXISTS relation_types (
+            id INTEGER PRIMARY KEY, name TEXT NOT NULL, normalized TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE IF NOT EXISTS entities (
+            id INTEGER PRIMARY KEY, type_id INTEGER NOT NULL REFERENCES entity_types(id),
+            name TEXT NOT NULL, normalized TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'confirmed',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, deleted_at TEXT
+        )""",
+        """CREATE TABLE IF NOT EXISTS entity_mentions (
+            id INTEGER PRIMARY KEY, entity_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+            document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            start_offset INTEGER NOT NULL, end_offset INTEGER NOT NULL, quote TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, deleted_at TEXT
+        )""",
+        """CREATE TABLE IF NOT EXISTS graph_relations (
+            id INTEGER PRIMARY KEY, source_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+            target_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+            type_id INTEGER NOT NULL REFERENCES relation_types(id),
+            document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            start_offset INTEGER NOT NULL, end_offset INTEGER NOT NULL, quote TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'confirmed',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, deleted_at TEXT
+        )""",
+        """CREATE TABLE IF NOT EXISTS graph_changes (
+            id INTEGER PRIMARY KEY, action TEXT NOT NULL, object_type TEXT NOT NULL, object_id INTEGER NOT NULL,
+            old_value TEXT NOT NULL DEFAULT '', new_value TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, reverted_at TEXT
+        )""",
+        "INSERT INTO entity_types(name,normalized) VALUES ('Person','person'), ('Organisation','organisation'), ('Prozess','prozess'), ('System','system'), ('Entscheidung','entscheidung')",
+        "INSERT INTO relation_types(name,normalized) VALUES ('arbeitet für','arbeitet für'), ('verantwortet','verantwortet'), ('nutzt','nutzt'), ('entscheidet über','entscheidet über'), ('gehört zu','gehört zu')",
+    )),
 )
 
 
@@ -447,6 +487,43 @@ POSTGRES_MIGRATIONS = (
             UNIQUE(source_id, target_id, kind)
         )""",
     )),
+    (16, (
+        """CREATE TABLE IF NOT EXISTS entity_types (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, name TEXT NOT NULL, normalized TEXT NOT NULL UNIQUE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE IF NOT EXISTS relation_types (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, name TEXT NOT NULL, normalized TEXT NOT NULL UNIQUE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE IF NOT EXISTS entities (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, type_id BIGINT NOT NULL REFERENCES entity_types(id),
+            name TEXT NOT NULL, normalized TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'confirmed',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, deleted_at TIMESTAMPTZ
+        )""",
+        """CREATE TABLE IF NOT EXISTS entity_mentions (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, entity_id BIGINT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+            document_id BIGINT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            start_offset BIGINT NOT NULL, end_offset BIGINT NOT NULL, quote TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, deleted_at TIMESTAMPTZ
+        )""",
+        """CREATE TABLE IF NOT EXISTS graph_relations (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, source_id BIGINT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+            target_id BIGINT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+            type_id BIGINT NOT NULL REFERENCES relation_types(id),
+            document_id BIGINT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            start_offset BIGINT NOT NULL, end_offset BIGINT NOT NULL, quote TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'confirmed',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, deleted_at TIMESTAMPTZ
+        )""",
+        """CREATE TABLE IF NOT EXISTS graph_changes (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, action TEXT NOT NULL, object_type TEXT NOT NULL, object_id BIGINT NOT NULL,
+            old_value TEXT NOT NULL DEFAULT '', new_value TEXT NOT NULL DEFAULT '',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, reverted_at TIMESTAMPTZ
+        )""",
+        "INSERT INTO entity_types(name,normalized) VALUES ('Person','person'), ('Organisation','organisation'), ('Prozess','prozess'), ('System','system'), ('Entscheidung','entscheidung')",
+        "INSERT INTO relation_types(name,normalized) VALUES ('arbeitet für','arbeitet für'), ('verantwortet','verantwortet'), ('nutzt','nutzt'), ('entscheidet über','entscheidet über'), ('gehört zu','gehört zu')",
+    )),
 )
 
 # Columns added to an existing table by a later migration: (table, column) -> version.
@@ -473,6 +550,8 @@ SQLITE_TABLE_VERSIONS = {
     'rule_run_changes': 9, 'chunk_vectors': 10, 'metadata_changes': 12,
     'collections': 14, 'collection_documents': 14, 'favorites': 14, 'saved_searches': 14,
     'document_relations': 15,
+    'entity_types': 16, 'relation_types': 16, 'entities': 16, 'entity_mentions': 16, 'graph_relations': 16,
+    'graph_changes': 16,
 }
 
 # Constant SQL list of all application tables, derived from the catalog so that
@@ -557,6 +636,25 @@ SQLITE_COLUMNS = {
     'document_relations': (('id','INTEGER',0,None,1), ('source_id','INTEGER',1,None,0),
                            ('target_id','INTEGER',1,None,0), ('kind','TEXT',1,None,0),
                            ('note','TEXT',1,"''",0), ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
+    'entity_types': (('id','INTEGER',0,None,1), ('name','TEXT',1,None,0), ('normalized','TEXT',1,None,0),
+                     ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
+    'relation_types': (('id','INTEGER',0,None,1), ('name','TEXT',1,None,0), ('normalized','TEXT',1,None,0),
+                       ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
+    'entities': (('id','INTEGER',0,None,1), ('type_id','INTEGER',1,None,0), ('name','TEXT',1,None,0),
+                 ('normalized','TEXT',1,None,0), ('status','TEXT',1,"'confirmed'",0),
+                 ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0), ('deleted_at','TEXT',0,None,0)),
+    'entity_mentions': (('id','INTEGER',0,None,1), ('entity_id','INTEGER',1,None,0), ('document_id','INTEGER',1,None,0),
+                        ('start_offset','INTEGER',1,None,0), ('end_offset','INTEGER',1,None,0),
+                        ('quote','TEXT',1,None,0), ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0),
+                        ('deleted_at','TEXT',0,None,0)),
+    'graph_relations': (('id','INTEGER',0,None,1), ('source_id','INTEGER',1,None,0), ('target_id','INTEGER',1,None,0),
+                        ('type_id','INTEGER',1,None,0), ('document_id','INTEGER',1,None,0),
+                        ('start_offset','INTEGER',1,None,0), ('end_offset','INTEGER',1,None,0),
+                        ('quote','TEXT',1,None,0), ('status','TEXT',1,"'confirmed'",0),
+                        ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0), ('deleted_at','TEXT',0,None,0)),
+    'graph_changes': (('id','INTEGER',0,None,1), ('action','TEXT',1,None,0), ('object_type','TEXT',1,None,0),
+                      ('object_id','INTEGER',1,None,0), ('old_value','TEXT',1,"''",0), ('new_value','TEXT',1,"''",0),
+                      ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0), ('reverted_at','TEXT',0,None,0)),
 }
 
 SQLITE_UNIQUE_CONSTRAINTS = {
@@ -570,6 +668,8 @@ SQLITE_UNIQUE_CONSTRAINTS = {
     'collections': {('normalized',)}, 'collection_documents': set(), 'favorites': set(),
     'saved_searches': {('normalized',)},
     'document_relations': {('source_id','target_id','kind')},
+    'entity_types': {('normalized',)}, 'relation_types': {('normalized',)}, 'entities': set(),
+    'entity_mentions': set(), 'graph_relations': set(), 'graph_changes': set(),
 }
 
 SQLITE_FOREIGN_KEYS = {
@@ -606,6 +706,15 @@ SQLITE_FOREIGN_KEYS = {
     'saved_searches': set(),
     'document_relations': {('source_id','documents','id','NO ACTION','CASCADE'),
                            ('target_id','documents','id','NO ACTION','CASCADE')},
+    'entity_types': set(), 'relation_types': set(),
+    'entities': {('type_id','entity_types','id','NO ACTION','NO ACTION')},
+    'entity_mentions': {('entity_id','entities','id','NO ACTION','CASCADE'),
+                        ('document_id','documents','id','NO ACTION','CASCADE')},
+    'graph_relations': {('source_id','entities','id','NO ACTION','CASCADE'),
+                        ('target_id','entities','id','NO ACTION','CASCADE'),
+                        ('type_id','relation_types','id','NO ACTION','NO ACTION'),
+                        ('document_id','documents','id','NO ACTION','CASCADE')},
+    'graph_changes': set(),
 }
 
 POSTGRES_LEGACY_COLUMNS = {
@@ -748,6 +857,48 @@ POSTGRES_LEGACY_COLUMNS = {
     ('document_relations','kind','text','NO','NO',None,None),
     ('document_relations','note','text','NO','NO',"''::text",None),
     ('document_relations','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('entity_types','id','bigint','NO','YES',None,'ALWAYS'),
+    ('entity_types','name','text','NO','NO',None,None),
+    ('entity_types','normalized','text','NO','NO',None,None),
+    ('entity_types','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('relation_types','id','bigint','NO','YES',None,'ALWAYS'),
+    ('relation_types','name','text','NO','NO',None,None),
+    ('relation_types','normalized','text','NO','NO',None,None),
+    ('relation_types','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('entities','id','bigint','NO','YES',None,'ALWAYS'),
+    ('entities','type_id','bigint','NO','NO',None,None),
+    ('entities','name','text','NO','NO',None,None),
+    ('entities','normalized','text','NO','NO',None,None),
+    ('entities','status','text','NO','NO',"'confirmed'::text",None),
+    ('entities','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('entities','deleted_at','timestamp with time zone','YES','NO',None,None),
+    ('entity_mentions','id','bigint','NO','YES',None,'ALWAYS'),
+    ('entity_mentions','entity_id','bigint','NO','NO',None,None),
+    ('entity_mentions','document_id','bigint','NO','NO',None,None),
+    ('entity_mentions','start_offset','bigint','NO','NO',None,None),
+    ('entity_mentions','end_offset','bigint','NO','NO',None,None),
+    ('entity_mentions','quote','text','NO','NO',None,None),
+    ('entity_mentions','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('entity_mentions','deleted_at','timestamp with time zone','YES','NO',None,None),
+    ('graph_relations','id','bigint','NO','YES',None,'ALWAYS'),
+    ('graph_relations','source_id','bigint','NO','NO',None,None),
+    ('graph_relations','target_id','bigint','NO','NO',None,None),
+    ('graph_relations','type_id','bigint','NO','NO',None,None),
+    ('graph_relations','document_id','bigint','NO','NO',None,None),
+    ('graph_relations','start_offset','bigint','NO','NO',None,None),
+    ('graph_relations','end_offset','bigint','NO','NO',None,None),
+    ('graph_relations','quote','text','NO','NO',None,None),
+    ('graph_relations','status','text','NO','NO',"'confirmed'::text",None),
+    ('graph_relations','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('graph_relations','deleted_at','timestamp with time zone','YES','NO',None,None),
+    ('graph_changes','id','bigint','NO','YES',None,'ALWAYS'),
+    ('graph_changes','action','text','NO','NO',None,None),
+    ('graph_changes','object_type','text','NO','NO',None,None),
+    ('graph_changes','object_id','bigint','NO','NO',None,None),
+    ('graph_changes','old_value','text','NO','NO',"''::text",None),
+    ('graph_changes','new_value','text','NO','NO',"''::text",None),
+    ('graph_changes','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('graph_changes','reverted_at','timestamp with time zone','YES','NO',None,None),
 }
 
 POSTGRES_LEGACY_CONSTRAINTS = {
@@ -805,6 +956,21 @@ POSTGRES_LEGACY_CONSTRAINTS = {
     ('document_relations', 'u', ('source_id', 'target_id', 'kind'), None, (), ' '),
     ('document_relations', 'f', ('source_id',), 'documents', ('id',), 'c'),
     ('document_relations', 'f', ('target_id',), 'documents', ('id',), 'c'),
+    ('entity_types', 'p', ('id',), None, (), ' '),
+    ('entity_types', 'u', ('normalized',), None, (), ' '),
+    ('relation_types', 'p', ('id',), None, (), ' '),
+    ('relation_types', 'u', ('normalized',), None, (), ' '),
+    ('entities', 'p', ('id',), None, (), ' '),
+    ('entities', 'f', ('type_id',), 'entity_types', ('id',), 'a'),
+    ('entity_mentions', 'p', ('id',), None, (), ' '),
+    ('entity_mentions', 'f', ('entity_id',), 'entities', ('id',), 'c'),
+    ('entity_mentions', 'f', ('document_id',), 'documents', ('id',), 'c'),
+    ('graph_relations', 'p', ('id',), None, (), ' '),
+    ('graph_relations', 'f', ('source_id',), 'entities', ('id',), 'c'),
+    ('graph_relations', 'f', ('target_id',), 'entities', ('id',), 'c'),
+    ('graph_relations', 'f', ('type_id',), 'relation_types', ('id',), 'a'),
+    ('graph_relations', 'f', ('document_id',), 'documents', ('id',), 'c'),
+    ('graph_changes', 'p', ('id',), None, (), ' '),
 }
 
 
