@@ -83,6 +83,15 @@
 
 **Status:** 8B.1 ✅.
 
+## Aktualisierung 06.11.2026 – Phase 8B, Schritt 8B.4 Graphansicht mit Filtern 🟡
+
+**Umfang:** Ohne Schemaänderung. `graph_data` (beide Backends) liefert Knoten und Kanten mit Filtern nach Entitätsarten, Relationsarten, ungeprüften Vorschlägen, Namensteil (mit direkten Nachbarn) und Umfeld einer Entität in 1 bis 3 Schritten, höchstens 150 Knoten nach Zahl der Relationen, Hinweis bei Kürzung. Neues Modul `graph_view.py`: Fenster „Graphansicht“ mit Ringlayout (Fokus in der Mitte, Nachbarn innen, übrige außen), Farbe je Art, gestrichelt für ungeprüft, Klick zeigt Belege, Doppelklick zentriert. Die Schaltflächen am Dokument stehen in zwei Reihen.
+
+**Nachweise:** Gemeinsamer Vertrag `check_graph_view_contract` (SQLite und PostgreSQL) für alle Filter, Reihenfolge, Umfeld in einem und zwei Schritten, Kürzung ohne Kanten zu fehlenden Knoten und unsichtbaren Fokus; Layouttest (Fokus mittig, Nachbarn innen, alles im Bild); Oberflächentest mit Filtern, Belegen, Zentrieren und Fehlerfall. Lokal: Linux 632 Tests, PostgreSQL 36 grün.
+
+**Status:** 8B.4 🟡 bis Matrix-Gate 7 von 7 und GitHub-CI grün.
+
+
 ## Aktualisierung 06.11.2026 – Phase 8B, Schritt 8B.3 Zusammenführen und Trennen 🟡
 
 **Umfang:** Ohne Schemaänderung. `merge_entities` führt eine Entität in eine andere derselben Art über: aktive Erwähnungen und Relationen wechseln, eine Relation zwischen beiden wird als gelöscht markiert, die überführte Entität ebenso. `split_entity` legt eine neue Entität derselben Art an und verschiebt ausgewählte Erwähnungen und Relationen; mindestens eine Erwähnung bleibt. Beide Vorgänge speichern im Änderungsprotokoll, was verschoben wurde (JSON), und lassen sich exakt zurücknehmen; die Rücknahme wird abgelehnt, wenn verschobene Einträge später verändert wurden oder die abgetrennte Entität neue Einträge hat. Oberfläche: „Zusammenführen“ und „Trennen“ im Dialog „Wissensgraph“. CLI: `entity-merge`, `entity-split`.

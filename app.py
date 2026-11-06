@@ -272,13 +272,14 @@ class App(tk.Tk if tk is not None else object):
         self.tree.bind('<<TreeviewSelect>>',lambda _:self.show_document())
         row = ttk.Frame(right)
         row.pack(fill='x',padx=(14,0),pady=(0,8))
-        for label,command in [('Zusammenfassen',self.summarize),('Metadaten',self.edit_metadata),
+        for index,(label,command) in enumerate([('Zusammenfassen',self.summarize),('Metadaten',self.edit_metadata),
                               ('Favorit',self.toggle_favorite),('Sammlungen',self.edit_collections),
                               ('Beziehungen',self.edit_relations),('Wissensgraph',self.edit_graph),
+                              ('Graphansicht',self.show_graph),
                               ('Versionen',self.show_versions),
-                              ('Original exportieren',self.export),('Löschen',self.delete)]:
+                              ('Original exportieren',self.export),('Löschen',self.delete)]):
             b = ttk.Button(row,text=label,command=command)
-            b.pack(side='left',padx=(0,5))
+            b.grid(row=index//5,column=index%5,sticky='we',padx=(0,5),pady=(0,4))  # two rows of five
             self.buttons.append(b)
         self.detail = ScrolledText(right,wrap='word',font=('Segoe UI',11),padx=14,pady=12,
                                    background='white',foreground='#182c2a')
@@ -924,6 +925,10 @@ class App(tk.Tk if tk is not None else object):
         window.graph_relate=lambda:act(relate); window.graph_take=take_marked; window.graph_remove=remove
         window.graph_confirm=confirm; window.graph_suggest=suggest; window.graph_merge=merge; window.graph_split=split
         return window
+
+    def show_graph(self):
+        from graph_view import GraphWindow
+        return GraphWindow(self,self.store)
 
     def show_graph_changes(self):
         """All changes to the knowledge graph, newest first; each can be reverted once."""

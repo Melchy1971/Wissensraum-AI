@@ -447,6 +447,10 @@ class PostgresStoreTests(unittest.TestCase):
         from test_graph import check_graph_contract
         check_graph_contract(self, PostgresStore(self.profile, self.password))
 
+    def test_graph_view_filters_on_real_postgresql(self):
+        from test_graph_view import check_graph_view_contract
+        check_graph_view_contract(self, PostgresStore(self.profile, self.password))
+
     def test_graph_merge_and_split_on_real_postgresql(self):
         from test_graph import check_merge_split_contract
         check_merge_split_contract(self, PostgresStore(self.profile, self.password))
