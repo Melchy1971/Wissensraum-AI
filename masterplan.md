@@ -71,7 +71,7 @@
 - Ausschluss auf V2 gemessen (06.11.2026, nur Suche ohne Antwortmodell, Messkopie danach gelöscht): 90 Fragen, alle Bestandsdokumente nach Migration `new`. Recall@10 63 von 66 ohne und mit Ausschluss, 0 von 90 Trefferlisten verschieden. Nach Markieren der 2 erwarteten Dokumente der Fragen e01 bis e11 (ohne e07) als veraltet fanden ohne Ausschluss alle 10 Fragen sie weiter, mit Ausschluss enthielt keine der 90 Trefferlisten sie.
 - Manuelle Prüfung der Dialoge Metadaten, Sammlungen, Beziehungen, Versionsvergleich und Export am Desktop: durch den Product Owner bestanden (06.11.2026).
 
-## Aktualisierung 06.11.2026 – Phase 8B, Schritt 8B.1 Datenmodell des Wissensgraphen 🟡
+## Aktualisierung 06.11.2026 – Phase 8B, Schritt 8B.1 Datenmodell des Wissensgraphen ✅
 
 **Plan Phase 8B (freigegeben vom Product Owner 06.11.2026):** 8B.1 Datenmodell (konfigurierbare Entitäts- und Relationsarten, Pflichtbeleg mit Textstelle, Protokoll und Rücknahme, manuelles Anlegen) · 8B.2 KI-Vorschläge (bleiben ungeprüft bis zur Bestätigung, Zitat muss wörtlich im Abschnitt stehen) · 8B.3 Zusammenführen und Trennen von Entitäten · 8B.4 Graphansicht mit Filtern · 8B.5 Graphkontext als begrenzte RAG-Quelle mit V2-Messung. Jeder Schritt mit eigener Migration, Tests für beide Backends, Matrix-Gate 7 von 7 und eigenem PR. Speicherung in Tabellen von SQLite und PostgreSQL, kein separater Graphserver (D-023). KI-Vorschläge nur mit lokalem Ollama (D-023).
 
@@ -79,9 +79,19 @@
 
 **Nachweise:** Gemeinsamer Vertrag `check_graph_contract` (SQLite und PostgreSQL): Startkataloge, Belege nur wörtlich und an der angegebenen Stelle, doppelte und ungültige Entitäten und Relationen abgelehnt, Selbstbezug abgelehnt, Detail- und Dokumentsicht, Suche nach Name und Art, Löschen und Rücknahme von Entität, Relation und Umbenennung, Rücknahme nur einmal, Arten nur ohne Verwendung löschbar, Dokument unverändert, Löschen des Belegdokuments entfernt Erwähnungen und Relationen. Dazu CLI- und Oberflächentest, Migrations- und Diagnosetests auf Schema 16, Reset-Test auf PostgreSQL mit den beiden Startkatalogen.
 
-**Status:** 8B.1 🟡 bis Matrix-Gate 7 von 7 und GitHub-CI grün.
+**Gate:** Lokales Matrix-Gate an `1f759a0`: 7 von 7 (`local-ci-gate-1f759a0.md`), Windows und Linux je 620 Tests, PostgreSQL 33. GitHub Actions für PR #16: 14 von 14 grün.
 
-## Aktualisierung 06.11.2026 – Phase 8B, Schritt 8B.2 KI-Vorschläge 🟡
+**Status:** 8B.1 ✅.
+
+## Aktualisierung 06.11.2026 – Phase 8B, Schritt 8B.3 Zusammenführen und Trennen 🟡
+
+**Umfang:** Ohne Schemaänderung. `merge_entities` führt eine Entität in eine andere derselben Art über: aktive Erwähnungen und Relationen wechseln, eine Relation zwischen beiden wird als gelöscht markiert, die überführte Entität ebenso. `split_entity` legt eine neue Entität derselben Art an und verschiebt ausgewählte Erwähnungen und Relationen; mindestens eine Erwähnung bleibt. Beide Vorgänge speichern im Änderungsprotokoll, was verschoben wurde (JSON), und lassen sich exakt zurücknehmen; die Rücknahme wird abgelehnt, wenn verschobene Einträge später verändert wurden oder die abgetrennte Entität neue Einträge hat. Oberfläche: „Zusammenführen“ und „Trennen“ im Dialog „Wissensgraph“. CLI: `entity-merge`, `entity-split`.
+
+**Nachweise:** Gemeinsamer Vertrag `check_merge_split_contract` (SQLite und PostgreSQL): Zusammenführen nur gleicher Art und nicht mit sich selbst, Erwähnungen und Relationen wechseln, Selbstbezug entfällt, Rücknahme stellt beide Entitäten mit ihren Einträgen wieder her; Trennen mit ungültiger Auswahl, vollständiger Auswahl oder vergebenem Namen abgelehnt, Relationen wechseln mit, spätere Änderung blockiert die Rücknahme bis zu deren Rücknahme, Dokument unverändert. Dazu Oberflächentest. Lokal: Linux 628 Tests, PostgreSQL 35 grün.
+
+**Status:** 8B.3 🟡 bis Matrix-Gate 7 von 7 und GitHub-CI grün.
+
+## Aktualisierung 06.11.2026 – Phase 8B, Schritt 8B.2 KI-Vorschläge ✅
 
 **Umfang:** Schema 17 ergänzt `entity_mentions.status` (Standard `confirmed`). Neues Modul `graph_suggest.py`: liest ein Dokument in den Abschnitten der aktuellen Chunk-Strategie, fragt ausschließlich das lokale Ollama (`qwen3:8b`, Temperatur 0, JSON-Format, D-023) und übergibt den Text als JSON-Daten mit festen Regeln gegen Anweisungen im Text. Übernommen wird nur, was ein wörtliches Zitat im Abschnitt und eine vorhandene Art hat; Entitäten, Erwähnungen und Relationen entstehen als `proposed`, vorhandene Entitäten gleichen Namens werden wiederverwendet, Doppelungen nicht angelegt. `confirm_graph_item` bestätigt Entität, Erwähnung oder Relation (Relation erst nach ihren Entitäten), protokolliert und zurücknehmbar; Zurücknahme der Bestätigung einer Entität mit bestätigten Relationen wird abgelehnt. Oberfläche: Spalte „Prüfung“, „KI-Vorschläge (Ollama)“ im Hintergrund, „Markierte bestätigen“. CLI: `graph-suggest`, `graph-confirm`.
 
@@ -89,7 +99,7 @@
 
 **Gate:** Lokales Matrix-Gate an `282f8b8`: 7 von 7 (`local-ci-gate-282f8b8.md`), Windows und Linux je 625 Tests, PostgreSQL 34; windows-3.11 im ersten Lauf mit 6 Fehlern nur beim Aufräumen (Virenscanner), im Wiederholungslauf grün.
 
-**Status:** 8B.2 🟡 bis GitHub-CI grün.
+**Status:** 8B.2 ✅ (GitHub Actions für PR #17: 14 von 14 grün, gemergt als `06c872e`).
 
 ## Aktualisierung 06.11.2026 – Phase 8A abgeschlossen, Release 2.2 freigegeben ✅
 
@@ -697,7 +707,7 @@ Die Phasen werden in der angegebenen Reihenfolge getestet. Eine Phase wird erst 
 | 5 | Release 1.9 Betriebsfähigkeit | ✅ | freigegeben 23.10.2026 |
 | 6 | Release 2.0 Importplattform | ✅ | freigegeben 23.10.2026, in vier Teilschritten (D-010); 6.1 ✅ (23.10.2026, CI [39925457254](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39925457254) auf `ca5bce6`), 6.2 ✅ (23.10.2026, CI [39932577799](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39932577799) auf `4cdb50e`), 6.3a ✅ (23.10.2026, CI [39942033441](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39942033441) auf `e36be53`), 6.3 ✅ (6.3b 23.10.2026, CI [39976859099](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39976859099) auf `e4d1f95`), alle vier Teilschritte ✅ (6.4 24.10.2026, CI [40097227667](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40097227667) auf `d05ef87`); abgenommen 26.10.2026 durch den Product Owner mit eigenen Daten; Soll-Umfang folgt als Release 2.0.1 (D-013), S1 in Arbeit |
 | 7 | Release 2.1 Hybrid-RAG | ✅ freigegeben 05.11.2026 (D-021) | nach Phase 6 |
-| 8 | Wissensorganisation und Wissensgraph | 🟡 8A ✅ (Release 2.2 freigegeben 06.11.2026, D-022), 8B 🟡 8B.1 in Arbeit | nach Phase 7 |
+| 8 | Wissensorganisation und Wissensgraph | 🟡 8A ✅ (Release 2.2 freigegeben 06.11.2026, D-022), 8B 🟡 8B.1 ✅, 8B.2 ✅, 8B.3 🟡 | nach Phase 7 |
 | 9 | Betrieb und Governance | ⬜ | nach Phase 8 |
 | 10 | Release 3.0 Sicherheitskern und Mehrbenutzerbetrieb | ⬜ | separates Architektur- und Sicherheits-Gate |
 | 11 | Release 3.1 VPS-Webanwendung und eigene Domain | ⬜ | erst nach Phase 10; öffentliche Bereitstellung nur mit vollständigem Sicherheits- und Betriebs-Gate |
