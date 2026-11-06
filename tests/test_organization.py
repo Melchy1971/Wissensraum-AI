@@ -55,6 +55,15 @@ def check_organization_contract(case, store):
     case.assertEqual([row['id'] for row in store.list(favorites=True, collection=travel)], [trip])
     store.set_favorite(heating, False)
     case.assertFalse(store.is_favorite(heating))
+    store.set_favorite(heating, False)  # unchanged: nothing logged
+    def changes(doc_id):
+        return [(row['field'], row['old_value'], row['new_value'], row['origin'])
+                for row in store.metadata_history(doc_id)]
+    case.assertEqual(changes(heating), [('collection', '', 'Haus und Hof', 'manual'), ('favorite', '', 'ja', 'manual'),
+                                        ('favorite', 'ja', '', 'manual')])
+    case.assertEqual(changes(car), [('collection', '', 'Haus und Hof', 'manual'), ('collection', '', 'Reisen', 'manual'),
+                                    ('collection', 'Reisen', 'Reisen 2026', 'manual'),
+                                    ('collection', 'Haus und Hof', '', 'manual')])
     with case.assertRaises(ValueError):
         store.set_favorite(10**9)
 
@@ -81,6 +90,7 @@ def check_organization_contract(case, store):
     case.assertEqual(store.list(favorites=True), [])
     store.delete_collection(travel)
     case.assertEqual([row['name'] for row in store.collections()], ['Haus und Hof'])
+    case.assertEqual(store.metadata_history(car)[-1]['old_value'], 'Reisen 2026')  # deletion is logged too
     case.assertEqual(store.get(car)['title'], 'Fahrzeug')
     with case.assertRaises(ValueError):
         store.delete_collection(travel)

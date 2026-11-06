@@ -195,7 +195,9 @@ class Organization:
     """Collections, favorites and saved searches (Release 2.2, step 8A.3), shared by both backends.
 
     None of them changes a document; deleting a document removes it from every collection and from
-    the favorites, deleting a collection leaves its documents untouched.
+    the favorites, deleting a collection leaves its documents untouched. Every change of a document's
+    collections or favorite mark is logged in its metadata history (fields ``collection`` with the
+    collection name and ``favorite`` with 'ja').
     """
 
     def collections(self):
@@ -219,33 +221,43 @@ class Organization:
             if db.execute('SELECT 1 FROM collections WHERE normalized=? AND id<>?',
                           (normalized, collection_id)).fetchone():
                 raise ValueError('Eine Sammlung mit diesem Namen gibt es schon.')
+            old = db.execute('SELECT name FROM collections WHERE id=?', (collection_id,)).fetchone()['name']
             db.execute('UPDATE collections SET name=?,normalized=? WHERE id=?', (name, normalized, collection_id))
+            if name != old:
+                self._log_members(db, collection_id, old, name)
 
     def delete_collection(self, collection_id):
         with self.connect() as db:
             self._collection(db, collection_id)
+            name = db.execute('SELECT name FROM collections WHERE id=?', (collection_id,)).fetchone()['name']
+            self._log_members(db, collection_id, name, '')
             db.execute('DELETE FROM collections WHERE id=?', (collection_id,))
 
     def add_to_collection(self, collection_id, document_ids):
         """Add documents; already contained ones are skipped. Returns the number added."""
+        import rules
         with self.connect() as db:
-            self._collection(db, collection_id)
+            name = self._collection(db, collection_id)
             added = 0
             for doc_id in dict.fromkeys(int(doc_id) for doc_id in document_ids):
                 if not db.execute('SELECT 1 FROM documents WHERE id=?', (doc_id,)).fetchone():
                     raise ValueError('Dokument wurde nicht gefunden.')
-                added += db.execute('INSERT INTO collection_documents(collection_id,document_id) VALUES(?,?) '
-                                    'ON CONFLICT DO NOTHING RETURNING document_id',
-                                    (collection_id, doc_id)).fetchone() is not None
+                if db.execute('INSERT INTO collection_documents(collection_id,document_id) VALUES(?,?) '
+                              'ON CONFLICT DO NOTHING RETURNING document_id', (collection_id, doc_id)).fetchone():
+                    rules.log_change(db, doc_id, 'collection', '', name, 'manual')
+                    added += 1
             return added
 
     def remove_from_collection(self, collection_id, document_ids):
+        import rules
         with self.connect() as db:
-            self._collection(db, collection_id)
+            name = self._collection(db, collection_id)
             removed = 0
             for doc_id in dict.fromkeys(int(doc_id) for doc_id in document_ids):
-                removed += db.execute('DELETE FROM collection_documents WHERE collection_id=? AND document_id=? '
-                                      'RETURNING document_id', (collection_id, doc_id)).fetchone() is not None
+                if db.execute('DELETE FROM collection_documents WHERE collection_id=? AND document_id=? '
+                              'RETURNING document_id', (collection_id, doc_id)).fetchone():
+                    rules.log_change(db, doc_id, 'collection', name, '', 'manual')
+                    removed += 1
             return removed
 
     def document_collections(self, doc_id):
@@ -256,17 +268,31 @@ class Organization:
 
     @staticmethod
     def _collection(db, collection_id):
-        if not db.execute('SELECT 1 FROM collections WHERE id=?', (collection_id,)).fetchone():
+        row = db.execute('SELECT name FROM collections WHERE id=?', (collection_id,)).fetchone()
+        if row is None:
             raise ValueError('Sammlung wurde nicht gefunden.')
+        return row['name']
+
+    @staticmethod
+    def _log_members(db, collection_id, old, new):
+        import rules
+        for row in db.execute('SELECT document_id FROM collection_documents WHERE collection_id=? '
+                              'ORDER BY document_id', (collection_id,)).fetchall():
+            rules.log_change(db, row['document_id'], 'collection', old, new, 'manual')
 
     def set_favorite(self, doc_id, favorite=True):
         with self.connect() as db:
             if not db.execute('SELECT 1 FROM documents WHERE id=?', (doc_id,)).fetchone():
                 raise ValueError('Dokument wurde nicht gefunden.')
+            import rules
             if favorite:
-                db.execute('INSERT INTO favorites(document_id) VALUES(?) ON CONFLICT DO NOTHING', (doc_id,))
+                changed = db.execute('INSERT INTO favorites(document_id) VALUES(?) ON CONFLICT DO NOTHING '
+                                     'RETURNING document_id', (doc_id,)).fetchone()
             else:
-                db.execute('DELETE FROM favorites WHERE document_id=?', (doc_id,))
+                changed = db.execute('DELETE FROM favorites WHERE document_id=? RETURNING document_id',
+                                     (doc_id,)).fetchone()
+            if changed:  # only actual changes are logged
+                rules.log_change(db, doc_id, 'favorite', '' if favorite else 'ja', 'ja' if favorite else '', 'manual')
 
     def is_favorite(self, doc_id):
         with self.connect() as db:

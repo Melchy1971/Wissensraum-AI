@@ -34,7 +34,7 @@
 
 **Gate:** Lokales Matrix-Gate an `046efaa`: 7 von 7 (`local-ci-gate-046efaa.md`). Windows 3.11, 3.12, 3.13 je 605 Tests bestanden, 33 übersprungen; windows-3.11 im ersten Lauf mit 13 Fehlern durch Dateisperren des Virenscanners beim Aufräumen, im Wiederholungslauf grün mit 17 wiederholten Tests (D-020). Linux 3.11, 3.12, 3.13 je 605 bestanden, 29 übersprungen; PostgreSQL 18.6 29 von 29. GitHub Actions für PR #9: 14 von 14 grün, gemergt als `21a8c1b`.
 
-**Status:** 8A.2 ✅. Der Recall auf V2 ist strukturell begründet, nicht mit Ollama gemessen.
+**Status:** 8A.2 ✅. Recall auf V2 am 06.11.2026 gemessen: unverändert (siehe Abnahme Release 2.2).
 
 ## Aktualisierung 05.11.2026 (Abend) – Phase 8A, Schritt 8A.3 Sammlungen, Favoriten, gespeicherte Suchen ✅
 
@@ -66,10 +66,10 @@
 
 **Status:** 8A.5 ✅. Alle Schritte 8A.1 bis 8A.5 sind umgesetzt und je mit Gate 7 von 7 und grüner GitHub-CI abgenommen. Phase 8A bleibt 🟡 bis zur Abnahme von Release 2.2 durch den Product Owner.
 
-**Offen für die Abnahme von Release 2.2:**
-- Abnahmekriterium „jede Metadatenänderung ist nachvollziehbar“: Titel, Bereich, Tags, Status, Verantwortlicher, Wiedervorlage und Beziehungen stehen im Verlauf. Aufnahme in Sammlungen und Favoriten stehen nicht im Verlauf; sie gelten bisher als Ordnung, nicht als Metadaten des Dokuments. Entscheidung des Product Owners nötig.
-- 8A.2 „Recall auf V2 unverändert“ ist strukturell begründet (alle Bestandsdokumente nach Migration `new`), nicht mit Ollama gemessen.
-- Manuelle Prüfung der neuen Dialoge (Metadaten, Sammlungen, Beziehungen, Versionsvergleich, Export) am Desktop steht aus.
+**Offene Punkte für die Abnahme von Release 2.2 (Entscheidungen Product Owner 06.11.2026):**
+- Verlauf für Sammlungen und Favoriten ergänzen: umgesetzt (`2aadc5c`). Aufnahme in und Entfernen aus einer Sammlung, Umbenennen und Löschen einer Sammlung sowie Setzen und Entfernen eines Favoriten stehen im Metadatenverlauf jedes betroffenen Dokuments (Felder `collection` und `favorite`, nur tatsächliche Änderungen). Gemeinsamer Vertrag `check_organization_contract` prüft die Einträge auf beiden Backends. Lokales Matrix-Gate an `2aadc5c`: 7 von 7 (`local-ci-gate-2aadc5c.md`), Windows und Linux je 616 Tests, PostgreSQL 32; windows-3.11 im ersten Lauf mit 6 Fehlern nur beim Aufräumen (Virenscanner), im Wiederholungslauf grün mit 9 wiederholten Tests.
+- Ausschluss auf V2 gemessen (06.11.2026, nur Suche ohne Antwortmodell, Messkopie danach gelöscht): 90 Fragen, alle Bestandsdokumente nach Migration `new`. Recall@10 63 von 66 ohne und mit Ausschluss, 0 von 90 Trefferlisten verschieden. Nach Markieren der 2 erwarteten Dokumente der Fragen e01 bis e11 (ohne e07) als veraltet fanden ohne Ausschluss alle 10 Fragen sie weiter, mit Ausschluss enthielt keine der 90 Trefferlisten sie.
+- Manuelle Prüfung der Dialoge Metadaten, Sammlungen, Beziehungen, Versionsvergleich und Export am Desktop: durch den Product Owner bestanden (06.11.2026).
 
 ## Aktualisierung 05.11.2026 – Phase 7 abgeschlossen, Release 2.1 freigegeben ✅
 
@@ -973,7 +973,7 @@ Frühere Zwischenstände: Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33
 
 **Test und Abnahme:**
 
-- jede Metadatenänderung ist nachvollziehbar
+- jede Metadatenänderung ist nachvollziehbar ✅ (Titel, Bereich, Tags, Status, Verantwortlicher, Wiedervorlage, Beziehungen, Sammlungen, Favoriten im Verlauf)
 - Originaldatei und Original-Hash bleiben unverändert ✅ (Verträge 8A.1 bis 8A.5 prüfen Inhalt, Original und Hash nach jeder Änderung)
 - veraltete Inhalte können aus KI-Antworten ausgeschlossen werden ✅ 8A.2 (Einstellung `ai.exclude_retired`, Standard an)
 
