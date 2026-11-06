@@ -12,7 +12,7 @@
 
 **Ablage:** Einziger Masterplan ist diese Datei `masterplan.md`. Die frühere Kopie `docs/masterplan.md` wurde am 22.10.2026 entfernt.
 
-**Status:** Phasen- und Testplan · Release 1.9 freigegeben, Release 2.0 abgenommen 26.10.2026, Phasen 0 bis 6 ✅ · Release 2.0.1 (Soll-Umfang von Phase 6, D-013) abgenommen 26.10.2026, Phase 7 (Release 2.1) ✅, Release 2.1 freigegeben 05.11.2026 (D-021): 7.1 Evaluationsdatensatz ✅, 7.2a Vektorspeicher und Embedding-Adapter ✅, 7.2b Einbettung im Hintergrund ✅, 7.3 hybride Suche ✅, 7.4 Quellenabsicherung ✅ (eingefrorener Bestand V2 mit `qwen3:8b`: False Reject 3 von 66, False Accept 1 von 24 in zwei Läufen, synthetisch 9,3 % und 3,1 %), Chunk-Strategie je Dokumenttyp ✅ und Fundstellenanzeige ✅ (Gate 7 von 7 an `b0b41de`)
+**Status:** Phasen- und Testplan · Release 1.9 freigegeben, Release 2.0 abgenommen 26.10.2026, Phasen 0 bis 6 ✅ · Release 2.0.1 (Soll-Umfang von Phase 6, D-013) abgenommen 26.10.2026, Phase 7 (Release 2.1) ✅, Release 2.1 freigegeben 05.11.2026 (D-021): 7.1 Evaluationsdatensatz ✅, 7.2a Vektorspeicher und Embedding-Adapter ✅, 7.2b Einbettung im Hintergrund ✅, 7.3 hybride Suche ✅, 7.4 Quellenabsicherung ✅ (eingefrorener Bestand V2 mit `qwen3:8b`: False Reject 3 von 66, False Accept 1 von 24 in zwei Läufen, synthetisch 9,3 % und 3,1 %), Chunk-Strategie je Dokumenttyp ✅ und Fundstellenanzeige ✅ (Gate 7 von 7 an `b0b41de`) · Phase 8A (Release 2.2 Wissensorganisation) ✅, Release 2.2 freigegeben 06.11.2026 (D-022, Tag `v2.2`): 8A.1 bis 8A.5 ✅, Schema 15, letztes Gate 7 von 7 an `2aadc5c`
 
 **Legende:** ✅ vollständig implementiert und gesamtes Gate nachweislich bestanden · 🟡 implementiert oder teilweise geprüft, aber noch nicht vollständig abgenommen · ❌ Gate fehlgeschlagen oder Freigabe blockiert · ⬜ geplant und noch nicht begonnen
 
@@ -64,12 +64,18 @@
 
 **Gate:** Lokales Matrix-Gate an `84184d2`: 7 von 7 (`local-ci-gate-84184d2.md`). Windows 3.11, 3.12, 3.13 je 616 Tests bestanden, 36 übersprungen (windows-3.11 mit 9 wiederholten Tests nach Dateisperren des Virenscanners); Linux 3.11, 3.12, 3.13 je 616 bestanden, 32 übersprungen; PostgreSQL 18.6 32 von 32. GitHub Actions für PR #12: 14 von 14 grün, gemergt als `527491c`.
 
-**Status:** 8A.5 ✅. Alle Schritte 8A.1 bis 8A.5 sind umgesetzt und je mit Gate 7 von 7 und grüner GitHub-CI abgenommen. Phase 8A bleibt 🟡 bis zur Abnahme von Release 2.2 durch den Product Owner.
+**Status:** 8A.5 ✅. Alle Schritte 8A.1 bis 8A.5 sind umgesetzt und je mit Gate 7 von 7 und grüner GitHub-CI abgenommen. Phase 8A ✅, Release 2.2 freigegeben 06.11.2026 (D-022).
 
 **Offene Punkte für die Abnahme von Release 2.2 (Entscheidungen Product Owner 06.11.2026):**
 - Verlauf für Sammlungen und Favoriten ergänzen: umgesetzt (`2aadc5c`). Aufnahme in und Entfernen aus einer Sammlung, Umbenennen und Löschen einer Sammlung sowie Setzen und Entfernen eines Favoriten stehen im Metadatenverlauf jedes betroffenen Dokuments (Felder `collection` und `favorite`, nur tatsächliche Änderungen). Gemeinsamer Vertrag `check_organization_contract` prüft die Einträge auf beiden Backends. Lokales Matrix-Gate an `2aadc5c`: 7 von 7 (`local-ci-gate-2aadc5c.md`), Windows und Linux je 616 Tests, PostgreSQL 32; windows-3.11 im ersten Lauf mit 6 Fehlern nur beim Aufräumen (Virenscanner), im Wiederholungslauf grün mit 9 wiederholten Tests.
 - Ausschluss auf V2 gemessen (06.11.2026, nur Suche ohne Antwortmodell, Messkopie danach gelöscht): 90 Fragen, alle Bestandsdokumente nach Migration `new`. Recall@10 63 von 66 ohne und mit Ausschluss, 0 von 90 Trefferlisten verschieden. Nach Markieren der 2 erwarteten Dokumente der Fragen e01 bis e11 (ohne e07) als veraltet fanden ohne Ausschluss alle 10 Fragen sie weiter, mit Ausschluss enthielt keine der 90 Trefferlisten sie.
 - Manuelle Prüfung der Dialoge Metadaten, Sammlungen, Beziehungen, Versionsvergleich und Export am Desktop: durch den Product Owner bestanden (06.11.2026).
+
+## Aktualisierung 06.11.2026 – Phase 8A abgeschlossen, Release 2.2 freigegeben ✅
+
+Der Product Owner hat Release 2.2 am 06.11.2026 freigegeben (D-022). Grundlage: 8A.1 bis 8A.5 je mit Matrix-Gate 7 von 7 und 14 von 14 GitHub-Checks, offene Punkte erledigt (Verlauf für Sammlungen und Favoriten, Ausschluss auf V2 gemessen, manuelle Prüfung bestanden), letztes Gate 7 von 7 an `2aadc5c`, CI auf `main` grün. Tag `v2.2`. Datenbankschema 15; bestehende Datenbanken werden beim ersten Start migriert, SQLite mit geprüfter Sicherung.
+
+**Nächster Schritt:** Phase 8B (Release 2.3 Wissensgraph). Teilschritte und Gates werden geplant und vom Product Owner freigegeben, bevor die Umsetzung beginnt.
 
 ## Aktualisierung 05.11.2026 – Phase 7 abgeschlossen, Release 2.1 freigegeben ✅
 
@@ -671,7 +677,7 @@ Die Phasen werden in der angegebenen Reihenfolge getestet. Eine Phase wird erst 
 | 5 | Release 1.9 Betriebsfähigkeit | ✅ | freigegeben 23.10.2026 |
 | 6 | Release 2.0 Importplattform | ✅ | freigegeben 23.10.2026, in vier Teilschritten (D-010); 6.1 ✅ (23.10.2026, CI [39925457254](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39925457254) auf `ca5bce6`), 6.2 ✅ (23.10.2026, CI [39932577799](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39932577799) auf `4cdb50e`), 6.3a ✅ (23.10.2026, CI [39942033441](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39942033441) auf `e36be53`), 6.3 ✅ (6.3b 23.10.2026, CI [39976859099](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39976859099) auf `e4d1f95`), alle vier Teilschritte ✅ (6.4 24.10.2026, CI [40097227667](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40097227667) auf `d05ef87`); abgenommen 26.10.2026 durch den Product Owner mit eigenen Daten; Soll-Umfang folgt als Release 2.0.1 (D-013), S1 in Arbeit |
 | 7 | Release 2.1 Hybrid-RAG | ✅ freigegeben 05.11.2026 (D-021) | nach Phase 6 |
-| 8 | Wissensorganisation und Wissensgraph | 🟡 8A.1 bis 8A.5 ✅, Abnahme 2.2 offen | nach Phase 7 |
+| 8 | Wissensorganisation und Wissensgraph | 🟡 8A ✅ (Release 2.2 freigegeben 06.11.2026, D-022), 8B ⬜ | nach Phase 7 |
 | 9 | Betrieb und Governance | ⬜ | nach Phase 8 |
 | 10 | Release 3.0 Sicherheitskern und Mehrbenutzerbetrieb | ⬜ | separates Architektur- und Sicherheits-Gate |
 | 11 | Release 3.1 VPS-Webanwendung und eigene Domain | ⬜ | erst nach Phase 10; öffentliche Bereitstellung nur mit vollständigem Sicherheits- und Betriebs-Gate |
@@ -957,7 +963,7 @@ Frühere Zwischenstände: Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33
 
 **Gate:** Die Qualitätswerte werden automatisiert aus einem versionierten Evaluationsdatensatz erzeugt; Einzelbeispiele reichen nicht aus.
 
-### Phase 8A – Release 2.2 Wissensorganisation 🟡
+### Phase 8A – Release 2.2 Wissensorganisation ✅
 
 **Ziel:** Dokumente werden über reine Suche hinaus als gepflegter Wissensbestand verwaltet.
 
@@ -1262,6 +1268,7 @@ Ein Arbeitspaket ist abgeschlossen, wenn:
 | D-019 | Quellenabsicherung (7.4) zweistufig: Suchsignale entscheiden `unavailable`, `insufficient` (keine Treffer, ohne KI-Anfrage) und `weak`; das antwortende Modell verweigert mit festem Kennwort, wenn keine Quelle die Antwort enthält; Antworten ohne gültigen Quellenverweis werden nicht angezeigt. Grund: Suchsignale trennen Ausschlussfragen nicht von Umschreibungen (52 % False Reject bei 0 False Accepts). Ollama antwortet mit Temperatur 0. Kein Reranker, weil Hybrid die Ziele aus 7.3 erreicht | Entschieden 29.10.2026 (Product Owner) |
 | D-020 | Abnahme 7.4: Maßgeblich ist das Vergleichsgate auf dem eingefrorenen Bestand V2 (False Reject höchstens 10 %, False Accept höchstens 5 %, keine technischen Fehler) in zwei Läufen mit identischer Klassifikation. Das Kriterium „mindestens 95 % der beantworteten Fragen zitieren die erwartete Hauptquelle“ entfällt für 7.4 (gemessen 86 %). Windows 3.11 gilt über GitHub Actions als nachgewiesen, solange der lokale Job durch Dateisperren des Virenscanners scheitert. Produktionsvariante B2: Zweitabschnitt des besten Dokuments im Fenster von 9.216 Token, zweiter Beleglauf aus | Entschieden 03.11.2026 (Product Owner) |
 | D-021 | Abnahme Release 2.1: Das Kriterium „mindestens 95 % der beantworteten Testfragen enthalten die erwartete Hauptquelle“ entfällt (gemessen 86 % auf dem Bestand V2). Chunk-Strategie je Dokumenttyp nur konfigurierbar, Standard 1.800/200 unverändert. Fundstellenanzeige ohne Reranking-Score, weil es keinen Reranker gibt (D-019). Release 2.1 freigegeben nach Gate 7 von 7 an `b0b41de` und 14 von 14 GitHub-Checks | Entschieden 05.11.2026 (Product Owner) |
+| D-022 | Abnahme Release 2.2 (Phase 8A Wissensorganisation): 8A.1 bis 8A.5 umgesetzt, Sammlungen und Favoriten im Metadatenverlauf, Ausschluss veralteter Dokumente auf V2 gemessen (Recall@10 unverändert 63 von 66), manuelle Prüfung bestanden. Release 2.2 freigegeben nach Gate 7 von 7 an `2aadc5c` und 14 von 14 GitHub-Checks, Tag `v2.2` | Entschieden 06.11.2026 (Product Owner) |
 
 ## 14. Hauptrisiken
 
