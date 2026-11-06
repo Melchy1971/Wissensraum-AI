@@ -186,7 +186,7 @@ class PostgresStoreTests(unittest.TestCase):
         store = PostgresStore(self.profile, self.password)
         with store.connect() as db:
             self.assertEqual([row['version'] for row in db.execute(
-                'SELECT version FROM schema_migrations ORDER BY version')], list(range(1, 16)))
+                'SELECT version FROM schema_migrations ORDER BY version')], list(range(1, 17)))
             old = db.execute("""SELECT -ts_rank_cd(to_tsvector('simple',d.title || ' ' || d.category || ' ' || c.content),
                                 websearch_to_tsquery('simple','Wartung OR Haus')) AS rank
                                 FROM chunks c JOIN documents d ON d.id=c.document_id""").fetchone()['rank']
@@ -439,6 +439,10 @@ class PostgresStoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             check_export_contract(self, PostgresStore(self.profile, self.password), folder)
 
+    def test_graph_on_real_postgresql(self):
+        from test_graph import check_graph_contract
+        check_graph_contract(self, PostgresStore(self.profile, self.password))
+
     def test_relations_on_real_postgresql(self):
         from test_relations import check_relations_contract
         check_relations_contract(self, PostgresStore(self.profile, self.password))
@@ -655,15 +659,18 @@ class PostgresStoreTests(unittest.TestCase):
         self.assertEqual(reset['tables'], [
             'ai_runs', 'chunk_vectors', 'chunks', 'collection_documents', 'collections', 'document_relations',
             'document_tags',
-            'document_versions', 'documents', 'email_accounts', 'email_attachments', 'email_imports', 'favorites',
-            'import_item_errors', 'import_items', 'import_jobs', 'metadata_changes', 'rule_run_changes',
+            'document_versions', 'documents', 'email_accounts', 'email_attachments', 'email_imports', 'entities',
+            'entity_mentions', 'entity_types', 'favorites', 'graph_changes', 'graph_relations',
+            'import_item_errors', 'import_items', 'import_jobs', 'metadata_changes', 'relation_types', 'rule_run_changes',
             'rule_runs', 'rules', 'saved_searches',
             'schema_migrations', 'settings', 'sources', 'tags'])
         with PostgresStore(self.profile, self.password).connect() as db:
+            # A reset leaves no data; only the two graph type catalogues get their default entries again.
+            catalogues = {'entity_types': 5, 'relation_types': 5}
             data_tables = [table for table in reset['tables'] if table != 'schema_migrations']
-            self.assertTrue(all(db.execute(
-                'SELECT count(*) AS count FROM ' + table).fetchone()['count'] == 0
-                                for table in data_tables))
+            self.assertEqual({table: db.execute('SELECT count(*) AS count FROM ' + table).fetchone()['count']
+                              for table in data_tables},
+                             {table: catalogues.get(table, 0) for table in data_tables})
             self.assertEqual(db.execute(
                 'SELECT MAX(version) AS version FROM schema_migrations').fetchone()['version'], CURRENT_SCHEMA_VERSION)
 

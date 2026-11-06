@@ -134,6 +134,26 @@ def main(argv=None):
     commands.add_parser('relations',help='Beziehungen eines Dokuments').add_argument('id',type=int)
     compare = commands.add_parser('compare',help='Zwei Fassungen zeilenweise vergleichen (alt, neu)')
     compare.add_argument('old',type=int); compare.add_argument('new',type=int)
+    commands.add_parser('entity-types',help='Entitätsarten des Wissensgraphen')
+    commands.add_parser('relation-types',help='Relationsarten des Wissensgraphen')
+    commands.add_parser('entity-type-add',help='Entitätsart anlegen').add_argument('name')
+    commands.add_parser('relation-type-add',help='Relationsart anlegen').add_argument('name')
+    entity_create = commands.add_parser('entity-create',help='Entität mit Beleg (wörtliche Textstelle) anlegen')
+    for name,kind in (('type',int),('name',str),('document',int),('quote',str)):
+        entity_create.add_argument(name,type=kind)
+    entity_create.add_argument('--start',type=int,help='Zeichenposition des Belegs, Standard: erstes Vorkommen')
+    entity_relate = commands.add_parser('entity-relate',help='Relation zwischen Entitäten mit Beleg anlegen')
+    for name in ('source','target','type','document'):
+        entity_relate.add_argument(name,type=int)
+    entity_relate.add_argument('quote'); entity_relate.add_argument('--start',type=int)
+    entity_list = commands.add_parser('entities',help='Entitäten auflisten')
+    entity_list.add_argument('--type',type=int); entity_list.add_argument('--query')
+    commands.add_parser('entity',help='Entität mit Belegen und Relationen').add_argument('id',type=int)
+    commands.add_parser('entity-delete',help='Entität entfernen (zurücknehmbar)').add_argument('id',type=int)
+    commands.add_parser('graph-relation-delete',help='Relation entfernen (zurücknehmbar)').add_argument('id',type=int)
+    changes = commands.add_parser('graph-changes',help='Änderungen am Wissensgraphen, neueste zuerst')
+    changes.add_argument('--limit',type=int,default=100)
+    commands.add_parser('graph-revert',help='Änderung am Wissensgraphen zurücknehmen').add_argument('id',type=int)
     retired = commands.add_parser('ai-retired',help='Veraltete und archivierte Dokumente in KI-Antworten')
     retired.add_argument('mode',nargs='?',choices=('exclude','include'),help='ohne Angabe: aktuelle Einstellung')
     metadata = commands.add_parser('history',help='Verlauf der Metadatenänderungen eines Dokuments')
@@ -281,6 +301,31 @@ def main(argv=None):
                 result = store.relations(args.id)
             elif args.command == 'compare':
                 result = store.compare(args.old,args.new)
+            elif args.command == 'entity-types':
+                result = store.entity_types()
+            elif args.command == 'relation-types':
+                result = store.relation_types()
+            elif args.command == 'entity-type-add':
+                result = {'id':store.add_entity_type(args.name)}
+            elif args.command == 'relation-type-add':
+                result = {'id':store.add_relation_type(args.name)}
+            elif args.command == 'entity-create':
+                result = {'id':store.create_entity(args.type,args.name,args.document,args.quote,args.start)}
+            elif args.command == 'entity-relate':
+                result = {'id':store.relate_entities(args.source,args.target,args.type,args.document,args.quote,
+                                                     args.start)}
+            elif args.command == 'entities':
+                result = store.entities(args.type,args.query)
+            elif args.command == 'entity':
+                result = store.entity(args.id)
+            elif args.command == 'entity-delete':
+                store.delete_entity(args.id); result = {'geloescht':args.id}
+            elif args.command == 'graph-relation-delete':
+                store.delete_graph_relation(args.id); result = {'geloescht':args.id}
+            elif args.command == 'graph-changes':
+                result = store.graph_changes(args.limit)
+            elif args.command == 'graph-revert':
+                store.revert_graph_change(args.id); result = {'zurueckgenommen':args.id}
             elif args.command == 'collections':
                 result = store.collections()
             elif args.command == 'collection-create':

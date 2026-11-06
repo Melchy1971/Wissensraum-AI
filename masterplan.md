@@ -71,6 +71,16 @@
 - Ausschluss auf V2 gemessen (06.11.2026, nur Suche ohne Antwortmodell, Messkopie danach gelöscht): 90 Fragen, alle Bestandsdokumente nach Migration `new`. Recall@10 63 von 66 ohne und mit Ausschluss, 0 von 90 Trefferlisten verschieden. Nach Markieren der 2 erwarteten Dokumente der Fragen e01 bis e11 (ohne e07) als veraltet fanden ohne Ausschluss alle 10 Fragen sie weiter, mit Ausschluss enthielt keine der 90 Trefferlisten sie.
 - Manuelle Prüfung der Dialoge Metadaten, Sammlungen, Beziehungen, Versionsvergleich und Export am Desktop: durch den Product Owner bestanden (06.11.2026).
 
+## Aktualisierung 06.11.2026 – Phase 8B, Schritt 8B.1 Datenmodell des Wissensgraphen 🟡
+
+**Plan Phase 8B (freigegeben vom Product Owner 06.11.2026):** 8B.1 Datenmodell (konfigurierbare Entitäts- und Relationsarten, Pflichtbeleg mit Textstelle, Protokoll und Rücknahme, manuelles Anlegen) · 8B.2 KI-Vorschläge (bleiben ungeprüft bis zur Bestätigung, Zitat muss wörtlich im Abschnitt stehen) · 8B.3 Zusammenführen und Trennen von Entitäten · 8B.4 Graphansicht mit Filtern · 8B.5 Graphkontext als begrenzte RAG-Quelle mit V2-Messung. Jeder Schritt mit eigener Migration, Tests für beide Backends, Matrix-Gate 7 von 7 und eigenem PR. Speicherung in Tabellen von SQLite und PostgreSQL, kein separater Graphserver (D-023). KI-Vorschläge nur mit lokalem Ollama (D-023).
+
+**Umfang 8B.1:** Schema 16 mit `entity_types` und `relation_types` (je fünf deutsche Startwerte), `entities`, `entity_mentions` und `graph_relations` (Beleg als Dokument, Start, Ende und wörtliches Zitat, bei Relationen Pflichtspalten), `graph_changes`. Migration für SQLite mit geprüfter Sicherung und für PostgreSQL unter Advisory Lock, Kataloge und `schema.sql` angepasst. `Graph` (beide Backends): Arten anlegen, umbenennen, löschen nur ohne Verwendung; Entitäten mit erster Erwähnung anlegen, umbenennen, Erwähnungen ergänzen, Relationen mit Beleg anlegen; Entitäten, Erwähnungen und Relationen werden nur als gelöscht markiert; jede Änderung steht in `graph_changes` und lässt sich einmal zurücknehmen. Oberfläche: Dialog „Wissensgraph“ mit Beleg aus der Markierung in der Detailansicht, Änderungsliste mit Rücknahme. CLI-Befehle für Arten, Entitäten, Relationen, Änderungen und Rücknahme.
+
+**Nachweise:** Gemeinsamer Vertrag `check_graph_contract` (SQLite und PostgreSQL): Startkataloge, Belege nur wörtlich und an der angegebenen Stelle, doppelte und ungültige Entitäten und Relationen abgelehnt, Selbstbezug abgelehnt, Detail- und Dokumentsicht, Suche nach Name und Art, Löschen und Rücknahme von Entität, Relation und Umbenennung, Rücknahme nur einmal, Arten nur ohne Verwendung löschbar, Dokument unverändert, Löschen des Belegdokuments entfernt Erwähnungen und Relationen. Dazu CLI- und Oberflächentest, Migrations- und Diagnosetests auf Schema 16, Reset-Test auf PostgreSQL mit den beiden Startkatalogen.
+
+**Status:** 8B.1 🟡 bis Matrix-Gate 7 von 7 und GitHub-CI grün.
+
 ## Aktualisierung 06.11.2026 – Phase 8A abgeschlossen, Release 2.2 freigegeben ✅
 
 Der Product Owner hat Release 2.2 am 06.11.2026 freigegeben (D-022). Grundlage: 8A.1 bis 8A.5 je mit Matrix-Gate 7 von 7 und 14 von 14 GitHub-Checks, offene Punkte erledigt (Verlauf für Sammlungen und Favoriten, Ausschluss auf V2 gemessen, manuelle Prüfung bestanden), letztes Gate 7 von 7 an `2aadc5c`, CI auf `main` grün. Tag `v2.2`. Datenbankschema 15; bestehende Datenbanken werden beim ersten Start migriert, SQLite mit geprüfter Sicherung.
@@ -660,7 +670,7 @@ Die Funktionen sind im Code vorhanden, in der vollständigen CI-Matrix geprüft 
 | ✅ `email_attachments` | E-Mail-Anhänge und Beziehung zur Nachricht | 2.0 (Schema 8 implementiert) |
 | ✅ `document_versions` | Korrigierte oder erneut importierte Fassungen nachvollziehen | 2.0 (Schema 7 implementiert) |
 | `embeddings` | Vektoren, Modell, Dimension, Prüfsumme und Erzeugungszeit | 2.1 |
-| `entities` / `relations` | Kontrollierter Wissensgraph | 2.3 |
+| `entity_types` / `relation_types` / `entities` / `entity_mentions` / `graph_relations` / `graph_changes` | Kontrollierter Wissensgraph mit Pflichtbeleg und Rücknahme | 2.3 (Schema 16, 8B.1) |
 | `audit_events` | Sicherheits- und Betriebsereignisse ohne Geheimnisse | 2.4 |
 
 ## 7. Phasenplan mit Test-Gates
@@ -677,7 +687,7 @@ Die Phasen werden in der angegebenen Reihenfolge getestet. Eine Phase wird erst 
 | 5 | Release 1.9 Betriebsfähigkeit | ✅ | freigegeben 23.10.2026 |
 | 6 | Release 2.0 Importplattform | ✅ | freigegeben 23.10.2026, in vier Teilschritten (D-010); 6.1 ✅ (23.10.2026, CI [39925457254](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39925457254) auf `ca5bce6`), 6.2 ✅ (23.10.2026, CI [39932577799](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39932577799) auf `4cdb50e`), 6.3a ✅ (23.10.2026, CI [39942033441](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39942033441) auf `e36be53`), 6.3 ✅ (6.3b 23.10.2026, CI [39976859099](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39976859099) auf `e4d1f95`), alle vier Teilschritte ✅ (6.4 24.10.2026, CI [40097227667](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40097227667) auf `d05ef87`); abgenommen 26.10.2026 durch den Product Owner mit eigenen Daten; Soll-Umfang folgt als Release 2.0.1 (D-013), S1 in Arbeit |
 | 7 | Release 2.1 Hybrid-RAG | ✅ freigegeben 05.11.2026 (D-021) | nach Phase 6 |
-| 8 | Wissensorganisation und Wissensgraph | 🟡 8A ✅ (Release 2.2 freigegeben 06.11.2026, D-022), 8B ⬜ | nach Phase 7 |
+| 8 | Wissensorganisation und Wissensgraph | 🟡 8A ✅ (Release 2.2 freigegeben 06.11.2026, D-022), 8B 🟡 8B.1 in Arbeit | nach Phase 7 |
 | 9 | Betrieb und Governance | ⬜ | nach Phase 8 |
 | 10 | Release 3.0 Sicherheitskern und Mehrbenutzerbetrieb | ⬜ | separates Architektur- und Sicherheits-Gate |
 | 11 | Release 3.1 VPS-Webanwendung und eigene Domain | ⬜ | erst nach Phase 10; öffentliche Bereitstellung nur mit vollständigem Sicherheits- und Betriebs-Gate |
@@ -983,7 +993,7 @@ Frühere Zwischenstände: Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33
 - Originaldatei und Original-Hash bleiben unverändert ✅ (Verträge 8A.1 bis 8A.5 prüfen Inhalt, Original und Hash nach jeder Änderung)
 - veraltete Inhalte können aus KI-Antworten ausgeschlossen werden ✅ 8A.2 (Einstellung `ai.exclude_retired`, Standard an)
 
-### Phase 8B – Release 2.3 Wissensgraph ⬜
+### Phase 8B – Release 2.3 Wissensgraph 🟡
 
 **Ziel:** Personen, Organisationen, Prozesse, Systeme, Entscheidungen und ihre Beziehungen werden strukturiert nutzbar.
 
@@ -1269,6 +1279,7 @@ Ein Arbeitspaket ist abgeschlossen, wenn:
 | D-020 | Abnahme 7.4: Maßgeblich ist das Vergleichsgate auf dem eingefrorenen Bestand V2 (False Reject höchstens 10 %, False Accept höchstens 5 %, keine technischen Fehler) in zwei Läufen mit identischer Klassifikation. Das Kriterium „mindestens 95 % der beantworteten Fragen zitieren die erwartete Hauptquelle“ entfällt für 7.4 (gemessen 86 %). Windows 3.11 gilt über GitHub Actions als nachgewiesen, solange der lokale Job durch Dateisperren des Virenscanners scheitert. Produktionsvariante B2: Zweitabschnitt des besten Dokuments im Fenster von 9.216 Token, zweiter Beleglauf aus | Entschieden 03.11.2026 (Product Owner) |
 | D-021 | Abnahme Release 2.1: Das Kriterium „mindestens 95 % der beantworteten Testfragen enthalten die erwartete Hauptquelle“ entfällt (gemessen 86 % auf dem Bestand V2). Chunk-Strategie je Dokumenttyp nur konfigurierbar, Standard 1.800/200 unverändert. Fundstellenanzeige ohne Reranking-Score, weil es keinen Reranker gibt (D-019). Release 2.1 freigegeben nach Gate 7 von 7 an `b0b41de` und 14 von 14 GitHub-Checks | Entschieden 05.11.2026 (Product Owner) |
 | D-022 | Abnahme Release 2.2 (Phase 8A Wissensorganisation): 8A.1 bis 8A.5 umgesetzt, Sammlungen und Favoriten im Metadatenverlauf, Ausschluss veralteter Dokumente auf V2 gemessen (Recall@10 unverändert 63 von 66), manuelle Prüfung bestanden. Release 2.2 freigegeben nach Gate 7 von 7 an `2aadc5c` und 14 von 14 GitHub-Checks, Tag `v2.2` | Entschieden 06.11.2026 (Product Owner) |
+| D-023 | Phase 8B: Wissensgraph in Tabellen von SQLite und PostgreSQL mit gemeinsamem Vertrag, kein separater Graphserver (Neo4j), damit der Offline-Kern ohne Zusatzdienst bleibt. KI-Vorschläge für Entitäten und Relationen nur mit lokalem Ollama | Entschieden 06.11.2026 (Product Owner) |
 
 ## 14. Hauptrisiken
 

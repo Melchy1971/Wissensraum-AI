@@ -467,6 +467,314 @@ class Relations:
                 'truncated': len(lines) > MAX_DIFF_LINES, 'diff': lines[:MAX_DIFF_LINES]}
 
 
+MAX_ENTITY_NAME = 200
+MAX_QUOTE_LENGTH = 1000
+GRAPH_STATUSES = ('proposed', 'confirmed')
+
+
+class Graph:
+    """Knowledge graph (Release 2.3, step 8B.1), the same on both backends.
+
+    Entities are typed and named; mentions and relations point to an exact span of a document's
+    content (``quote`` == content[start:end]). A relation cannot exist without that evidence: its
+    document is a required column, and deleting the document deletes the relation. Entities,
+    mentions and relations are soft-deleted, every change is written to ``graph_changes`` and can
+    be reverted once. Documents are never changed.
+    """
+
+    # --- configurable types --------------------------------------------------------------
+    def entity_types(self):
+        return self._types('entity_types', 'entities')
+
+    def relation_types(self):
+        return self._types('relation_types', 'graph_relations')
+
+    def add_entity_type(self, name):
+        return self._add_type('entity_types', 'entity_type', name)
+
+    def add_relation_type(self, name):
+        return self._add_type('relation_types', 'relation_type', name)
+
+    def rename_entity_type(self, type_id, name):
+        self._rename_type('entity_types', 'entity_type', type_id, name)
+
+    def rename_relation_type(self, type_id, name):
+        self._rename_type('relation_types', 'relation_type', type_id, name)
+
+    def delete_entity_type(self, type_id):
+        self._delete_type('entity_types', 'entities', 'entity_type', type_id)
+
+    def delete_relation_type(self, type_id):
+        self._delete_type('relation_types', 'graph_relations', 'relation_type', type_id)
+
+    def _types(self, table, users):
+        with self.connect() as db:
+            return [dict(row) for row in db.execute(
+                f'SELECT t.id,t.name,(SELECT count(*) FROM {users} u WHERE u.type_id=t.id AND u.deleted_at IS NULL) '
+                f'AS used FROM {table} t ORDER BY t.normalized,t.id')]
+
+    def _add_type(self, table, kind, name):
+        name, normalized = _name(name, 'Name der Art')
+        with self.connect() as db:
+            if db.execute(f'SELECT 1 FROM {table} WHERE normalized=?', (normalized,)).fetchone():
+                raise ValueError('Diese Art gibt es schon.')
+            type_id = db.execute(f'INSERT INTO {table}(name,normalized) VALUES(?,?) RETURNING id',
+                                 (name, normalized)).fetchone()['id']
+            self._log(db, 'create', kind, type_id, '', name)
+            return type_id
+
+    def _rename_type(self, table, kind, type_id, name):
+        name, normalized = _name(name, 'Name der Art')
+        with self.connect() as db:
+            row = db.execute(f'SELECT name FROM {table} WHERE id=?', (type_id,)).fetchone()
+            if row is None:
+                raise ValueError('Art wurde nicht gefunden.')
+            if db.execute(f'SELECT 1 FROM {table} WHERE normalized=? AND id<>?', (normalized, type_id)).fetchone():
+                raise ValueError('Diese Art gibt es schon.')
+            if row['name'] != name:
+                db.execute(f'UPDATE {table} SET name=?,normalized=? WHERE id=?', (name, normalized, type_id))
+                self._log(db, 'rename', kind, type_id, row['name'], name)
+
+    def _delete_type(self, table, users, kind, type_id):
+        with self.connect() as db:
+            row = db.execute(f'SELECT name FROM {table} WHERE id=?', (type_id,)).fetchone()
+            if row is None:
+                raise ValueError('Art wurde nicht gefunden.')
+            # Soft-deleted entries keep their type so that they can be restored.
+            if db.execute(f'SELECT 1 FROM {users} WHERE type_id=?', (type_id,)).fetchone():
+                raise ValueError('Die Art wird noch verwendet.')
+            db.execute(f'DELETE FROM {table} WHERE id=?', (type_id,))
+            self._log(db, 'delete', kind, type_id, row['name'], '')
+
+    # --- entities, mentions, relations ---------------------------------------------------
+    def create_entity(self, type_id, name, document_id, quote, start=None):
+        """A new confirmed entity with its first mention; returns the entity id."""
+        name, normalized = self._entity_name(name)
+        with self.connect() as db:
+            if not db.execute('SELECT 1 FROM entity_types WHERE id=?', (type_id,)).fetchone():
+                raise ValueError('Art wurde nicht gefunden.')
+            if db.execute('SELECT 1 FROM entities WHERE type_id=? AND normalized=? AND deleted_at IS NULL',
+                          (type_id, normalized)).fetchone():
+                raise ValueError('Diese Entität gibt es schon.')
+            span = self._evidence(db, document_id, quote, start)
+            entity_id = db.execute('INSERT INTO entities(type_id,name,normalized) VALUES(?,?,?) RETURNING id',
+                                   (type_id, name, normalized)).fetchone()['id']
+            self._log(db, 'create', 'entity', entity_id, '', name)
+            self._insert_mention(db, entity_id, document_id, span)
+            return entity_id
+
+    def add_mention(self, entity_id, document_id, quote, start=None):
+        with self.connect() as db:
+            self._active(db, 'entities', entity_id, 'Entität')
+            return self._insert_mention(db, entity_id, document_id, self._evidence(db, document_id, quote, start))
+
+    def rename_entity(self, entity_id, name):
+        name, normalized = self._entity_name(name)
+        with self.connect() as db:
+            row = self._active(db, 'entities', entity_id, 'Entität')
+            if db.execute('SELECT 1 FROM entities WHERE type_id=? AND normalized=? AND id<>? AND deleted_at IS NULL',
+                          (row['type_id'], normalized, entity_id)).fetchone():
+                raise ValueError('Diese Entität gibt es schon.')
+            if row['name'] != name:
+                db.execute('UPDATE entities SET name=?,normalized=? WHERE id=?', (name, normalized, entity_id))
+                self._log(db, 'rename', 'entity', entity_id, row['name'], name)
+
+    def relate_entities(self, source_id, target_id, type_id, document_id, quote, start=None):
+        """A confirmed relation; it always carries the text span that supports it."""
+        if int(source_id) == int(target_id):
+            raise ValueError('Eine Entität kann nicht mit sich selbst verbunden werden.')
+        with self.connect() as db:
+            self._active(db, 'entities', source_id, 'Entität')
+            self._active(db, 'entities', target_id, 'Entität')
+            if not db.execute('SELECT 1 FROM relation_types WHERE id=?', (type_id,)).fetchone():
+                raise ValueError('Art wurde nicht gefunden.')
+            start, end, quote = self._evidence(db, document_id, quote, start)
+            if db.execute('SELECT 1 FROM graph_relations WHERE source_id=? AND target_id=? AND type_id=? '
+                          'AND document_id=? AND start_offset=? AND deleted_at IS NULL',
+                          (source_id, target_id, type_id, document_id, start)).fetchone():
+                raise ValueError('Diese Relation mit diesem Beleg gibt es schon.')
+            relation_id = db.execute(
+                'INSERT INTO graph_relations(source_id,target_id,type_id,document_id,start_offset,end_offset,quote) '
+                'VALUES(?,?,?,?,?,?,?) RETURNING id',
+                (source_id, target_id, type_id, document_id, start, end, quote)).fetchone()['id']
+            self._log(db, 'create', 'relation', relation_id, '', f'{source_id}->{target_id}')
+            return relation_id
+
+    def delete_entity(self, entity_id):
+        self._soft_delete('entities', 'entity', entity_id, 'Entität')
+
+    def delete_mention(self, mention_id):
+        self._soft_delete('entity_mentions', 'mention', mention_id, 'Erwähnung')
+
+    def delete_graph_relation(self, relation_id):
+        self._soft_delete('graph_relations', 'relation', relation_id, 'Relation')
+
+    # --- reading -------------------------------------------------------------------------
+    def entities(self, type_id=None, query=None):
+        conditions, params = ['e.deleted_at IS NULL'], []
+        if type_id is not None:
+            conditions.append('e.type_id=?'); params.append(type_id)
+        if query:
+            conditions.append('e.normalized LIKE ?'); params.append('%' + ' '.join(query.split()).casefold() + '%')
+        with self.connect() as db:
+            return [dict(row) for row in db.execute(
+                'SELECT e.id,e.name,e.status,e.type_id,t.name AS type,'
+                '(SELECT count(*) FROM entity_mentions m WHERE m.entity_id=e.id AND m.deleted_at IS NULL) AS mentions '
+                'FROM entities e JOIN entity_types t ON t.id=e.type_id WHERE ' + ' AND '.join(conditions)
+                + ' ORDER BY e.normalized,e.id', tuple(params))]
+
+    def entity(self, entity_id):
+        """An active entity with its active mentions and relations (both directions)."""
+        with self.connect() as db:
+            row = db.execute('SELECT e.id,e.name,e.status,e.type_id,t.name AS type FROM entities e '
+                             'JOIN entity_types t ON t.id=e.type_id WHERE e.id=? AND e.deleted_at IS NULL',
+                             (entity_id,)).fetchone()
+            if row is None:
+                raise ValueError('Entität wurde nicht gefunden.')
+            result = dict(row)
+            result['mentions'] = [dict(m) for m in db.execute(
+                'SELECT m.id,m.document_id,d.title AS document,m.start_offset,m.end_offset,m.quote '
+                'FROM entity_mentions m JOIN documents d ON d.id=m.document_id '
+                'WHERE m.entity_id=? AND m.deleted_at IS NULL ORDER BY m.id', (entity_id,))]
+            result['relations'] = self._relations(db, 'r.source_id=? OR r.target_id=?', (entity_id, entity_id))
+            return result
+
+    def document_graph(self, document_id):
+        """Mentions and relations whose evidence lies in this document."""
+        with self.connect() as db:
+            mentions = [dict(m) for m in db.execute(
+                'SELECT m.id,m.entity_id,e.name AS entity,t.name AS type,m.start_offset,m.end_offset,m.quote '
+                'FROM entity_mentions m JOIN entities e ON e.id=m.entity_id JOIN entity_types t ON t.id=e.type_id '
+                'WHERE m.document_id=? AND m.deleted_at IS NULL AND e.deleted_at IS NULL ORDER BY m.start_offset,m.id',
+                (document_id,))]
+            return {'mentions': mentions, 'relations': self._relations(db, 'r.document_id=?', (document_id,))}
+
+    def graph_changes(self, limit=100):
+        with self.connect() as db:
+            rows = [dict(row) for row in db.execute(
+                'SELECT id,action,object_type,object_id,old_value,new_value,created_at,reverted_at '
+                'FROM graph_changes ORDER BY id DESC LIMIT ?', (limit,))]
+        for row in rows:
+            row['created_at'], row['reverted_at'] = _utc_text(row['created_at']), _utc_text(row['reverted_at'])
+        return rows
+
+    def revert_graph_change(self, change_id):
+        """Undo one change; the undo is logged as action ``revert`` with the change id."""
+        with self.connect() as db:
+            change = db.execute('SELECT * FROM graph_changes WHERE id=?', (change_id,)).fetchone()
+            if change is None:
+                raise ValueError('Änderung wurde nicht gefunden.')
+            if change['reverted_at'] is not None or change['action'] == 'revert':
+                raise ValueError('Diese Änderung kann nicht zurückgenommen werden.')
+            kind, object_id = change['object_type'], change['object_id']
+            tables = {'entity': 'entities', 'mention': 'entity_mentions', 'relation': 'graph_relations'}
+            if kind in tables and change['action'] in ('create', 'delete'):
+                if change['action'] == 'delete' and kind == 'entity':
+                    row = db.execute('SELECT type_id,normalized FROM entities WHERE id=?', (object_id,)).fetchone()
+                    if row and db.execute('SELECT 1 FROM entities WHERE type_id=? AND normalized=? AND id<>? '
+                                          'AND deleted_at IS NULL', (row['type_id'], row['normalized'],
+                                                                     object_id)).fetchone():
+                        raise ValueError('Eine gleichnamige Entität gibt es inzwischen wieder.')
+                done = db.execute(f'UPDATE {tables[kind]} SET deleted_at='
+                                  + ('CURRENT_TIMESTAMP' if change['action'] == 'create' else 'NULL')
+                                  + ' WHERE id=? RETURNING id', (object_id,)).fetchone()
+                if done is None:  # removed together with its document
+                    raise ValueError('Das Objekt gibt es nicht mehr.')
+            elif change['action'] == 'rename' and kind in ('entity', 'entity_type', 'relation_type'):
+                table = {'entity': 'entities', 'entity_type': 'entity_types', 'relation_type': 'relation_types'}[kind]
+                old = change['old_value']
+                normalized = ' '.join(old.split()).casefold()
+                clash = db.execute(f'SELECT 1 FROM {table} WHERE normalized=? AND id<>?'
+                                   + (' AND deleted_at IS NULL AND type_id=(SELECT type_id FROM entities WHERE id=?)'
+                                      if kind == 'entity' else ''),
+                                   (normalized, object_id) + ((object_id,) if kind == 'entity' else ())).fetchone()
+                if clash:
+                    raise ValueError('Der alte Name ist inzwischen vergeben.')
+                if db.execute(f'UPDATE {table} SET name=?,normalized=? WHERE id=? RETURNING id',
+                              (old, normalized, object_id)).fetchone() is None:
+                    raise ValueError('Das Objekt gibt es nicht mehr.')
+            elif kind in ('entity_type', 'relation_type') and change['action'] in ('create', 'delete'):
+                table, users = (('entity_types', 'entities') if kind == 'entity_type'
+                                else ('relation_types', 'graph_relations'))
+                if change['action'] == 'create':
+                    if db.execute(f'SELECT 1 FROM {users} WHERE type_id=?', (object_id,)).fetchone():
+                        raise ValueError('Die Art wird noch verwendet.')
+                    db.execute(f'DELETE FROM {table} WHERE id=?', (object_id,))
+                else:
+                    name = change['old_value']
+                    if db.execute(f'SELECT 1 FROM {table} WHERE normalized=?', (name.casefold(),)).fetchone():
+                        raise ValueError('Diese Art gibt es schon.')
+                    # ponytail: a restored type gets a new id; nothing referred to it when it was deleted.
+                    db.execute(f'INSERT INTO {table}(name,normalized) VALUES(?,?)', (name, name.casefold()))
+            else:
+                raise ValueError('Diese Änderung kann nicht zurückgenommen werden.')
+            db.execute('UPDATE graph_changes SET reverted_at=CURRENT_TIMESTAMP WHERE id=?', (change_id,))
+            self._log(db, 'revert', 'change', change_id, '', '')
+
+    # --- helpers -------------------------------------------------------------------------
+    @staticmethod
+    def _entity_name(value):
+        name = ' '.join(str(value).split())
+        if not name or len(name) > MAX_ENTITY_NAME:
+            raise ValueError(f'Name muss 1 bis {MAX_ENTITY_NAME} Zeichen haben.')
+        return name, name.casefold()
+
+    @staticmethod
+    def _evidence(db, document_id, quote, start=None):
+        """(start, end, quote) of an exact span; without ``start`` the first occurrence is used."""
+        row = db.execute('SELECT content FROM documents WHERE id=?', (document_id,)).fetchone()
+        if row is None:
+            raise ValueError('Dokument wurde nicht gefunden.')
+        content, quote = row['content'], str(quote)
+        if not quote.strip() or len(quote) > MAX_QUOTE_LENGTH:
+            raise ValueError(f'Beleg muss 1 bis {MAX_QUOTE_LENGTH} Zeichen haben.')
+        if start is None:
+            start = content.find(quote)
+        start = int(start)
+        if start < 0 or content[start:start + len(quote)] != quote:
+            raise ValueError('Der Beleg steht so nicht im Dokument.')
+        return start, start + len(quote), quote
+
+    def _insert_mention(self, db, entity_id, document_id, span):
+        start, end, quote = span
+        if db.execute('SELECT 1 FROM entity_mentions WHERE entity_id=? AND document_id=? AND start_offset=? '
+                      'AND deleted_at IS NULL', (entity_id, document_id, start)).fetchone():
+            raise ValueError('Diese Erwähnung gibt es schon.')
+        mention_id = db.execute('INSERT INTO entity_mentions(entity_id,document_id,start_offset,end_offset,quote) '
+                                'VALUES(?,?,?,?,?) RETURNING id',
+                                (entity_id, document_id, start, end, quote)).fetchone()['id']
+        self._log(db, 'create', 'mention', mention_id, '', str(entity_id))
+        return mention_id
+
+    @staticmethod
+    def _active(db, table, object_id, what):
+        row = db.execute(f'SELECT * FROM {table} WHERE id=? AND deleted_at IS NULL', (object_id,)).fetchone()
+        if row is None:
+            raise ValueError(f'{what} wurde nicht gefunden.')
+        return row
+
+    def _soft_delete(self, table, kind, object_id, what):
+        with self.connect() as db:
+            self._active(db, table, object_id, what)
+            db.execute(f'UPDATE {table} SET deleted_at=CURRENT_TIMESTAMP WHERE id=?', (object_id,))
+            self._log(db, 'delete', kind, object_id, '', '')
+
+    @staticmethod
+    def _relations(db, condition, params):
+        return [dict(row) for row in db.execute(
+            'SELECT r.id,r.status,r.source_id,s.name AS source,r.target_id,t.name AS target,r.type_id,'
+            'y.name AS type,r.document_id,d.title AS document,r.start_offset,r.end_offset,r.quote '
+            'FROM graph_relations r JOIN entities s ON s.id=r.source_id JOIN entities t ON t.id=r.target_id '
+            'JOIN relation_types y ON y.id=r.type_id JOIN documents d ON d.id=r.document_id '
+            'WHERE r.deleted_at IS NULL AND s.deleted_at IS NULL AND t.deleted_at IS NULL AND (' + condition
+            + ') ORDER BY r.id', params)]
+
+    @staticmethod
+    def _log(db, action, kind, object_id, old, new):
+        db.execute('INSERT INTO graph_changes(action,object_type,object_id,old_value,new_value) VALUES(?,?,?,?,?)',
+                   (action, kind, object_id, old, new))
+
+
 class ChunkStrategies:
     """Chunk strategy per document type (Release 2.1), shared by both backends through ``connect()``.
 
@@ -849,7 +1157,7 @@ class VectorIndex:
         return [{**details[chunk_id], 'score': score} for chunk_id, score in chosen.items() if chunk_id in details]
 
 
-class Store(DocumentMetadata, Organization, Relations, ChunkStrategies, VectorIndex):
+class Store(DocumentMetadata, Organization, Relations, Graph, ChunkStrategies, VectorIndex):
     backend = 'sqlite'
     # Declared type, PRAGMA not-null flag, normalized default, primary-key position.
     column_contract = {
@@ -943,6 +1251,7 @@ class Store(DocumentMetadata, Organization, Relations, ChunkStrategies, VectorIn
         12: frozenset(schema_contract),  # metadata_changes is not part of this contract
         13: frozenset(schema_contract),  # nor are the tables of step 8A.3
         14: frozenset(schema_contract),  # nor is the relation table of step 8A.4
+        15: frozenset(schema_contract),  # nor are the graph tables of step 8B.1
         CURRENT_SCHEMA_VERSION: frozenset(schema_contract),
     }
     primary_keys = {
@@ -1218,7 +1527,7 @@ class _PostgresConnection:
             return cursor.executemany(self.sql(query),parameters)
 
 
-class PostgresStore(DocumentMetadata, Organization, Relations, ChunkStrategies, VectorIndex):
+class PostgresStore(DocumentMetadata, Organization, Relations, Graph, ChunkStrategies, VectorIndex):
     """PostgreSQL implementation used after explicit activation in database settings."""
     backend = 'postgresql'
     # information_schema: data_type, udt_name, is_nullable, normalized default, is_identity.

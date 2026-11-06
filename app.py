@@ -274,7 +274,7 @@ class App(tk.Tk if tk is not None else object):
         row.pack(fill='x',padx=(14,0),pady=(0,8))
         for label,command in [('Zusammenfassen',self.summarize),('Metadaten',self.edit_metadata),
                               ('Favorit',self.toggle_favorite),('Sammlungen',self.edit_collections),
-                              ('Beziehungen',self.edit_relations),
+                              ('Beziehungen',self.edit_relations),('Wissensgraph',self.edit_graph),
                               ('Versionen',self.show_versions),
                               ('Original exportieren',self.export),('Löschen',self.delete)]:
             b = ttk.Button(row,text=label,command=command)
@@ -624,8 +624,11 @@ class App(tk.Tk if tk is not None else object):
                 care += f' · Wiedervorlage: {doc["review_date"]}'
             groups = ', '.join(row['name'] for row in self.store.document_collections(doc['id']))
             care += ('\nFavorit' if self.store.is_favorite(doc['id']) else '') + (f'\nSammlungen: {groups}' if groups else '')
-            self.write(self.detail,f'{doc["title"]}\nBereich: {doc["category"]}\nTags: {tags}\n{care}\n'
-                                   f'Erfasst: {doc["created_at"]} UTC\n{line}\n{found}\n{doc["content"]}')
+            header = (f'{doc["title"]}\nBereich: {doc["category"]}\nTags: {tags}\n{care}\n'
+                      f'Erfasst: {doc["created_at"]} UTC\n{line}\n{found}\n')
+            self.write(self.detail,header+doc['content'])
+            # Start of the content, so that a selection maps to a span of the document (step 8B.1).
+            self.detail.mark_set('content_start',f'1.0+{len(header)}c'); self.detail.mark_gravity('content_start','left')
 
     def edit_metadata(self):
         """Title, area, tags, status, owner and review date with the change history (steps 8A.1, 8A.2)."""
@@ -753,6 +756,149 @@ class App(tk.Tk if tk is not None else object):
         show()
         window.relation_tree=tree; window.relation_fields=(kind,target,note); window.relation_add=add
         window.relation_remove=remove; window.relation_open=open_other
+        return window
+
+    def marked_evidence(self,doc):
+        """(quote, start) of the selection in the detail view, or None; start falls back to the first match."""
+        try:
+            quote=self.detail.get('sel.first','sel.last')
+            counted=self.detail.count('content_start','sel.first','chars')  # None for 0 before Python 3.13
+            start=int(counted[0] if isinstance(counted,tuple) else counted or 0)
+        except (tk.TclError,TypeError):
+            return None
+        if self.detail.compare('sel.first','<','content_start') or not quote.strip():
+            return None
+        return quote,(start if doc['content'][start:start+len(quote)]==quote else None)
+
+    def edit_graph(self):
+        """Entities and relations with evidence in the selected document (Release 2.3, step 8B.1)."""
+        doc_id=self.selected()
+        doc=self.store.get(doc_id)
+        evidence=self.marked_evidence(doc)
+        window=tk.Toplevel(self)
+        window.title('Wissensgraph')
+        window.geometry('900x680')
+        window.transient(self)
+        ttk.Label(window,text='Wissensgraph',font=('Segoe UI',18,'bold'),padding=(18,16,18,0)).pack(anchor='w')
+        marked=tk.StringVar()
+        ttk.Label(window,textvariable=marked,padding=(18,5,18,8),wraplength=860).pack(anchor='w')
+        def show_marked():
+            marked.set('Beleg: „'+evidence[0][:200]+'“' if evidence else
+                       'Kein Beleg markiert. Text im Dokument markieren, dann „Markierung übernehmen“.')
+        trees={}
+        for key,columns in (('mentions',[('entity','Entität',220),('type','Art',120),('quote','Beleg',460)]),
+                            ('relations',[('source','Quelle',180),('type','Relation',140),('target','Ziel',180),
+                                          ('quote','Beleg',300)])):
+            tree=ttk.Treeview(window,columns=[c for c,_,_ in columns],show='headings',height=6)
+            for col,title,width in columns:
+                tree.heading(col,text=title); tree.column(col,width=width)
+            tree.pack(fill='both',expand=True,padx=18,pady=(0,8)); trees[key]=tree
+        form=ttk.Frame(window,padding=(18,0,18,0)); form.pack(fill='x')
+        entity_type=tk.StringVar(); name=tk.StringVar(); existing=tk.StringVar()
+        source=tk.StringVar(); relation_type=tk.StringVar(); target=tk.StringVar()
+        boxes={}
+        for row,items in enumerate([[('Neue Entität: Art',entity_type,18,'etype'),('Name',name,None,None)],
+                                    [('Vorhandene Entität',existing,40,'existing')],
+                                    [('Relation: Quelle',source,26,'source'),('Art',relation_type,18,'rtype'),
+                                     ('Ziel',target,26,'target')]]):
+            line=ttk.Frame(form); line.grid(row=row,column=0,sticky='w',pady=3)
+            for label,variable,width,key in items:
+                ttk.Label(line,text=label).pack(side='left',padx=(0,4))
+                if key:
+                    boxes[key]=ttk.Combobox(line,textvariable=variable,state='readonly',width=width)
+                    boxes[key].pack(side='left',padx=(0,12))
+                else:
+                    ttk.Entry(line,textvariable=variable,width=30).pack(side='left',padx=(0,12))
+        lookup={}
+        def show():
+            graph=self.store.document_graph(doc_id)
+            for key in trees:
+                trees[key].delete(*trees[key].get_children())
+            for row in graph['mentions']:
+                trees['mentions'].insert('','end',iid=str(row['id']),values=(row['entity'],row['type'],row['quote']))
+            for row in graph['relations']:
+                trees['relations'].insert('','end',iid=str(row['id']),values=(row['source'],row['type'],row['target'],
+                                                                              row['quote']))
+            lookup['etype']={row['name']:row['id'] for row in self.store.entity_types()}
+            lookup['rtype']={row['name']:row['id'] for row in self.store.relation_types()}
+            lookup['entity']={f'{row["name"]} ({row["type"]})':row['id'] for row in self.store.entities()}
+            boxes['etype'].configure(values=list(lookup['etype'])); boxes['rtype'].configure(values=list(lookup['rtype']))
+            for key in ('existing','source','target'):
+                boxes[key].configure(values=list(lookup['entity']))
+        def act(action):
+            try:
+                if evidence is None:
+                    raise ValueError('Zuerst eine Textstelle im Dokument markieren.')
+                action()
+            except (KeyError,ValueError) as error:
+                messagebox.showerror('Wissensgraph',str(error) if isinstance(error,ValueError)
+                                     else 'Bitte alle Felder auswählen.',parent=window)
+                return
+            show()
+        def create():
+            self.store.create_entity(lookup['etype'][entity_type.get()],name.get() or evidence[0],doc_id,*evidence)
+            name.set('')
+        def mention():
+            self.store.add_mention(lookup['entity'][existing.get()],doc_id,*evidence)
+        def relate():
+            self.store.relate_entities(lookup['entity'][source.get()],lookup['entity'][target.get()],
+                                       lookup['rtype'][relation_type.get()],doc_id,*evidence)
+        def take_marked():
+            nonlocal evidence
+            evidence=self.marked_evidence(doc); show_marked()
+            if evidence and not name.get():
+                name.set(' '.join(evidence[0].split())[:200])
+        def remove():
+            for iid in trees['mentions'].selection():
+                self.store.delete_mention(int(iid))
+            for iid in trees['relations'].selection():
+                self.store.delete_graph_relation(int(iid))
+            show()
+        buttons=ttk.Frame(window,padding=(18,10,18,16)); buttons.pack(fill='x')
+        for label,command in [('Markierung übernehmen',take_marked),('Entität anlegen',lambda:act(create)),
+                              ('Erwähnung hinzufügen',lambda:act(mention)),('Relation anlegen',lambda:act(relate)),
+                              ('Markierte entfernen',remove),('Änderungen',self.show_graph_changes)]:
+            ttk.Button(buttons,text=label,command=command).pack(side='left',padx=(0,8))
+        if evidence:
+            name.set(' '.join(evidence[0].split())[:200])
+        show_marked(); show()
+        window.graph_trees=trees; window.graph_fields={'entity_type':entity_type,'name':name,'existing':existing,
+                                                       'source':source,'relation_type':relation_type,'target':target}
+        window.graph_create=lambda:act(create); window.graph_mention=lambda:act(mention)
+        window.graph_relate=lambda:act(relate); window.graph_take=take_marked; window.graph_remove=remove
+        return window
+
+    def show_graph_changes(self):
+        """All changes to the knowledge graph, newest first; each can be reverted once."""
+        window=tk.Toplevel(self)
+        window.title('Änderungen am Wissensgraphen')
+        window.geometry('820x480')
+        window.transient(self)
+        tree=ttk.Treeview(window,columns=('created','action','object','old','new','state'),show='headings')
+        for col,title,width in [('created','Zeitpunkt (UTC)',150),('action','Aktion',90),('object','Objekt',140),
+                                ('old','vorher',150),('new','nachher',150),('state','',110)]:
+            tree.heading(col,text=title); tree.column(col,width=width)
+        tree.pack(fill='both',expand=True,padx=18,pady=(16,8))
+        actions={'create':'angelegt','delete':'entfernt','rename':'umbenannt','revert':'Rücknahme'}
+        objects={'entity':'Entität','mention':'Erwähnung','relation':'Relation','entity_type':'Entitätsart',
+                 'relation_type':'Relationsart','change':'Änderung'}
+        def show():
+            tree.delete(*tree.get_children())
+            for row in self.store.graph_changes(500):
+                tree.insert('','end',iid=str(row['id']),values=(row['created_at'],actions.get(row['action'],row['action']),
+                                                                f'{objects.get(row["object_type"],row["object_type"])} #{row["object_id"]}',
+                                                                row['old_value'],row['new_value'],
+                                                                'zurückgenommen' if row['reverted_at'] else ''))
+        def revert():
+            for iid in tree.selection():
+                try:
+                    self.store.revert_graph_change(int(iid))
+                except ValueError as error:
+                    messagebox.showerror('Änderungen',str(error),parent=window)
+            show()
+        ttk.Button(window,text='Markierte zurücknehmen',command=revert).pack(anchor='w',padx=18,pady=(0,16))
+        show()
+        window.change_tree=tree; window.change_revert=revert
         return window
 
     def show_versions(self):
