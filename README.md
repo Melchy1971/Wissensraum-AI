@@ -354,6 +354,10 @@ Im Dialog „Wissensgraph“ führt **Zusammenführen** zwei Entitäten derselbe
 
 **Graphansicht** zeigt Entitäten als Kreise (Farbe je Art, Größe nach Zahl der Relationen) und Relationen als Pfeile mit ihrer Art. Filter: Entitätsarten, Relationsarten, ungeprüfte Vorschläge ein oder aus (gestrichelt), Namensteil (Treffer mit ihren direkten Nachbarn) und das Umfeld der gewählten Entität in 1 bis 3 Schritten. Ein Klick zeigt Belegstellen und Relationen der Entität, ein Doppelklick stellt ihr Umfeld in die Mitte. Es werden höchstens 150 Entitäten gezeichnet, die am stärksten verbundenen zuerst; die Ansicht sagt, wenn gekürzt wurde. Die Ansicht liest nur, sie ändert nichts.
 
+### Graphkontext in KI-Antworten (Release 2.3, Schritt 8B.5)
+
+Fragen an die Dokumente nutzen bestätigte Relationen des Wissensgraphen als ergänzende Quelle. Übergeben werden nur bestätigte Relationen zwischen bestätigten Entitäten, deren Beleg in einem der für die Antwort ausgewählten Abschnitte liegenden Dokumente steht, höchstens 8 mit gekürztem Zitat und höchstens 600 Token. Jede Relation trägt die Kennung ihrer Quelle, die Antwort belegt sie damit wie jeden anderen Abschnitt. Ungeprüfte Vorschläge kommen nie in eine Antwort. Solange keine bestätigte Relation existiert oder die Einstellung aus ist, ist die Anfrage genau die bisherige. Der KI-Verlauf speichert, welche Relationen verwendet wurden. CLI: `python cli.py ai-graph [on|off]`.
+
 ### Postfachsynchronisation (Release 2.0.1, Schritt S3)
 
 Unter Einstellungen > E-Mail-Konten aktivierst du die Synchronisation je Konto: Intervall 15, 30 oder 60 Minuten oder 4 Stunden, bei IMAP ein Ordner (Standard `INBOX`), bei Microsoft 365 der Posteingang. Die Aktivierung merkt sich den Stand des Postfachs. Abgerufen werden nur Nachrichten, die danach eingehen, als normaler Importauftrag, den du unter Import siehst. Ältere Nachrichten holst du wie bisher über die Vorschau. Anhänge werden nie automatisch geholt, ihre Namen stehen im E-Mail-Text, den Inhalt gibst du einzeln über die Vorschau frei. Das Postfach wird nur gelesen.

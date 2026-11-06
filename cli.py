@@ -163,6 +163,8 @@ def main(argv=None):
     graph_suggest.add_argument('document',type=int); graph_suggest.add_argument('--model',default='qwen3:8b')
     confirm = commands.add_parser('graph-confirm',help='KI-Vorschlag bestätigen')
     confirm.add_argument('kind',choices=('entity','mention','relation')); confirm.add_argument('id',type=int)
+    graph_answers = commands.add_parser('ai-graph',help='Bestätigte Graphrelationen als ergänzende Quelle in KI-Antworten')
+    graph_answers.add_argument('mode',nargs='?',choices=('on','off'),help='ohne Angabe: aktuelle Einstellung')
     retired = commands.add_parser('ai-retired',help='Veraltete und archivierte Dokumente in KI-Antworten')
     retired.add_argument('mode',nargs='?',choices=('exclude','include'),help='ohne Angabe: aktuelle Einstellung')
     metadata = commands.add_parser('history',help='Verlauf der Metadatenänderungen eines Dokuments')
@@ -399,6 +401,10 @@ def main(argv=None):
                                                                args.owner,args.review_date)}
             elif args.command == 'review-due':
                 result = store.due_reviews(args.until)
+            elif args.command == 'ai-graph':
+                if args.mode:
+                    store.set_graph_context(args.mode == 'on')
+                result = {'graphkontext_in_ki_antworten':store.graph_context_enabled()}
             elif args.command == 'ai-retired':
                 if args.mode:
                     store.set_exclude_retired(args.mode == 'exclude')
