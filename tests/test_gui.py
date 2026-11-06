@@ -637,6 +637,30 @@ class InterfaceTests(unittest.TestCase):
         self.assertEqual({row['status'] for row in window.store.entities()},{'confirmed'})
         dialog.destroy()
 
+    def test_graph_view_filters_and_focus(self):
+        window=self.window
+        from test_graph_view import build
+        types,rtypes,ids,_=build(window.store)
+        view=window.show_graph(); view.update()
+        self.assertEqual(len(view.data['nodes']),5)
+        self.assertEqual(len([i for i in view.canvas.find_all() if view.canvas.type(i)=='oval']),5)
+        view.include_proposed.set(True); view.refresh()
+        self.assertEqual(len(view.data['nodes']),6)
+        view.entity_types.selection_set(view.type_ids.index(types['Person'])); view.refresh()
+        self.assertEqual({n['name'] for n in view.data['nodes']},{'Anna Berg','Tom Kranz','Lea Wolf'})
+        view.reset()
+        view.select(ids['Anna Berg'])
+        self.assertIn('„Anna Berg“ in Organigramm',view.detail.get('1.0','end'))
+        view.center(ids['Anna Berg'])
+        self.assertEqual({n['name'] for n in view.data['nodes']},{'Anna Berg','Nordwerk GmbH'})
+        self.assertEqual(view.depth.get(),1)
+        view.entity_types.selection_set(view.type_ids.index(types['System']))
+        with patch('graph_view.messagebox.showerror') as error:
+            view.refresh()  # focus not visible with this filter
+        error.assert_called_once()
+        self.assertIsNone(view.focus)
+        view.destroy()
+
     def test_graph_dialog_merges_and_splits_entities(self):
         window=self.window
         text='Anna Berg leitet den Einkauf. Frau Berg nutzt SAP.'

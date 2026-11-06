@@ -350,6 +350,10 @@ Im Dialog **Sammlungen** schreibt **Exportieren** die markierte Sammlung als ZIP
 
 Im Dialog „Wissensgraph“ führt **Zusammenführen** zwei Entitäten derselben Art zusammen: Erwähnungen genau zweier Entitäten markieren, die zweite geht in die erste über. Ihre Erwähnungen und Relationen wechseln zur ersten, eine Relation zwischen den beiden entfällt. **Trennen** legt aus markierten Erwähnungen einer Entität eine neue Entität derselben Art an; markierte Relationen wechseln mit. Mindestens eine Erwähnung bleibt bei der bisherigen Entität. Beide Vorgänge stehen im Änderungsprotokoll und lassen sich genau rückgängig machen, solange die verschobenen Einträge nicht später verändert wurden; sonst zuerst die späteren Änderungen zurücknehmen. Ohne Schemaänderung. CLI: `entity-merge <bleibt> <geht_auf>`, `entity-split <id> <name> --mentions … [--relations …]`.
 
+### Graphansicht (Release 2.3, Schritt 8B.4)
+
+**Graphansicht** zeigt Entitäten als Kreise (Farbe je Art, Größe nach Zahl der Relationen) und Relationen als Pfeile mit ihrer Art. Filter: Entitätsarten, Relationsarten, ungeprüfte Vorschläge ein oder aus (gestrichelt), Namensteil (Treffer mit ihren direkten Nachbarn) und das Umfeld der gewählten Entität in 1 bis 3 Schritten. Ein Klick zeigt Belegstellen und Relationen der Entität, ein Doppelklick stellt ihr Umfeld in die Mitte. Es werden höchstens 150 Entitäten gezeichnet, die am stärksten verbundenen zuerst; die Ansicht sagt, wenn gekürzt wurde. Die Ansicht liest nur, sie ändert nichts.
+
 ### Postfachsynchronisation (Release 2.0.1, Schritt S3)
 
 Unter Einstellungen > E-Mail-Konten aktivierst du die Synchronisation je Konto: Intervall 15, 30 oder 60 Minuten oder 4 Stunden, bei IMAP ein Ordner (Standard `INBOX`), bei Microsoft 365 der Posteingang. Die Aktivierung merkt sich den Stand des Postfachs. Abgerufen werden nur Nachrichten, die danach eingehen, als normaler Importauftrag, den du unter Import siehst. Ältere Nachrichten holst du wie bisher über die Vorschau. Anhänge werden nie automatisch geholt, ihre Namen stehen im E-Mail-Text, den Inhalt gibst du einzeln über die Vorschau frei. Das Postfach wird nur gelesen.

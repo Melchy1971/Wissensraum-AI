@@ -800,6 +800,47 @@ class Graph:
                 (document_id,))]
             return {'mentions': mentions, 'relations': self._relations(db, 'r.document_id=?', (document_id,))}
 
+    def graph_data(self, entity_types=None, relation_types=None, include_proposed=False, query=None,
+                   focus=None, depth=1, limit=150):
+        """Nodes and edges for the graph view (step 8B.4).
+
+        Filters: entity type ids, relation type ids, proposed items in or out, a name filter. With
+        ``focus`` only entities within ``depth`` relations of it are kept. At most ``limit`` nodes,
+        the best connected first; ``truncated`` says whether some were left out.
+        """
+        states = ('confirmed', 'proposed') if include_proposed else ('confirmed',)
+        nodes = {row['id']: row for row in self.entities(query=None)
+                 if row['status'] in states and (entity_types is None or row['type_id'] in entity_types)}
+        with self.connect() as db:
+            edges = [row for row in self._relations(db, 'r.status IN (' + ','.join('?' * len(states)) + ')', states)
+                     if row['source_id'] in nodes and row['target_id'] in nodes
+                     and (relation_types is None or row['type_id'] in relation_types)]
+        if focus is not None:
+            if focus not in nodes:
+                raise ValueError('Entität ist mit diesen Filtern nicht sichtbar.')
+            keep, frontier = {focus}, {focus}
+            for _ in range(max(1, min(int(depth), 3))):
+                frontier = ({e['target_id'] for e in edges if e['source_id'] in frontier}
+                            | {e['source_id'] for e in edges if e['target_id'] in frontier}) - keep
+                keep |= frontier
+            nodes = {key: value for key, value in nodes.items() if key in keep}
+        if query:
+            needle = ' '.join(query.split()).casefold()
+            hits = {key for key, value in nodes.items() if needle in value['name'].casefold()}
+            neighbours = ({e['target_id'] for e in edges if e['source_id'] in hits}
+                          | {e['source_id'] for e in edges if e['target_id'] in hits})
+            nodes = {key: value for key, value in nodes.items() if key in hits | neighbours}
+        degree = {key: 0 for key in nodes}
+        for edge in edges:
+            if edge['source_id'] in nodes and edge['target_id'] in nodes:
+                degree[edge['source_id']] += 1
+                degree[edge['target_id']] += 1
+        chosen = sorted(nodes, key=lambda key: (key != focus, -degree[key], nodes[key]['name'].casefold(), key))[:limit]
+        kept = set(chosen)
+        return {'nodes': [dict(nodes[key], degree=degree[key]) for key in chosen],
+                'edges': [e for e in edges if e['source_id'] in kept and e['target_id'] in kept],
+                'truncated': len(nodes) > limit}
+
     def graph_changes(self, limit=100):
         with self.connect() as db:
             rows = [dict(row) for row in db.execute(
