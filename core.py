@@ -176,6 +176,14 @@ MAX_SAVED_QUERY = 500
 SEARCH_MODES = ('fulltext', 'vector', 'hybrid')
 
 
+def _utc_text(value):
+    """Timestamp as UTC text, the same on both backends (PostgreSQL returns datetime objects)."""
+    from datetime import timezone
+    if hasattr(value, 'astimezone'):
+        return value.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+    return value
+
+
 def _name(value, what):
     name = ' '.join(str(value).split())
     if not name or len(name) > MAX_COLLECTION_NAME:
@@ -283,6 +291,72 @@ class Organization:
                 'INSERT INTO saved_searches(name,normalized,query,mode,tag) VALUES(?,?,?,?,?) '
                 'ON CONFLICT(normalized) DO UPDATE SET name=excluded.name,query=excluded.query,'
                 'mode=excluded.mode,tag=excluded.tag RETURNING id', (name, normalized, query, mode, tag)).fetchone()['id']
+
+    def export_collection(self, collection_id, target, overwrite=False):
+        """Write the collection as a ZIP file: every original plus ``manifest.json`` (step 8A.5).
+
+        The manifest lists each document with its metadata, the file inside the archive, its size
+        and SHA-256, and the relations between documents of the collection. Notes without an original
+        are exported as UTF-8 text. The file appears complete or not at all.
+        """
+        import tempfile
+        import zipfile
+        from datetime import datetime, timezone
+        import rules
+        target = Path(target)
+        if target.exists() and not overwrite:
+            raise ValueError('Die Zieldatei gibt es schon.')
+        with self.connect() as db:
+            collection = db.execute('SELECT id,name FROM collections WHERE id=?', (collection_id,)).fetchone()
+            if collection is None:
+                raise ValueError('Sammlung wurde nicht gefunden.')
+            rows = sorted(_list(db, True, collection=collection_id), key=lambda row: row['id'])
+            ids = [row['id'] for row in rows]
+            tags = rules.tags_by_document(db)
+            documents = {row['id']: dict(row) for row in db.execute(
+                'SELECT d.id,d.filename,d.original,d.sha256,d.status,d.owner,d.review_date,s.source_type '
+                'FROM documents d LEFT JOIN sources s ON s.document_id=d.id WHERE d.id IN ('
+                + ','.join('?' * len(ids)) + ')', tuple(ids))} if ids else {}
+            contents = {row['id']: row['content'] for row in db.execute(
+                'SELECT id,content FROM documents WHERE id IN (' + ','.join('?' * len(ids)) + ')',
+                tuple(ids))} if ids else {}
+            relations = [dict(row) for row in db.execute(
+                'SELECT source_id,target_id,kind,note FROM document_relations ORDER BY id')
+                if row['source_id'] in documents and row['target_id'] in documents]
+        entries, manifest = [], []
+        for number, row in enumerate(rows, 1):
+            document = documents[row['id']]
+            data = (bytes(document['original']) if document['original'] is not None
+                    else contents[row['id']].encode('utf-8'))
+            original_name = re.split(r'[\\/]', document['filename'])[-1] if document['filename'] else None
+            name = original_name or f'{row["title"]}.txt'
+            name = re.sub(r'[^\w.\- ]', '_', name).strip(' .')[:100] or 'dokument.txt'
+            file = f'dokumente/{number:03d}-{name}'
+            entries.append((file, data))
+            manifest.append({
+                'id': row['id'], 'title': row['title'], 'category': row['category'], 'tags': tags.get(row['id'], []),
+                'status': document['status'], 'owner': document['owner'], 'review_date': document['review_date'],
+                'created_at': _utc_text(row['created_at']), 'version': row['version'],
+                # ponytail: only type and file name of the source, no locator or account; locators are
+                # local paths and mailbox ids that should not travel with a shared export.
+                'source_type': document['source_type'], 'filename': original_name,
+                'file': file, 'original': document['original'] is not None, 'bytes': len(data),
+                'sha256': hashlib.sha256(data).hexdigest(), 'content_sha256': document['sha256']})
+        report = {'format': 'wissensraum-sammlung', 'format_version': 1, 'schema_version': CURRENT_SCHEMA_VERSION,
+                  'exported_at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+                  'collection': {'name': collection['name'], 'documents': len(manifest)},
+                  'documents': manifest, 'relations': relations}
+        handle, temporary = tempfile.mkstemp(prefix='.sammlung-', suffix='.tmp', dir=target.parent)
+        try:
+            with os.fdopen(handle, 'wb') as file, zipfile.ZipFile(file, 'w', zipfile.ZIP_DEFLATED) as archive:
+                for name, data in entries + [('manifest.json',
+                                              json.dumps(report, ensure_ascii=False, indent=2).encode())]:
+                    archive.writestr(zipfile.ZipInfo(name, (1980, 1, 1, 0, 0, 0)), data, zipfile.ZIP_DEFLATED)
+            os.replace(temporary, target)
+        except BaseException:
+            Path(temporary).unlink(missing_ok=True)
+            raise
+        return report
 
     def delete_saved_search(self, search_id):
         with self.connect() as db:

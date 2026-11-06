@@ -117,6 +117,9 @@ def main(argv=None):
                            ('collection-remove','Dokumente aus einer Sammlung entfernen')):
         member = commands.add_parser(name,help=help_text)
         member.add_argument('id',type=int); member.add_argument('documents',type=int,nargs='+')
+    export = commands.add_parser('collection-export',help='Sammlung als ZIP mit Originalen und Quellenmanifest')
+    export.add_argument('id',type=int); export.add_argument('target',type=Path)
+    export.add_argument('--overwrite',action='store_true',help='vorhandene Zieldatei ersetzen')
     favorite = commands.add_parser('favorite',help='Dokument als Favorit markieren')
     favorite.add_argument('id',type=int); favorite.add_argument('--remove',action='store_true')
     commands.add_parser('searches',help='Gespeicherte Suchen')
@@ -290,6 +293,9 @@ def main(argv=None):
                 result = {'aufgenommen':store.add_to_collection(args.id,args.documents)}
             elif args.command == 'collection-remove':
                 result = {'entfernt':store.remove_from_collection(args.id,args.documents)}
+            elif args.command == 'collection-export':
+                report = store.export_collection(args.id,args.target,args.overwrite)
+                result = {'datei':str(args.target),'dokumente':len(report['documents'])}
             elif args.command == 'favorite':
                 store.set_favorite(args.id,not args.remove); result = {'id':args.id,'favorit':not args.remove}
             elif args.command == 'searches':

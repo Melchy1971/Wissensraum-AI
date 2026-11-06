@@ -86,6 +86,55 @@ def check_organization_contract(case, store):
         store.delete_collection(travel)
 
 
+def check_export_contract(case, store, folder):
+    """Collection export with source manifest (8A.5); same on both backends, ``store`` must be empty."""
+    import hashlib
+    import zipfile
+    plan, _ = store.add('Wartungsplan', 'Die Therme bekommt jährlich eine Wartung.', category='Haus',
+                        filename='C:\\Ordner\\plan?.pdf', original=b'%PDF-1.4 original\x00bytes')
+    note, _ = store.add('Notiz: Kosten', 'Wartung kostet 120 Euro.')
+    outside, _ = store.add('Fremd', 'Gehört nicht zur Sammlung.')
+    store.update_metadata(plan, add_tags='Heizung', status='reviewed', owner='Hausverwaltung', review_date='2026-12-01')
+    store.relate(plan, note, 'references', 'Kosten')
+    store.relate(plan, outside, 'related')
+    house = store.create_collection('Haus')
+    store.add_to_collection(house, [note, plan])
+    target = Path(folder) / 'haus.zip'
+    report = store.export_collection(house, target)
+    with zipfile.ZipFile(target) as archive:
+        case.assertEqual(sorted(archive.namelist()),
+                         ['dokumente/001-plan_.pdf', 'dokumente/002-Notiz_ Kosten.txt', 'manifest.json'])
+        manifest = json.loads(archive.read('manifest.json'))
+        case.assertEqual(manifest, report)
+        for entry in manifest['documents']:  # every listed file is in the archive with its hash
+            data = archive.read(entry['file'])
+            case.assertEqual((len(data), hashlib.sha256(data).hexdigest()), (entry['bytes'], entry['sha256']))
+        case.assertEqual(archive.read('dokumente/001-plan_.pdf'), b'%PDF-1.4 original\x00bytes')
+        case.assertEqual(archive.read('dokumente/002-Notiz_ Kosten.txt').decode(), 'Wartung kostet 120 Euro.')
+    case.assertEqual((manifest['format'], manifest['format_version'], manifest['collection']),
+                     ('wissensraum-sammlung', 1, {'name': 'Haus', 'documents': 2}))
+    first = manifest['documents'][0]
+    case.assertEqual({key: first[key] for key in ('id', 'title', 'category', 'tags', 'status', 'owner', 'review_date',
+                                                  'version', 'source_type', 'filename', 'original',
+                                                  'content_sha256')},
+                     {'id': plan, 'title': 'Wartungsplan', 'category': 'Haus', 'tags': ['Heizung'],
+                      'status': 'reviewed', 'owner': 'Hausverwaltung', 'review_date': '2026-12-01', 'version': 1,
+                      'source_type': 'file', 'filename': 'plan?.pdf', 'original': True, 'content_sha256': store.get(plan)['sha256']})
+    case.assertRegex(first['created_at'], r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$')
+    case.assertEqual((manifest['documents'][1]['original'], manifest['documents'][1]['source_type']), (False, 'note'))
+    case.assertEqual(manifest['relations'], [{'source_id': plan, 'target_id': note, 'kind': 'references',
+                                              'note': 'Kosten'}])  # the relation to the outside stays out
+    with case.assertRaises(ValueError):
+        store.export_collection(house, target)  # never overwrites without being told
+    store.export_collection(house, target, overwrite=True)
+    with case.assertRaises(ValueError):
+        store.export_collection(10**9, Path(folder) / 'fehlt.zip')
+    case.assertFalse((Path(folder) / 'fehlt.zip').exists())
+    case.assertEqual([path.name for path in Path(folder).iterdir() if path.name.startswith('.sammlung-')], [])
+    empty = store.create_collection('Leer')
+    case.assertEqual(store.export_collection(empty, Path(folder) / 'leer.zip')['documents'], [])
+
+
 class OrganizationTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -97,6 +146,10 @@ class OrganizationTests(unittest.TestCase):
 
     def test_contract(self):
         check_organization_contract(self, self.store)
+
+    def test_export_contract(self):
+        export = self.folder / 'export'; export.mkdir()
+        check_export_contract(self, self.store, export)
 
     def test_cli(self):
         import cli
@@ -121,6 +174,9 @@ class OrganizationTests(unittest.TestCase):
                                             'mode': 'fulltext', 'tag': None}])
         run('search-delete', str(saved['id']))
         self.assertEqual(run('searches'), [])
+        exported = run('collection-export', str(created['id']), str(self.folder / 'projekt.zip'))
+        self.assertEqual((exported['datei'], exported['dokumente']), (str(self.folder / 'projekt.zip'), 1))
+        self.assertTrue((self.folder / 'projekt.zip').is_file())
         run('collection-remove', str(created['id']), str(doc_id))
         run('collection-delete', str(created['id']))
         self.assertEqual(run('collections'), [])

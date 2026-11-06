@@ -433,6 +433,12 @@ class PostgresStoreTests(unittest.TestCase):
         from test_metadata import check_metadata_contract
         check_metadata_contract(self, PostgresStore(self.profile, self.password))
 
+    def test_collection_export_on_real_postgresql(self):
+        import tempfile
+        from test_organization import check_export_contract
+        with tempfile.TemporaryDirectory() as folder:
+            check_export_contract(self, PostgresStore(self.profile, self.password), folder)
+
     def test_relations_on_real_postgresql(self):
         from test_relations import check_relations_contract
         check_relations_contract(self, PostgresStore(self.profile, self.password))
