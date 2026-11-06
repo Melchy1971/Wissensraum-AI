@@ -468,6 +468,11 @@ class Relations:
 
 
 MAX_ENTITY_NAME = 200
+# Graph context for answers (step 8B.5): confirmed relations with evidence in the passed sources.
+GRAPH_CONTEXT_SETTING = 'ai.graph_context'
+GRAPH_CONTEXT_RELATIONS = 8
+GRAPH_QUOTE_CHARS = 200
+GRAPH_CONTEXT_TOKENS = 600  # reserved in the window when graph context can occur
 MAX_QUOTE_LENGTH = 1000
 GRAPH_STATUSES = ('proposed', 'confirmed')
 
@@ -840,6 +845,42 @@ class Graph:
         return {'nodes': [dict(nodes[key], degree=degree[key]) for key in chosen],
                 'edges': [e for e in edges if e['source_id'] in kept and e['target_id'] in kept],
                 'truncated': len(nodes) > limit}
+
+    def graph_context(self, document_ids, limit=GRAPH_CONTEXT_RELATIONS):
+        """Confirmed relations between confirmed entities whose evidence lies in one of the documents
+        (step 8B.5); at most ``limit``, oldest first."""
+        ids = sorted({int(i) for i in document_ids})
+        if not ids:
+            return []
+        with self.connect() as db:
+            rows = self._relations(db, "r.status='confirmed' AND s.status='confirmed' AND t.status='confirmed' "
+                                   'AND r.document_id IN (' + ','.join('?' * len(ids)) + ')', tuple(ids))
+            types = {row['id']: row['type'] for row in db.execute(
+                'SELECT e.id,t.name AS type FROM entities e JOIN entity_types t ON t.id=e.type_id '
+                'WHERE e.id IN (' + ','.join('?' * (2 * len(rows) or 1)) + ')',
+                tuple(x for r in rows for x in (r['source_id'], r['target_id'])) or (0,))}
+        return [{'id': r['id'], 'document_id': r['document_id'],
+                 'aussage': f'{r["source"]} ({types[r["source_id"]]}) {r["type"]} {r["target"]} ({types[r["target_id"]]})',
+                 'zitat': r['quote'][:GRAPH_QUOTE_CHARS]} for r in rows[:limit]]
+
+    def has_graph_context(self):
+        """Whether answers can use graph context: the setting is on and a confirmed relation exists."""
+        with self.connect() as db:
+            row = db.execute('SELECT value FROM settings WHERE name=?', (GRAPH_CONTEXT_SETTING,)).fetchone()
+            if row is not None and row['value'] == '0':
+                return False
+            return db.execute("SELECT 1 FROM graph_relations WHERE status='confirmed' AND deleted_at IS NULL "
+                              'LIMIT 1').fetchone() is not None
+
+    def graph_context_enabled(self):
+        with self.connect() as db:
+            row = db.execute('SELECT value FROM settings WHERE name=?', (GRAPH_CONTEXT_SETTING,)).fetchone()
+        return row is None or row['value'] != '0'
+
+    def set_graph_context(self, enabled):
+        with self.connect() as db:
+            db.execute('DELETE FROM settings WHERE name=?', (GRAPH_CONTEXT_SETTING,))
+            db.execute('INSERT INTO settings(name,value) VALUES(?,?)', (GRAPH_CONTEXT_SETTING, '1' if enabled else '0'))
 
     def graph_changes(self, limit=100):
         with self.connect() as db:
@@ -2483,14 +2524,29 @@ class AI:
                    'Quellenkennung. Andernfalls ausschließlich mit ' + 'KEINE_AUSREICHENDE_QUELLE' + '.')
     second_pass = False  # narrow evidence pass after a refusal (step 7.4); off: it fixed no false reject (03.11.2026)
 
+    GRAPH_RULE = (' 9. "graphkontext" enthält bestätigte Beziehungen aus dem Wissensgraphen mit wörtlichem Zitat. '
+                  'Sie ergänzen die Quellen. Belege eine daraus übernommene Aussage mit der angegebenen "kennung".')
+
     @staticmethod
-    def user_input(question, sources, evidence='sufficient', numbers=None):
-        """The JSON input of an answer request; ``numbers`` keeps the labels of a narrower selection."""
+    def user_input(question, sources, evidence='sufficient', numbers=None, graph=None):
+        """The JSON input of an answer request; ``numbers`` keeps the labels of a narrower selection.
+
+        ``graph`` (step 8B.5) adds confirmed relations whose evidence document is among the sources,
+        each with the label of that source; without graph context the input is unchanged.
+        """
         labels = [f'Q{n}' for n in (numbers or range(1, len(sources) + 1))]
-        return json.dumps({'frage':question,'quellenlage':evidence,'erlaubte_kennungen':labels,
-                           'quellen':[{'kennung':label,'titel':s['title'],'dokument':s['document_id'],
-                                       'abschnitt':s['ordinal'],'text':s['content']}
-                                      for label,s in zip(labels,sources)]},ensure_ascii=False)
+        data = {'frage':question,'quellenlage':evidence,'erlaubte_kennungen':labels,
+                'quellen':[{'kennung':label,'titel':s['title'],'dokument':s['document_id'],
+                            'abschnitt':s['ordinal'],'text':s['content']}
+                           for label,s in zip(labels,sources)]}
+        by_document = {}
+        for label, source in zip(labels, sources):
+            by_document.setdefault(source['document_id'], label)
+        context = [{'aussage':g['aussage'],'zitat':g['zitat'],'kennung':by_document[g['document_id']]}
+                   for g in graph or () if g['document_id'] in by_document]
+        if context:
+            data['graphkontext'] = context
+        return json.dumps(data,ensure_ascii=False)
 
     def fits(self, question, evidence='sufficient', window=None):
         """Whether a set of sources leaves the request inside ``window`` (default ``OLLAMA_ANSWER_CONTEXT``)
@@ -2503,12 +2559,15 @@ class AI:
             return prompt + OLLAMA_MIN_PREDICT + 256 <= window
         return check
 
-    def generate(self, question, sources, evidence='sufficient', check=True, numbers=None, instructions=None):
+    def generate(self, question, sources, evidence='sufficient', check=True, numbers=None, instructions=None,
+                 graph=None):
         """Raw answer of the provider; invented source labels raise ``InvalidCitation`` (``check``)."""
         from evidence import check_answer
         from settings import PROVIDERS
         instructions = instructions or self.INSTRUCTIONS
-        user_input = self.user_input(question, sources, evidence, numbers)
+        user_input = self.user_input(question, sources, evidence, numbers, graph)
+        if '"graphkontext"' in user_input:
+            instructions += self.GRAPH_RULE
         endpoint=PROVIDERS[self.provider]['endpoint']
         headers={'Content-Type':'application/json'}
         if self.provider=='openai':
@@ -2635,10 +2694,16 @@ class AI:
         """
         from evidence import REFUSED, SUFFICIENT, check_answer
         from retrieval import answer_context, narrow_context
+        # Graph context (step 8B.5) only when it can occur; then its tokens are reserved in both windows,
+        # otherwise the request is exactly the one of Release 2.1.
+        graph_on = getattr(self.store, 'has_graph_context', lambda: False)()
+        reserve = GRAPH_CONTEXT_TOKENS if graph_on else 0
         sources = answer_context(retrieval, self.store, question,
-                                 self.fits(question, assessment.state, OLLAMA_HIT_CONTEXT),
-                                 wide_fits=self.fits(question, assessment.state))
-        answer = self.generate(question, sources, assessment.state)
+                                 self.fits(question, assessment.state, OLLAMA_HIT_CONTEXT - reserve),
+                                 wide_fits=self.fits(question, assessment.state, OLLAMA_ANSWER_CONTEXT - reserve))
+        graph = self._graph_for(sources) if graph_on else None
+        self.graph_used = [g['id'] for g in graph or () if any(s['document_id'] == g['document_id'] for s in sources)]
+        answer = self.generate(question, sources, assessment.state, **({'graph': graph} if graph else {}))
         status, cited = check_answer(answer, len(sources))
         if status != REFUSED or assessment.state != SUFFICIENT or not self.second_pass:
             return answer, status, cited, sources, False
@@ -2648,6 +2713,13 @@ class AI:
         status, cited = check_answer(answer, numbers)
         return answer, status, cited, sources, True
 
+    def _graph_for(self, sources):
+        """Graph context for the sources, cut so that it stays inside ``GRAPH_CONTEXT_TOKENS``."""
+        graph = self.store.graph_context([s['document_id'] for s in sources])
+        while graph and estimate_tokens(json.dumps(graph, ensure_ascii=False)) > GRAPH_CONTEXT_TOKENS - 50:
+            graph.pop()
+        return graph
+
     def _record(self, question, result, model):
         """Store the run with an immutable snapshot; passage text only for cited sources."""
         snapshot = [dict(source) if number in result.cited else
@@ -2656,7 +2728,8 @@ class AI:
         self.store.log('question', question, result.text, {
             'format': 2, 'retrieval_mode': result.mode, 'evidence': result.assessment.state,
             'reasons': list(result.assessment.reasons), 'answer_status': result.status,
-            'second_pass': result.second_pass, 'sources': snapshot}, model)
+            'second_pass': result.second_pass, 'sources': snapshot,
+            'graph_relations': list(getattr(self, 'graph_used', []))}, model)
         return result
 
     def summarize(self, doc_id):

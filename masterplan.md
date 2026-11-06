@@ -83,6 +83,17 @@
 
 **Status:** 8B.1 ✅.
 
+## Aktualisierung 06.11.2026 – Phase 8B, Schritt 8B.5 Graphkontext als begrenzte RAG-Quelle 🟡
+
+**Umfang:** Ohne Schemaänderung. `graph_context` liefert bestätigte Relationen zwischen bestätigten Entitäten mit Beleg in den Dokumenten der ausgewählten Abschnitte (höchstens 8, Zitat höchstens 200 Zeichen). `AI.answer` reserviert 600 Token in beiden Fenstern und übergibt das Feld `graphkontext` mit der Kennung der Belegquelle und Regel 9, aber nur, wenn die Einstellung `ai.graph_context` an ist (Standard) und mindestens eine bestätigte Relation existiert; sonst bleibt die Anfrage Zeichen für Zeichen die von Release 2.1. Der KI-Verlauf speichert die verwendeten Relationen. CLI: `ai-graph`.
+
+**Nachweise:** Gemeinsamer Vertrag `check_graph_context_contract` (SQLite und PostgreSQL): nur bestätigte Relationen und Entitäten, nur Belegdokumente aus den Quellen, Einstellung an und aus. Dazu: Eingabe ohne Graph unverändert, Relation ohne übergebene Quelle entfällt, Anfrage ohne bestätigte Relation identisch mit Release 2.1 (Anweisungen und Eingabe), mit Relation Feld, Kennung, Regel und Protokoll, ungeprüfte Relation nie im Kontext, Obergrenze, CLI-Schalter. Lokal: Linux 639 Tests, PostgreSQL 37 grün.
+
+**V2-Messung:** Der eingefrorene Bestand V2 enthält keinen Wissensgraphen. Damit ist die Anfrage für alle 90 Fragen mit der von Release 2.1 identisch, belegt durch den Test der identischen Anfrage; False Reject und False Accept sind dadurch unverändert. Eine Messung mit gefülltem Graphen setzt bestätigte Relationen im Bestand des Product Owners voraus und ist offen.
+
+**Status:** 8B.5 🟡 bis Matrix-Gate 7 von 7 und GitHub-CI grün.
+
+
 ## Aktualisierung 06.11.2026 – Phase 8B, Schritt 8B.4 Graphansicht mit Filtern 🟡
 
 **Umfang:** Ohne Schemaänderung. `graph_data` (beide Backends) liefert Knoten und Kanten mit Filtern nach Entitätsarten, Relationsarten, ungeprüften Vorschlägen, Namensteil (mit direkten Nachbarn) und Umfeld einer Entität in 1 bis 3 Schritten, höchstens 150 Knoten nach Zahl der Relationen, Hinweis bei Kürzung. Neues Modul `graph_view.py`: Fenster „Graphansicht“ mit Ringlayout (Fokus in der Mitte, Nachbarn innen, übrige außen), Farbe je Art, gestrichelt für ungeprüft, Klick zeigt Belege, Doppelklick zentriert. Die Schaltflächen am Dokument stehen in zwei Reihen.
@@ -92,13 +103,15 @@
 **Status:** 8B.4 🟡 bis Matrix-Gate 7 von 7 und GitHub-CI grün.
 
 
-## Aktualisierung 06.11.2026 – Phase 8B, Schritt 8B.3 Zusammenführen und Trennen 🟡
+## Aktualisierung 06.11.2026 – Phase 8B, Schritt 8B.3 Zusammenführen und Trennen ✅
 
 **Umfang:** Ohne Schemaänderung. `merge_entities` führt eine Entität in eine andere derselben Art über: aktive Erwähnungen und Relationen wechseln, eine Relation zwischen beiden wird als gelöscht markiert, die überführte Entität ebenso. `split_entity` legt eine neue Entität derselben Art an und verschiebt ausgewählte Erwähnungen und Relationen; mindestens eine Erwähnung bleibt. Beide Vorgänge speichern im Änderungsprotokoll, was verschoben wurde (JSON), und lassen sich exakt zurücknehmen; die Rücknahme wird abgelehnt, wenn verschobene Einträge später verändert wurden oder die abgetrennte Entität neue Einträge hat. Oberfläche: „Zusammenführen“ und „Trennen“ im Dialog „Wissensgraph“. CLI: `entity-merge`, `entity-split`.
 
 **Nachweise:** Gemeinsamer Vertrag `check_merge_split_contract` (SQLite und PostgreSQL): Zusammenführen nur gleicher Art und nicht mit sich selbst, Erwähnungen und Relationen wechseln, Selbstbezug entfällt, Rücknahme stellt beide Entitäten mit ihren Einträgen wieder her; Trennen mit ungültiger Auswahl, vollständiger Auswahl oder vergebenem Namen abgelehnt, Relationen wechseln mit, spätere Änderung blockiert die Rücknahme bis zu deren Rücknahme, Dokument unverändert. Dazu Oberflächentest. Lokal: Linux 628 Tests, PostgreSQL 35 grün.
 
-**Status:** 8B.3 🟡 bis Matrix-Gate 7 von 7 und GitHub-CI grün.
+**Gate:** Lokales Matrix-Gate an `4999d94`: 7 von 7 (`local-ci-gate-4999d94.md`), Windows und Linux je 628 Tests, PostgreSQL 35; windows-3.11 erst im dritten Lauf (Virenscanner), windows-3.12 im zweiten (zeitabhängiger Konfigurationstest). GitHub Actions für PR #18: 14 von 14 grün.
+
+**Status:** 8B.3 ✅.
 
 ## Aktualisierung 06.11.2026 – Phase 8B, Schritt 8B.2 KI-Vorschläge ✅
 
@@ -716,7 +729,7 @@ Die Phasen werden in der angegebenen Reihenfolge getestet. Eine Phase wird erst 
 | 5 | Release 1.9 Betriebsfähigkeit | ✅ | freigegeben 23.10.2026 |
 | 6 | Release 2.0 Importplattform | ✅ | freigegeben 23.10.2026, in vier Teilschritten (D-010); 6.1 ✅ (23.10.2026, CI [39925457254](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39925457254) auf `ca5bce6`), 6.2 ✅ (23.10.2026, CI [39932577799](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39932577799) auf `4cdb50e`), 6.3a ✅ (23.10.2026, CI [39942033441](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39942033441) auf `e36be53`), 6.3 ✅ (6.3b 23.10.2026, CI [39976859099](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39976859099) auf `e4d1f95`), alle vier Teilschritte ✅ (6.4 24.10.2026, CI [40097227667](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40097227667) auf `d05ef87`); abgenommen 26.10.2026 durch den Product Owner mit eigenen Daten; Soll-Umfang folgt als Release 2.0.1 (D-013), S1 in Arbeit |
 | 7 | Release 2.1 Hybrid-RAG | ✅ freigegeben 05.11.2026 (D-021) | nach Phase 6 |
-| 8 | Wissensorganisation und Wissensgraph | 🟡 8A ✅ (Release 2.2 freigegeben 06.11.2026, D-022), 8B 🟡 8B.1 ✅, 8B.2 ✅, 8B.3 🟡 | nach Phase 7 |
+| 8 | Wissensorganisation und Wissensgraph | 🟡 8A ✅ (Release 2.2 freigegeben 06.11.2026, D-022), 8B 🟡 8B.1 bis 8B.3 ✅, 8B.4 und 8B.5 🟡 | nach Phase 7 |
 | 9 | Betrieb und Governance | ⬜ | nach Phase 8 |
 | 10 | Release 3.0 Sicherheitskern und Mehrbenutzerbetrieb | ⬜ | separates Architektur- und Sicherheits-Gate |
 | 11 | Release 3.1 VPS-Webanwendung und eigene Domain | ⬜ | erst nach Phase 10; öffentliche Bereitstellung nur mit vollständigem Sicherheits- und Betriebs-Gate |
