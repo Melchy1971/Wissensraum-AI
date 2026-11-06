@@ -664,7 +664,7 @@ class App(tk.Tk if tk is not None else object):
                                 ('new','Nachher',170),('origin','Herkunft',90)]:
             tree.heading(col,text=title); tree.column(col,width=width)
         labels={'title':'Titel','category':'Bereich','tag':'Tag','status':'Status','owner':'Verantwortlich',
-                'review_date':'Wiedervorlage','relation':'Beziehung'}
+                'review_date':'Wiedervorlage','relation':'Beziehung','collection':'Sammlung','favorite':'Favorit'}
         def shown(row,key):
             value=row[key]
             return STATUS_LABELS.get(value,value) if row['field']=='status' else value
