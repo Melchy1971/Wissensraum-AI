@@ -154,6 +154,11 @@ def main(argv=None):
     changes = commands.add_parser('graph-changes',help='Änderungen am Wissensgraphen, neueste zuerst')
     changes.add_argument('--limit',type=int,default=100)
     commands.add_parser('graph-revert',help='Änderung am Wissensgraphen zurücknehmen').add_argument('id',type=int)
+    merge = commands.add_parser('entity-merge',help='Zweite Entität in die erste überführen (zurücknehmbar)')
+    merge.add_argument('keep',type=int); merge.add_argument('merge',type=int)
+    split = commands.add_parser('entity-split',help='Neue Entität mit ausgewählten Erwähnungen abtrennen')
+    split.add_argument('id',type=int); split.add_argument('name')
+    split.add_argument('--mentions',type=int,nargs='+',required=True); split.add_argument('--relations',type=int,nargs='*',default=[])
     graph_suggest = commands.add_parser('graph-suggest',help='KI-Vorschläge für Entitäten und Relationen (nur lokales Ollama)')
     graph_suggest.add_argument('document',type=int); graph_suggest.add_argument('--model',default='qwen3:8b')
     confirm = commands.add_parser('graph-confirm',help='KI-Vorschlag bestätigen')
@@ -326,6 +331,10 @@ def main(argv=None):
                 store.delete_entity(args.id); result = {'geloescht':args.id}
             elif args.command == 'graph-relation-delete':
                 store.delete_graph_relation(args.id); result = {'geloescht':args.id}
+            elif args.command == 'entity-merge':
+                store.merge_entities(args.keep,args.merge); result = {'id':args.keep,'zusammengefuehrt':args.merge}
+            elif args.command == 'entity-split':
+                result = {'id':store.split_entity(args.id,args.name,args.mentions,args.relations)}
             elif args.command == 'graph-suggest':
                 import graph_suggest as suggestions
                 result = suggestions.suggest(store,args.document,args.model)

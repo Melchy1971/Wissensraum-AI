@@ -874,6 +874,34 @@ class App(tk.Tk if tk is not None else object):
                                     f'{counts["verworfen"]} ohne wörtlichen Beleg oder gültige Art verworfen. '
                                     'Vorschläge bleiben ungeprüft, bis du sie bestätigst.',parent=window)
             self.work(lambda:graph_suggest.suggest(self.store,doc_id),done)
+        def mentions_by_id():
+            return {str(m['id']):m for m in self.store.document_graph(doc_id)['mentions']}
+        def merge():
+            # Two selected mentions of different entities: the second entity goes into the first (step 8B.3).
+            rows=mentions_by_id(); chosen=[rows[iid] for iid in trees['mentions'].selection()]
+            entities=list(dict.fromkeys(m['entity_id'] for m in chosen))
+            try:
+                if len(entities)!=2:
+                    raise ValueError('Erwähnungen genau zweier Entitäten markieren.')
+                self.store.merge_entities(*entities)
+            except ValueError as error:
+                messagebox.showerror('Wissensgraph',str(error),parent=window); return
+            show()
+        def split():
+            # Selected mentions (and relations) of one entity move to a new entity of the same type.
+            rows=mentions_by_id(); chosen=[rows[iid] for iid in trees['mentions'].selection()]
+            entities={m['entity_id'] for m in chosen}
+            if len(entities)!=1:
+                messagebox.showerror('Wissensgraph','Erwähnungen genau einer Entität markieren.',parent=window); return
+            new=simpledialog.askstring('Wissensgraph','Name der abgetrennten Entität:',parent=window)
+            if new is None:
+                return
+            try:
+                self.store.split_entity(entities.pop(),new,[m['id'] for m in chosen],
+                                        [int(iid) for iid in trees['relations'].selection()])
+            except ValueError as error:
+                messagebox.showerror('Wissensgraph',str(error),parent=window); return
+            show()
         def remove():
             for iid in trees['mentions'].selection():
                 self.store.delete_mention(int(iid))
@@ -881,11 +909,12 @@ class App(tk.Tk if tk is not None else object):
                 self.store.delete_graph_relation(int(iid))
             show()
         buttons=ttk.Frame(window,padding=(18,10,18,16)); buttons.pack(fill='x')
-        for label,command in [('Markierung übernehmen',take_marked),('Entität anlegen',lambda:act(create)),
+        for index,(label,command) in enumerate([('Markierung übernehmen',take_marked),('Entität anlegen',lambda:act(create)),
                               ('Erwähnung hinzufügen',lambda:act(mention)),('Relation anlegen',lambda:act(relate)),
                               ('Markierte bestätigen',confirm),('Markierte entfernen',remove),
-                              ('KI-Vorschläge (Ollama)',suggest),('Änderungen',self.show_graph_changes)]:
-            ttk.Button(buttons,text=label,command=command).pack(side='left',padx=(0,8))
+                              ('Zusammenführen',merge),('Trennen',split),
+                              ('KI-Vorschläge (Ollama)',suggest),('Änderungen',self.show_graph_changes)]):
+            ttk.Button(buttons,text=label,command=command).grid(row=index//5,column=index%5,sticky='we',padx=(0,8),pady=2)
         if evidence:
             name.set(' '.join(evidence[0].split())[:200])
         show_marked(); show()
@@ -893,7 +922,7 @@ class App(tk.Tk if tk is not None else object):
                                                        'source':source,'relation_type':relation_type,'target':target}
         window.graph_create=lambda:act(create); window.graph_mention=lambda:act(mention)
         window.graph_relate=lambda:act(relate); window.graph_take=take_marked; window.graph_remove=remove
-        window.graph_confirm=confirm; window.graph_suggest=suggest
+        window.graph_confirm=confirm; window.graph_suggest=suggest; window.graph_merge=merge; window.graph_split=split
         return window
 
     def show_graph_changes(self):
@@ -907,7 +936,8 @@ class App(tk.Tk if tk is not None else object):
                                 ('old','vorher',150),('new','nachher',150),('state','',110)]:
             tree.heading(col,text=title); tree.column(col,width=width)
         tree.pack(fill='both',expand=True,padx=18,pady=(16,8))
-        actions={'create':'angelegt','delete':'entfernt','rename':'umbenannt','revert':'Rücknahme','confirm':'bestätigt'}
+        actions={'create':'angelegt','delete':'entfernt','rename':'umbenannt','revert':'Rücknahme','confirm':'bestätigt',
+                 'merge':'zusammengeführt','split':'getrennt'}
         objects={'entity':'Entität','mention':'Erwähnung','relation':'Relation','entity_type':'Entitätsart',
                  'relation_type':'Relationsart','change':'Änderung'}
         def show():

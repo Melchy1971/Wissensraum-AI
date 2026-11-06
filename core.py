@@ -646,6 +646,102 @@ class Graph:
             self._log(db, 'create', 'relation', relation_id, '', f'{source_id}->{target_id}')
             return 1
 
+    def merge_entities(self, keep_id, merge_id):
+        """Merge ``merge_id`` into ``keep_id`` (same type, step 8B.3): its active mentions and relations
+        move over, a relation between the two is dropped, the merged entity is marked deleted. The
+        change records what moved, so that reverting it splits the two again exactly."""
+        if int(keep_id) == int(merge_id):
+            raise ValueError('Eine Entität kann nicht mit sich selbst zusammengeführt werden.')
+        with self.connect() as db:
+            keep = self._active(db, 'entities', keep_id, 'Entität')
+            merge = self._active(db, 'entities', merge_id, 'Entität')
+            if keep['type_id'] != merge['type_id']:
+                raise ValueError('Nur Entitäten derselben Art lassen sich zusammenführen.')
+            moved = {'into': int(keep_id), 'mentions': self._ids(db, 'entity_mentions', 'entity_id=?', (merge_id,)),
+                     'dropped': self._ids(db, 'graph_relations', '(source_id=? AND target_id=?) OR (source_id=? AND '
+                                          'target_id=?)', (keep_id, merge_id, merge_id, keep_id))}
+            moved['sources'] = [i for i in self._ids(db, 'graph_relations', 'source_id=?', (merge_id,))
+                                if i not in moved['dropped']]
+            moved['targets'] = [i for i in self._ids(db, 'graph_relations', 'target_id=?', (merge_id,))
+                                if i not in moved['dropped']]
+            self._move(db, 'entity_mentions', 'entity_id', moved['mentions'], keep_id)
+            self._move(db, 'graph_relations', 'source_id', moved['sources'], keep_id)
+            self._move(db, 'graph_relations', 'target_id', moved['targets'], keep_id)
+            for relation_id in moved['dropped']:
+                db.execute('UPDATE graph_relations SET deleted_at=CURRENT_TIMESTAMP WHERE id=?', (relation_id,))
+            db.execute('UPDATE entities SET deleted_at=CURRENT_TIMESTAMP WHERE id=?', (merge_id,))
+            self._log(db, 'merge', 'entity', merge_id, merge['name'], json.dumps(moved))
+
+    def split_entity(self, entity_id, name, mention_ids=(), relation_ids=()):
+        """Split off a new entity of the same type (step 8B.3) and move the given mentions and relations
+        of ``entity_id`` to it; returns the new id. Reverting the change moves them back."""
+        name, normalized = self._entity_name(name)
+        mention_ids = sorted({int(i) for i in mention_ids})
+        relation_ids = sorted({int(i) for i in relation_ids})
+        if not mention_ids:
+            raise ValueError('Mindestens eine Erwähnung muss zur neuen Entität wechseln.')
+        with self.connect() as db:
+            entity = self._active(db, 'entities', entity_id, 'Entität')
+            if db.execute('SELECT 1 FROM entities WHERE type_id=? AND normalized=? AND deleted_at IS NULL',
+                          (entity['type_id'], normalized)).fetchone():
+                raise ValueError('Diese Entität gibt es schon.')
+            own_mentions = self._ids(db, 'entity_mentions', 'entity_id=?', (entity_id,))
+            own_relations = self._ids(db, 'graph_relations', 'source_id=? OR target_id=?', (entity_id, entity_id))
+            if not set(mention_ids) <= set(own_mentions) or not set(relation_ids) <= set(own_relations):
+                raise ValueError('Erwähnungen und Relationen müssen zur Entität gehören.')
+            if len(mention_ids) == len(own_mentions):
+                raise ValueError('Mindestens eine Erwähnung muss bei der bisherigen Entität bleiben.')
+            new_id = db.execute('INSERT INTO entities(type_id,name,normalized,status) VALUES(?,?,?,?) RETURNING id',
+                                (entity['type_id'], name, normalized, entity['status'])).fetchone()['id']
+            sources = [i for i in relation_ids if i in self._ids(db, 'graph_relations', 'source_id=?', (entity_id,))]
+            targets = [i for i in relation_ids if i in self._ids(db, 'graph_relations', 'target_id=?', (entity_id,))]
+            self._move(db, 'entity_mentions', 'entity_id', mention_ids, new_id)
+            self._move(db, 'graph_relations', 'source_id', sources, new_id)
+            self._move(db, 'graph_relations', 'target_id', targets, new_id)
+            self._log(db, 'split', 'entity', entity_id, '', json.dumps(
+                {'into': new_id, 'name': name, 'mentions': mention_ids, 'sources': sources, 'targets': targets}))
+            return new_id
+
+    @staticmethod
+    def _ids(db, table, condition, params):
+        return [row['id'] for row in db.execute(
+            f'SELECT id FROM {table} WHERE deleted_at IS NULL AND ({condition}) ORDER BY id', params)]
+
+    @staticmethod
+    def _move(db, table, column, ids, entity_id):
+        for object_id in ids:
+            db.execute(f'UPDATE {table} SET {column}=? WHERE id=?', (entity_id, object_id))
+
+    def _revert_move(self, db, change):
+        """Undo a merge or split; refuses when the moved items changed since."""
+        moved = json.loads(change['new_value'])
+        old_id, new_id = change['object_id'], moved['into']
+        source, target = (new_id, old_id)  # items now sit at ``new_id`` and go back to ``old_id``
+        for table, column, ids in (('entity_mentions', 'entity_id', moved['mentions']),
+                                   ('graph_relations', 'source_id', moved['sources']),
+                                   ('graph_relations', 'target_id', moved['targets'])):
+            for object_id in ids:
+                row = db.execute(f'SELECT {column} AS owner,deleted_at FROM {table} WHERE id=?', (object_id,)).fetchone()
+                if row is None or row['owner'] != source or row['deleted_at'] is not None:
+                    raise ValueError('Seit der Änderung wurde der Graph verändert. Zuerst spätere Änderungen '
+                                     'zurücknehmen.')
+        if change['action'] == 'merge':
+            name = db.execute('SELECT type_id,normalized FROM entities WHERE id=?', (old_id,)).fetchone()
+            if db.execute('SELECT 1 FROM entities WHERE type_id=? AND normalized=? AND id<>? AND deleted_at IS NULL',
+                          (name['type_id'], name['normalized'], old_id)).fetchone():
+                raise ValueError('Eine gleichnamige Entität gibt es inzwischen wieder.')
+            db.execute('UPDATE entities SET deleted_at=NULL WHERE id=?', (old_id,))
+            for relation_id in moved['dropped']:
+                db.execute('UPDATE graph_relations SET deleted_at=NULL WHERE id=?', (relation_id,))
+        self._move(db, 'entity_mentions', 'entity_id', moved['mentions'], target)
+        self._move(db, 'graph_relations', 'source_id', moved['sources'], target)
+        self._move(db, 'graph_relations', 'target_id', moved['targets'], target)
+        if change['action'] == 'split':
+            if self._ids(db, 'entity_mentions', 'entity_id=?', (new_id,)) or \
+                    self._ids(db, 'graph_relations', 'source_id=? OR target_id=?', (new_id, new_id)):
+                raise ValueError('Die abgetrennte Entität hat inzwischen weitere Einträge.')
+            db.execute('UPDATE entities SET deleted_at=CURRENT_TIMESTAMP WHERE id=?', (new_id,))
+
     def confirm_graph_item(self, kind, object_id):
         """Confirm an AI suggestion (step 8B.2): ``kind`` entity, mention or relation. A mention or
         relation needs its entities confirmed first; rejecting a suggestion is deleting it."""
@@ -735,6 +831,8 @@ class Graph:
                                   + ' WHERE id=? RETURNING id', (object_id,)).fetchone()
                 if done is None:  # removed together with its document
                     raise ValueError('Das Objekt gibt es nicht mehr.')
+            elif change['action'] in ('merge', 'split') and kind == 'entity':
+                self._revert_move(db, change)
             elif change['action'] == 'confirm' and kind in tables:
                 if kind == 'entity' and db.execute(
                         "SELECT 1 FROM graph_relations WHERE (source_id=? OR target_id=?) AND status='confirmed' "

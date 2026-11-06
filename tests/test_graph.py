@@ -110,6 +110,59 @@ def check_graph_contract(case, store):
     case.assertEqual(store.entity(anna)['mentions'], [])
 
 
+def check_merge_split_contract(case, store):
+    """Merge and split entities with exact revert (step 8B.3); same on both backends."""
+    types = {row['name']: row['id'] for row in store.entity_types()}
+    rtypes = {row['name']: row['id'] for row in store.relation_types()}
+    text = 'Anna Berg leitet den Einkauf. Frau Berg nutzt SAP. A. Berg arbeitet für die Nordwerk GmbH.'
+    doc, _ = store.add('Notiz', text)
+    anna = store.create_entity(types['Person'], 'Anna Berg', doc, 'Anna Berg')
+    berg = store.create_entity(types['Person'], 'Frau Berg', doc, 'Frau Berg')
+    sap = store.create_entity(types['System'], 'SAP', doc, 'SAP')
+    firm = store.create_entity(types['Organisation'], 'Nordwerk GmbH', doc, 'Nordwerk GmbH')
+    uses = store.relate_entities(berg, sap, rtypes['nutzt'], doc, 'Frau Berg nutzt SAP')
+    same = store.relate_entities(anna, berg, rtypes['gehört zu'], doc, 'Anna Berg')
+    with case.assertRaises(ValueError):
+        store.merge_entities(anna, sap)  # different types
+    with case.assertRaises(ValueError):
+        store.merge_entities(anna, anna)
+    store.merge_entities(anna, berg)
+    merged = store.entity(anna)
+    case.assertEqual(sorted(m['quote'] for m in merged['mentions']), ['Anna Berg', 'Frau Berg'])
+    case.assertEqual([(r['id'], r['source']) for r in merged['relations']], [(uses, 'Anna Berg')])  # self-relation dropped
+    with case.assertRaises(ValueError):
+        store.entity(berg)
+    change = store.graph_changes()[0]
+    case.assertEqual((change['action'], change['object_id'], change['old_value']), ('merge', berg, 'Frau Berg'))
+    store.revert_graph_change(change['id'])
+    case.assertEqual([m['quote'] for m in store.entity(berg)['mentions']], ['Frau Berg'])
+    case.assertEqual(sorted(r['id'] for r in store.entity(berg)['relations']), sorted([uses, same]))
+    case.assertEqual([m['quote'] for m in store.entity(anna)['mentions']], ['Anna Berg'])
+
+    # Split: a second mention that means someone else becomes its own entity.
+    extra = store.add_mention(anna, doc, 'A. Berg')
+    works = store.relate_entities(anna, firm, rtypes['arbeitet für'], doc, 'A. Berg arbeitet für die Nordwerk GmbH')
+    for bad in [(anna, 'Anton Berg', []), (anna, 'Anton Berg', [10**9]),
+                (anna, 'Anton Berg', [m['id'] for m in store.entity(anna)['mentions']]),  # nothing would stay
+                (anna, 'Frau Berg', [extra])]:  # name taken
+        with case.assertRaises(ValueError):
+            store.split_entity(*bad)
+    anton = store.split_entity(anna, 'Anton Berg', [extra], [works])
+    case.assertEqual([m['quote'] for m in store.entity(anton)['mentions']], ['A. Berg'])
+    case.assertEqual([(r['source'], r['target']) for r in store.entity(anton)['relations']], [('Anton Berg', 'Nordwerk GmbH')])
+    case.assertEqual([m['quote'] for m in store.entity(anna)['mentions']], ['Anna Berg'])
+    split = store.graph_changes()[0]
+    store.add_mention(anton, doc, 'Berg arbeitet')  # a later change blocks the revert
+    with case.assertRaises(ValueError):
+        store.revert_graph_change(split['id'])
+    store.revert_graph_change(store.graph_changes()[0]['id'])  # undo that mention first ...
+    store.revert_graph_change(split['id'])                       # ... then the split
+    with case.assertRaises(ValueError):
+        store.entity(anton)
+    case.assertEqual(sorted(m['quote'] for m in store.entity(anna)['mentions']), ['A. Berg', 'Anna Berg'])
+    case.assertEqual(store.get(doc)['content'], text)
+
+
 class GraphTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -121,6 +174,9 @@ class GraphTests(unittest.TestCase):
 
     def test_contract(self):
         check_graph_contract(self, self.store)
+
+    def test_merge_and_split(self):
+        check_merge_split_contract(self, self.store)
 
     def test_cli(self):
         import cli

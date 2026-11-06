@@ -637,6 +637,29 @@ class InterfaceTests(unittest.TestCase):
         self.assertEqual({row['status'] for row in window.store.entities()},{'confirmed'})
         dialog.destroy()
 
+    def test_graph_dialog_merges_and_splits_entities(self):
+        window=self.window
+        text='Anna Berg leitet den Einkauf. Frau Berg nutzt SAP.'
+        doc,_=window.store.add('Notiz',text)
+        person=next(row['id'] for row in window.store.entity_types() if row['name']=='Person')
+        anna=window.store.create_entity(person,'Anna Berg',doc,'Anna Berg')
+        window.store.create_entity(person,'Frau Berg',doc,'Frau Berg')
+        window.refresh(); window.tree.selection_set(str(doc)); window.update()
+        dialog=window.edit_graph(); mentions=dialog.graph_trees['mentions']
+        mentions.selection_set(mentions.get_children()); dialog.graph_merge()
+        self.assertEqual([row['name'] for row in window.store.entities()],['Anna Berg'])
+        second=[i for i in mentions.get_children() if mentions.item(i,'values')[3]=='Frau Berg']
+        mentions.selection_set(second)
+        with patch.object(app.simpledialog,'askstring',return_value='Frau Berg'):
+            dialog.graph_split()
+        self.assertEqual(sorted(row['name'] for row in window.store.entities()),['Anna Berg','Frau Berg'])
+        self.assertEqual([m['quote'] for m in window.store.entity(anna)['mentions']],['Anna Berg'])
+        mentions.selection_set(mentions.get_children()[0])
+        with patch.object(app.messagebox,'showerror') as error:
+            dialog.graph_merge()  # one entity only
+        error.assert_called_once()
+        dialog.destroy()
+
     def test_relations_dialog_adds_opens_and_removes(self):
         window=self.window
         plan,_=window.store.add('Wartungsplan','Die Therme bekommt jährlich eine Wartung.')
