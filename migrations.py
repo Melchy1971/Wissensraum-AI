@@ -9,7 +9,7 @@ import uuid
 from contextlib import closing, contextmanager
 from pathlib import Path
 
-CURRENT_SCHEMA_VERSION = 14
+CURRENT_SCHEMA_VERSION = 15
 # Unversioned PostgreSQL schemas predate schema_migrations and match version 4.
 POSTGRES_LEGACY_SCHEMA_VERSION = 4
 # ponytail: source_type is validated in application code (core.SOURCE_TYPES), not by a
@@ -225,6 +225,18 @@ SQLITE_MIGRATIONS = (
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )""",
     )),
+    # Release 2.2, step 8A.4: typed relations between two documents; both ends are deleted with
+    # their document. A pair carries each kind at most once.
+    (15, (
+        """CREATE TABLE IF NOT EXISTS document_relations (
+            id INTEGER PRIMARY KEY,
+            source_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            target_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            kind TEXT NOT NULL, note TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(source_id, target_id, kind)
+        )""",
+    )),
 )
 
 
@@ -425,6 +437,16 @@ POSTGRES_MIGRATIONS = (
             created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
         )""",
     )),
+    (15, (
+        """CREATE TABLE IF NOT EXISTS document_relations (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            source_id BIGINT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            target_id BIGINT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            kind TEXT NOT NULL, note TEXT NOT NULL DEFAULT '',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(source_id, target_id, kind)
+        )""",
+    )),
 )
 
 # Columns added to an existing table by a later migration: (table, column) -> version.
@@ -450,6 +472,7 @@ SQLITE_TABLE_VERSIONS = {
     'email_attachments': 8, 'tags': 9, 'document_tags': 9, 'rules': 9, 'rule_runs': 9,
     'rule_run_changes': 9, 'chunk_vectors': 10, 'metadata_changes': 12,
     'collections': 14, 'collection_documents': 14, 'favorites': 14, 'saved_searches': 14,
+    'document_relations': 15,
 }
 
 # Constant SQL list of all application tables, derived from the catalog so that
@@ -531,6 +554,9 @@ SQLITE_COLUMNS = {
     'saved_searches': (('id','INTEGER',0,None,1), ('name','TEXT',1,None,0), ('normalized','TEXT',1,None,0),
                        ('query','TEXT',1,None,0), ('mode','TEXT',0,None,0), ('tag','TEXT',0,None,0),
                        ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
+    'document_relations': (('id','INTEGER',0,None,1), ('source_id','INTEGER',1,None,0),
+                           ('target_id','INTEGER',1,None,0), ('kind','TEXT',1,None,0),
+                           ('note','TEXT',1,"''",0), ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
 }
 
 SQLITE_UNIQUE_CONSTRAINTS = {
@@ -543,6 +569,7 @@ SQLITE_UNIQUE_CONSTRAINTS = {
     'rule_run_changes': set(), 'chunk_vectors': set(), 'metadata_changes': set(),
     'collections': {('normalized',)}, 'collection_documents': set(), 'favorites': set(),
     'saved_searches': {('normalized',)},
+    'document_relations': {('source_id','target_id','kind')},
 }
 
 SQLITE_FOREIGN_KEYS = {
@@ -577,6 +604,8 @@ SQLITE_FOREIGN_KEYS = {
                              ('document_id','documents','id','NO ACTION','CASCADE')},
     'favorites': {('document_id','documents','id','NO ACTION','CASCADE')},
     'saved_searches': set(),
+    'document_relations': {('source_id','documents','id','NO ACTION','CASCADE'),
+                           ('target_id','documents','id','NO ACTION','CASCADE')},
 }
 
 POSTGRES_LEGACY_COLUMNS = {
@@ -713,6 +742,12 @@ POSTGRES_LEGACY_COLUMNS = {
     ('saved_searches','mode','text','YES','NO',None,None),
     ('saved_searches','tag','text','YES','NO',None,None),
     ('saved_searches','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('document_relations','id','bigint','NO','YES',None,'ALWAYS'),
+    ('document_relations','source_id','bigint','NO','NO',None,None),
+    ('document_relations','target_id','bigint','NO','NO',None,None),
+    ('document_relations','kind','text','NO','NO',None,None),
+    ('document_relations','note','text','NO','NO',"''::text",None),
+    ('document_relations','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
 }
 
 POSTGRES_LEGACY_CONSTRAINTS = {
@@ -766,6 +801,10 @@ POSTGRES_LEGACY_CONSTRAINTS = {
     ('favorites', 'f', ('document_id',), 'documents', ('id',), 'c'),
     ('saved_searches', 'p', ('id',), None, (), ' '),
     ('saved_searches', 'u', ('normalized',), None, (), ' '),
+    ('document_relations', 'p', ('id',), None, (), ' '),
+    ('document_relations', 'u', ('source_id', 'target_id', 'kind'), None, (), ' '),
+    ('document_relations', 'f', ('source_id',), 'documents', ('id',), 'c'),
+    ('document_relations', 'f', ('target_id',), 'documents', ('id',), 'c'),
 }
 
 

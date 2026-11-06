@@ -58,7 +58,7 @@ class FakeResetConnection:
         if query.startswith('DROP SCHEMA'):
             self.schema=None
         if 'FROM information_schema.tables' in query:
-            tables=['ai_runs','chunk_vectors','chunks','collection_documents','collections','document_tags','document_versions','documents','email_accounts',
+            tables=['ai_runs','chunk_vectors','chunks','collection_documents','collections','document_relations','document_tags','document_versions','documents','email_accounts',
                     'email_attachments','email_imports','favorites','import_item_errors','import_items','import_jobs',
                     'metadata_changes','rule_run_changes','rule_runs','rules','saved_searches','schema_migrations','settings','sources',
                     'tags'] if self.schema == 'new' else []
@@ -475,7 +475,8 @@ class DatabaseSettingsTests(unittest.TestCase):
         self.assertEqual(sum('pg_advisory_xact_lock' in q for q in queries),1)
         self.assertLess(next(i for i,q in enumerate(queries) if q.startswith('SET LOCAL lock_timeout')),
                         next(i for i,q in enumerate(queries) if 'pg_advisory_xact_lock' in q))
-        self.assertEqual(result['tables'],['ai_runs','chunk_vectors','chunks','collection_documents','collections','document_tags','document_versions','documents',
+        self.assertEqual(result['tables'],['ai_runs','chunk_vectors','chunks','collection_documents','collections',
+                                           'document_relations','document_tags','document_versions','documents',
                                            'email_accounts','email_attachments','email_imports','favorites',
                                            'import_item_errors','import_items','import_jobs','metadata_changes',
                                            'rule_run_changes',

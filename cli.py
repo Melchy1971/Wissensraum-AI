@@ -3,7 +3,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from core import DOCUMENT_STATUSES, Store, import_document
+from core import DOCUMENT_STATUSES, RELATION_KINDS, Store, import_document
 from migrations import restore_sqlite
 from settings import PROVIDERS, Settings
 from settings import SystemVault
@@ -124,6 +124,13 @@ def main(argv=None):
     save.add_argument('name'); save.add_argument('query')
     save.add_argument('--mode',choices=('fulltext','vector','hybrid')); save.add_argument('--tag')
     commands.add_parser('search-delete',help='Gespeicherte Suche löschen').add_argument('id',type=int)
+    relate = commands.add_parser('relate',help='Beziehung zwischen zwei Dokumenten anlegen')
+    relate.add_argument('source',type=int); relate.add_argument('target',type=int)
+    relate.add_argument('--kind',required=True,choices=RELATION_KINDS); relate.add_argument('--note',default='')
+    commands.add_parser('unrelate',help='Beziehung entfernen').add_argument('id',type=int)
+    commands.add_parser('relations',help='Beziehungen eines Dokuments').add_argument('id',type=int)
+    compare = commands.add_parser('compare',help='Zwei Fassungen zeilenweise vergleichen (alt, neu)')
+    compare.add_argument('old',type=int); compare.add_argument('new',type=int)
     retired = commands.add_parser('ai-retired',help='Veraltete und archivierte Dokumente in KI-Antworten')
     retired.add_argument('mode',nargs='?',choices=('exclude','include'),help='ohne Angabe: aktuelle Einstellung')
     metadata = commands.add_parser('history',help='Verlauf der Metadatenänderungen eines Dokuments')
@@ -263,6 +270,14 @@ def main(argv=None):
             if args.command == 'list':
                 result = store.list(all_versions=args.all_versions,tag=args.tag,collection=args.collection,
                                     favorites=args.favorites)
+            elif args.command == 'relate':
+                result = {'id':store.relate(args.source,args.target,args.kind,args.note)}
+            elif args.command == 'unrelate':
+                store.unrelate(args.id); result = {'geloescht':args.id}
+            elif args.command == 'relations':
+                result = store.relations(args.id)
+            elif args.command == 'compare':
+                result = store.compare(args.old,args.new)
             elif args.command == 'collections':
                 result = store.collections()
             elif args.command == 'collection-create':

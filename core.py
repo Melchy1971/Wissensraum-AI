@@ -290,6 +290,83 @@ class Organization:
                 raise ValueError('Gespeicherte Suche wurde nicht gefunden.')
 
 
+# Relation kinds (step 8A.4). 'related' has no direction and is stored with the smaller id as source.
+RELATION_KINDS = ('references', 'supersedes', 'related')
+MAX_RELATION_NOTE = 300
+MAX_DIFF_LINES = 2000
+
+
+class Relations:
+    """Typed relations between documents and the comparison of two versions (Release 2.2, step 8A.4).
+
+    Adding or removing a relation is logged in the metadata history of the source document
+    (field ``relation``, value ``kind:target_id``); the documents themselves never change.
+    """
+
+    def relate(self, source_id, target_id, kind, note=''):
+        import rules
+        source_id, target_id = int(source_id), int(target_id)
+        if kind not in RELATION_KINDS:
+            raise ValueError('Beziehungsart: ' + ', '.join(RELATION_KINDS) + '.')
+        if source_id == target_id:
+            raise ValueError('Ein Dokument kann nicht mit sich selbst verbunden werden.')
+        note = ' '.join(str(note).split())
+        if len(note) > MAX_RELATION_NOTE:
+            raise ValueError(f'Notiz darf höchstens {MAX_RELATION_NOTE} Zeichen haben.')
+        if kind == 'related':
+            source_id, target_id = sorted((source_id, target_id))
+        with self.connect() as db:
+            if db.execute('SELECT count(*) AS n FROM documents WHERE id IN (?,?)',
+                          (source_id, target_id)).fetchone()['n'] != 2:
+                raise ValueError('Dokument wurde nicht gefunden.')
+            row = db.execute('INSERT INTO document_relations(source_id,target_id,kind,note) VALUES(?,?,?,?) '
+                             'ON CONFLICT DO NOTHING RETURNING id', (source_id, target_id, kind, note)).fetchone()
+            if row is None:
+                raise ValueError('Diese Beziehung gibt es schon.')
+            rules.log_change(db, source_id, 'relation', '', f'{kind}:{target_id}', 'manual')
+            return row['id']
+
+    def unrelate(self, relation_id):
+        import rules
+        with self.connect() as db:
+            row = db.execute('DELETE FROM document_relations WHERE id=? RETURNING source_id,target_id,kind',
+                             (relation_id,)).fetchone()
+            if row is None:
+                raise ValueError('Beziehung wurde nicht gefunden.')
+            rules.log_change(db, row['source_id'], 'relation', f'{row["kind"]}:{row["target_id"]}', '', 'manual')
+
+    def relations(self, doc_id):
+        """Relations of a document from its point of view: ``direction`` 'out', 'in' or 'both' (related)."""
+        with self.connect() as db:
+            rows = [dict(row) for row in db.execute(
+                'SELECT r.id,r.kind,r.note,r.source_id,r.target_id,s.title AS source_title,t.title AS target_title '
+                'FROM document_relations r JOIN documents s ON s.id=r.source_id JOIN documents t ON t.id=r.target_id '
+                'WHERE r.source_id=? OR r.target_id=? ORDER BY r.id', (doc_id, doc_id))]
+        result = []
+        for row in rows:
+            outgoing = row['source_id'] == doc_id
+            result.append({'id': row['id'], 'kind': row['kind'], 'note': row['note'],
+                           'direction': 'both' if row['kind'] == 'related' else 'out' if outgoing else 'in',
+                           'other_id': row['target_id'] if outgoing else row['source_id'],
+                           'other_title': row['target_title'] if outgoing else row['source_title']})
+        return result
+
+    def compare(self, old_id, new_id):
+        """Line diff of two documents (usually two versions), old first. Content is only read."""
+        import difflib
+        old, new = self.get(old_id), self.get(new_id)
+        # ponytail: difflib is quadratic in the worst case; documents are size-limited at import and
+        # the output is capped at MAX_DIFF_LINES lines. Upgrade path: a word-level diff in a worker.
+        lines = list(difflib.unified_diff(old['content'].splitlines(), new['content'].splitlines(),
+                                          f'{old["title"]} (#{old_id})', f'{new["title"]} (#{new_id})',
+                                          n=2, lineterm=''))
+        changed = [line for line in lines[2:] if line[:1] in '+-']
+        return {'old_id': old_id, 'new_id': new_id, 'identical': old['content'] == new['content'],
+                'added': sum(line.startswith('+') for line in changed),
+                'removed': sum(line.startswith('-') for line in changed),
+                'truncated': len(lines) > MAX_DIFF_LINES, 'diff': lines[:MAX_DIFF_LINES]}
+
+
 class ChunkStrategies:
     """Chunk strategy per document type (Release 2.1), shared by both backends through ``connect()``.
 
@@ -672,7 +749,7 @@ class VectorIndex:
         return [{**details[chunk_id], 'score': score} for chunk_id, score in chosen.items() if chunk_id in details]
 
 
-class Store(DocumentMetadata, Organization, ChunkStrategies, VectorIndex):
+class Store(DocumentMetadata, Organization, Relations, ChunkStrategies, VectorIndex):
     backend = 'sqlite'
     # Declared type, PRAGMA not-null flag, normalized default, primary-key position.
     column_contract = {
@@ -765,6 +842,7 @@ class Store(DocumentMetadata, Organization, ChunkStrategies, VectorIndex):
         11: frozenset(schema_contract),  # 11 changes only PostgreSQL
         12: frozenset(schema_contract),  # metadata_changes is not part of this contract
         13: frozenset(schema_contract),  # nor are the tables of step 8A.3
+        14: frozenset(schema_contract),  # nor is the relation table of step 8A.4
         CURRENT_SCHEMA_VERSION: frozenset(schema_contract),
     }
     primary_keys = {
@@ -1040,7 +1118,7 @@ class _PostgresConnection:
             return cursor.executemany(self.sql(query),parameters)
 
 
-class PostgresStore(DocumentMetadata, Organization, ChunkStrategies, VectorIndex):
+class PostgresStore(DocumentMetadata, Organization, Relations, ChunkStrategies, VectorIndex):
     """PostgreSQL implementation used after explicit activation in database settings."""
     backend = 'postgresql'
     # information_schema: data_type, udt_name, is_nullable, normalized default, is_identity.

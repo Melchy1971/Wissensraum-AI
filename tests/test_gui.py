@@ -343,6 +343,15 @@ class InterfaceTests(unittest.TestCase):
                          ['2','1'])
         versions.version_tree.selection_set(versions.version_tree.get_children()[1]); window.update()
         self.assertIn('Erste Fassung',versions.version_text.get('1.0','end'))
+        versions.version_tree.selection_set(versions.version_tree.get_children()); window.update()
+        versions.version_compare()
+        compared=versions.version_text.get('1.0','end')
+        self.assertIn('Version 1 → Version 2',compared)
+        self.assertIn('-Erste Fassung',compared)
+        versions.version_tree.selection_set(versions.version_tree.get_children()[0]); window.update()
+        with patch.object(app.messagebox,'showerror') as error:
+            versions.version_compare()
+        error.assert_called_once()
         versions.destroy()
 
     def test_preview_buttons_stay_visible_and_selection_limits_the_import(self):
@@ -562,6 +571,30 @@ class InterfaceTests(unittest.TestCase):
         self.assertEqual(window.status.get(),'Semantische Suche: 1 Abschnitte eingebettet')
         panel.deactivate()
         self.assertIn('ist aus. 1 von 1',panel.status.get())
+
+    def test_relations_dialog_adds_opens_and_removes(self):
+        window=self.window
+        plan,_=window.store.add('Wartungsplan','Die Therme bekommt jährlich eine Wartung.')
+        contract,_=window.store.add('Wartungsvertrag','Vertrag mit der Heizungsfirma.')
+        window.refresh(); window.tree.selection_set(str(plan)); window.update()
+        dialog=window.edit_relations()
+        kind,target,note=dialog.relation_fields
+        with patch.object(app.messagebox,'showerror') as error:
+            dialog.relation_add()
+        error.assert_called_once()
+        kind.set('verweist auf'); target.set(f'Wartungsvertrag (#{contract})'); note.set('Kosten')
+        dialog.relation_add(); window.update()
+        rows=[dialog.relation_tree.item(iid,'values') for iid in dialog.relation_tree.get_children()]
+        self.assertEqual(rows,[('verweist auf',f'Wartungsvertrag (#{contract})','Kosten')])
+        with patch.object(app.messagebox,'showerror') as error:
+            dialog.relation_add()  # same relation twice
+        error.assert_called_once()
+        dialog.relation_tree.selection_set(dialog.relation_tree.get_children()[0]); dialog.relation_open(); window.update()
+        self.assertEqual(window.tree.selection(),(str(contract),))
+        self.assertEqual(window.store.relations(contract)[0]['direction'],'in')
+        dialog.relation_tree.selection_set(dialog.relation_tree.get_children()[0]); dialog.relation_remove()
+        self.assertEqual(window.store.relations(plan),[])
+        dialog.destroy()
 
     def test_collections_favorites_and_saved_searches(self):
         window=self.window
