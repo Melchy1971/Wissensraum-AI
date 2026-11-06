@@ -1,4 +1,4 @@
--- SQLite / FTS5 schema snapshot · Release 2.3 · Version 16 (version 11 changes only PostgreSQL)
+-- SQLite / FTS5 schema snapshot · Release 2.3 · Version 17 (version 11 changes only PostgreSQL)
 -- Runtime upgrades are defined as ordered migrations in migrations.py.
 
 PRAGMA foreign_keys = ON;
@@ -147,9 +147,9 @@ CREATE TABLE IF NOT EXISTS document_relations (
 CREATE TABLE IF NOT EXISTS entity_types ( id INTEGER PRIMARY KEY, name TEXT NOT NULL, normalized TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP );
 CREATE TABLE IF NOT EXISTS relation_types ( id INTEGER PRIMARY KEY, name TEXT NOT NULL, normalized TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP );
 CREATE TABLE IF NOT EXISTS entities ( id INTEGER PRIMARY KEY, type_id INTEGER NOT NULL REFERENCES entity_types(id), name TEXT NOT NULL, normalized TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'confirmed', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, deleted_at TEXT );
-CREATE TABLE IF NOT EXISTS entity_mentions ( id INTEGER PRIMARY KEY, entity_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE, document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE, start_offset INTEGER NOT NULL, end_offset INTEGER NOT NULL, quote TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, deleted_at TEXT );
+CREATE TABLE IF NOT EXISTS entity_mentions ( id INTEGER PRIMARY KEY, entity_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE, document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE, start_offset INTEGER NOT NULL, end_offset INTEGER NOT NULL, quote TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, deleted_at TEXT, status TEXT NOT NULL DEFAULT 'confirmed' );
 CREATE TABLE IF NOT EXISTS graph_relations ( id INTEGER PRIMARY KEY, source_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE, target_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE, type_id INTEGER NOT NULL REFERENCES relation_types(id), document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE, start_offset INTEGER NOT NULL, end_offset INTEGER NOT NULL, quote TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'confirmed', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, deleted_at TEXT );
 CREATE TABLE IF NOT EXISTS graph_changes ( id INTEGER PRIMARY KEY, action TEXT NOT NULL, object_type TEXT NOT NULL, object_id INTEGER NOT NULL, old_value TEXT NOT NULL DEFAULT '', new_value TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, reverted_at TEXT );
 INSERT INTO entity_types(name,normalized) VALUES ('Person','person'), ('Organisation','organisation'), ('Prozess','prozess'), ('System','system'), ('Entscheidung','entscheidung');
 INSERT INTO relation_types(name,normalized) VALUES ('arbeitet für','arbeitet für'), ('verantwortet','verantwortet'), ('nutzt','nutzt'), ('entscheidet über','entscheidet über'), ('gehört zu','gehört zu');
-PRAGMA user_version = 16;
+PRAGMA user_version = 17;

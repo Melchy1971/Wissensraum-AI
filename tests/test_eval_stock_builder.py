@@ -420,7 +420,7 @@ class EvaluationStockBuilderTests(unittest.TestCase):
                 db.execute('PRAGMA user_version=11')
         before = builder.sha256_file(self.base)
         report = self.build()
-        self.assertEqual(report['schema_version'], 16)
+        self.assertEqual(report['schema_version'], 17)
         self.assertEqual(builder.sha256_file(self.base), before)
         with closing(sqlite3.connect(self.base)) as db:
             self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 11)

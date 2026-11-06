@@ -34,7 +34,7 @@ Stand 06.11.2026:
 - Phase 7 (Release 2.1 Hybrid-RAG): 7.1 bis 7.4, Chunk-Strategie je Dokumenttyp und Fundstellenanzeige ✅. Produktionsvariante der Quellenabsicherung ist B2 (Zweitabschnitt des besten Dokuments im Fenster von 9.216 Token, zweiter Beleglauf aus, D-020).
 - Reihenfolge nach Masterplan (Entscheidung Product Owner 05.11.2026): Release 2.2 (Phase 8A Wissensorganisation), 2.3 (Phase 8B Wissensgraph), 2.4 (Phase 9 Betrieb und Governance), 3.0 (Phase 10 Mehrbenutzerbetrieb), danach 3.1 (VPS und Domain). 3.1 beginnt erst nach dem Sicherheits- und Mehrbenutzer-Gate von 3.0.
 - Phase 8A (Release 2.2 Wissensorganisation) ✅: Metadaten mit Verlauf, Dokumentstatus und Ausschluss aus KI-Antworten, Sammlungen, Favoriten, gespeicherte Suchen, Beziehungen, Fassungsvergleich, Sammlungsexport mit Quellenmanifest. Datenbankschema 15.
-- Phase 8B (Release 2.3 Wissensgraph) läuft nach dem freigegebenen Plan 8B.1 bis 8B.5 (Masterplan, D-023: Tabellen in SQLite/PostgreSQL, KI-Vorschläge nur lokales Ollama). In Arbeit: 8B.1 Datenmodell (Schema 16).
+- Phase 8B (Release 2.3 Wissensgraph) läuft nach dem freigegebenen Plan 8B.1 bis 8B.5 (Masterplan, D-023: Tabellen in SQLite/PostgreSQL, KI-Vorschläge nur lokales Ollama). In Arbeit: 8B.1 Datenmodell (Schema 16), 8B.2 KI-Vorschläge (Schema 17).
 
 Messwerte der Antwortqualität stammen aus dem eingefrorenen Bestand V2 (`data/eval-set-v2.freeze.json`). Eigene Fragen und Messkopien der Datenbank des Product Owners bleiben lokal (`data/` ist von Git ausgeschlossen). Messkopien nach der Messung löschen. Einzelfalldaten nur anonymisiert behalten (Frage-IDs, Ränge, Abschnittsnummern, Kategorien). Keine Fragetexte, Dokumenttexte oder privaten Dokumentnamen in Repository, Logs oder Berichte übernehmen, nur Frage-IDs. Für Messungen muss Ollama exklusiv laufen; andere Clients verfälschen die Antwortzeiten.
 
@@ -55,6 +55,7 @@ Ohne ausdrückliche Anweisung keine Arbeit aus einer späteren Phase beginnen, s
 | `rules.py` | Regeln für Bereich und Tags |
 | `retrieval.py` | hybride Suche (Volltext und Vektor, RRF) und Antwortkontext für Fragen |
 | `evidence.py` | Bewertung der Quellenlage vor und Prüfung der Quellenverweise nach der KI-Antwort |
+| `graph_suggest.py` | KI-Vorschläge für den Wissensgraphen über das lokale Ollama, nur mit wörtlichem Beleg |
 | `vector_sync.py` | Einbettung der Abschnitte im Hintergrund |
 | `configuration.py`, `configuration_authority.py` | Konfigurationstransfer ohne Zugangsdaten |
 | `diagnostics.py`, `local_logging.py` | Startdiagnose und strukturiertes Betriebsprotokoll |

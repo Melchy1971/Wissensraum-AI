@@ -154,6 +154,10 @@ def main(argv=None):
     changes = commands.add_parser('graph-changes',help='Änderungen am Wissensgraphen, neueste zuerst')
     changes.add_argument('--limit',type=int,default=100)
     commands.add_parser('graph-revert',help='Änderung am Wissensgraphen zurücknehmen').add_argument('id',type=int)
+    graph_suggest = commands.add_parser('graph-suggest',help='KI-Vorschläge für Entitäten und Relationen (nur lokales Ollama)')
+    graph_suggest.add_argument('document',type=int); graph_suggest.add_argument('--model',default='qwen3:8b')
+    confirm = commands.add_parser('graph-confirm',help='KI-Vorschlag bestätigen')
+    confirm.add_argument('kind',choices=('entity','mention','relation')); confirm.add_argument('id',type=int)
     retired = commands.add_parser('ai-retired',help='Veraltete und archivierte Dokumente in KI-Antworten')
     retired.add_argument('mode',nargs='?',choices=('exclude','include'),help='ohne Angabe: aktuelle Einstellung')
     metadata = commands.add_parser('history',help='Verlauf der Metadatenänderungen eines Dokuments')
@@ -322,6 +326,11 @@ def main(argv=None):
                 store.delete_entity(args.id); result = {'geloescht':args.id}
             elif args.command == 'graph-relation-delete':
                 store.delete_graph_relation(args.id); result = {'geloescht':args.id}
+            elif args.command == 'graph-suggest':
+                import graph_suggest as suggestions
+                result = suggestions.suggest(store,args.document,args.model)
+            elif args.command == 'graph-confirm':
+                store.confirm_graph_item(args.kind,args.id); result = {'bestaetigt':args.id}
             elif args.command == 'graph-changes':
                 result = store.graph_changes(args.limit)
             elif args.command == 'graph-revert':

@@ -609,6 +609,61 @@ class Graph:
     def delete_graph_relation(self, relation_id):
         self._soft_delete('graph_relations', 'relation', relation_id, 'Relation')
 
+    def propose_entity(self, type_id, name, document_id, quote, start):
+        """An AI suggestion: reuse an active entity of the same type and name or create a proposed one,
+        then add a proposed mention unless that span is already recorded.
+        Returns (entity_id, created, mentioned) with created and mentioned as 0 or 1."""
+        name, normalized = self._entity_name(name)
+        with self.connect() as db:
+            span = self._evidence(db, document_id, quote, start)
+            row = db.execute('SELECT id FROM entities WHERE type_id=? AND normalized=? AND deleted_at IS NULL',
+                             (type_id, normalized)).fetchone()
+            created = row is None
+            if created:
+                entity_id = db.execute("INSERT INTO entities(type_id,name,normalized,status) VALUES(?,?,?,'proposed') "
+                                       'RETURNING id', (type_id, name, normalized)).fetchone()['id']
+                self._log(db, 'create', 'entity', entity_id, '', name)
+            else:
+                entity_id = row['id']
+            if db.execute('SELECT 1 FROM entity_mentions WHERE entity_id=? AND document_id=? AND start_offset=? '
+                          'AND deleted_at IS NULL', (entity_id, document_id, span[0])).fetchone():
+                return entity_id, int(created), 0
+            self._insert_mention(db, entity_id, document_id, span, 'proposed')
+            return entity_id, int(created), 1
+
+    def propose_relation(self, source_id, target_id, type_id, document_id, quote, start):
+        """A proposed relation from an AI suggestion; 0 if the same relation with this evidence exists."""
+        with self.connect() as db:
+            start, end, quote = self._evidence(db, document_id, quote, start)
+            if db.execute('SELECT 1 FROM graph_relations WHERE source_id=? AND target_id=? AND type_id=? '
+                          'AND document_id=? AND start_offset=? AND deleted_at IS NULL',
+                          (source_id, target_id, type_id, document_id, start)).fetchone():
+                return 0
+            relation_id = db.execute(
+                'INSERT INTO graph_relations(source_id,target_id,type_id,document_id,start_offset,end_offset,quote,'
+                "status) VALUES(?,?,?,?,?,?,?,'proposed') RETURNING id",
+                (source_id, target_id, type_id, document_id, start, end, quote)).fetchone()['id']
+            self._log(db, 'create', 'relation', relation_id, '', f'{source_id}->{target_id}')
+            return 1
+
+    def confirm_graph_item(self, kind, object_id):
+        """Confirm an AI suggestion (step 8B.2): ``kind`` entity, mention or relation. A mention or
+        relation needs its entities confirmed first; rejecting a suggestion is deleting it."""
+        tables = {'entity': 'entities', 'mention': 'entity_mentions', 'relation': 'graph_relations'}
+        if kind not in tables:
+            raise ValueError('Art des Eintrags: entity, mention oder relation.')
+        with self.connect() as db:
+            row = self._active(db, tables[kind], object_id, 'Eintrag')
+            if row['status'] != 'proposed':
+                raise ValueError('Der Eintrag ist schon bestätigt.')
+            needed = ((row['entity_id'],) if kind == 'mention' else
+                      (row['source_id'], row['target_id']) if kind == 'relation' else ())
+            for entity_id in needed:
+                if db.execute("SELECT 1 FROM entities WHERE id=? AND status='proposed'", (entity_id,)).fetchone():
+                    raise ValueError('Zuerst die beteiligten Entitäten bestätigen.')
+            db.execute(f"UPDATE {tables[kind]} SET status='confirmed' WHERE id=?", (object_id,))
+            self._log(db, 'confirm', kind, object_id, 'proposed', 'confirmed')
+
     # --- reading -------------------------------------------------------------------------
     def entities(self, type_id=None, query=None):
         conditions, params = ['e.deleted_at IS NULL'], []
@@ -633,7 +688,7 @@ class Graph:
                 raise ValueError('Entität wurde nicht gefunden.')
             result = dict(row)
             result['mentions'] = [dict(m) for m in db.execute(
-                'SELECT m.id,m.document_id,d.title AS document,m.start_offset,m.end_offset,m.quote '
+                'SELECT m.id,m.document_id,d.title AS document,m.start_offset,m.end_offset,m.quote,m.status '
                 'FROM entity_mentions m JOIN documents d ON d.id=m.document_id '
                 'WHERE m.entity_id=? AND m.deleted_at IS NULL ORDER BY m.id', (entity_id,))]
             result['relations'] = self._relations(db, 'r.source_id=? OR r.target_id=?', (entity_id, entity_id))
@@ -643,7 +698,7 @@ class Graph:
         """Mentions and relations whose evidence lies in this document."""
         with self.connect() as db:
             mentions = [dict(m) for m in db.execute(
-                'SELECT m.id,m.entity_id,e.name AS entity,t.name AS type,m.start_offset,m.end_offset,m.quote '
+                'SELECT m.id,m.entity_id,e.name AS entity,t.name AS type,m.start_offset,m.end_offset,m.quote,m.status '
                 'FROM entity_mentions m JOIN entities e ON e.id=m.entity_id JOIN entity_types t ON t.id=e.type_id '
                 'WHERE m.document_id=? AND m.deleted_at IS NULL AND e.deleted_at IS NULL ORDER BY m.start_offset,m.id',
                 (document_id,))]
@@ -679,6 +734,14 @@ class Graph:
                                   + ('CURRENT_TIMESTAMP' if change['action'] == 'create' else 'NULL')
                                   + ' WHERE id=? RETURNING id', (object_id,)).fetchone()
                 if done is None:  # removed together with its document
+                    raise ValueError('Das Objekt gibt es nicht mehr.')
+            elif change['action'] == 'confirm' and kind in tables:
+                if kind == 'entity' and db.execute(
+                        "SELECT 1 FROM graph_relations WHERE (source_id=? OR target_id=?) AND status='confirmed' "
+                        'AND deleted_at IS NULL', (object_id, object_id)).fetchone():
+                    raise ValueError('Die Entität hat bestätigte Relationen.')
+                if db.execute(f"UPDATE {tables[kind]} SET status='proposed' WHERE id=? RETURNING id",
+                              (object_id,)).fetchone() is None:
                     raise ValueError('Das Objekt gibt es nicht mehr.')
             elif change['action'] == 'rename' and kind in ('entity', 'entity_type', 'relation_type'):
                 table = {'entity': 'entities', 'entity_type': 'entity_types', 'relation_type': 'relation_types'}[kind]
@@ -735,14 +798,14 @@ class Graph:
             raise ValueError('Der Beleg steht so nicht im Dokument.')
         return start, start + len(quote), quote
 
-    def _insert_mention(self, db, entity_id, document_id, span):
+    def _insert_mention(self, db, entity_id, document_id, span, status='confirmed'):
         start, end, quote = span
         if db.execute('SELECT 1 FROM entity_mentions WHERE entity_id=? AND document_id=? AND start_offset=? '
                       'AND deleted_at IS NULL', (entity_id, document_id, start)).fetchone():
             raise ValueError('Diese Erwähnung gibt es schon.')
-        mention_id = db.execute('INSERT INTO entity_mentions(entity_id,document_id,start_offset,end_offset,quote) '
-                                'VALUES(?,?,?,?,?) RETURNING id',
-                                (entity_id, document_id, start, end, quote)).fetchone()['id']
+        mention_id = db.execute('INSERT INTO entity_mentions(entity_id,document_id,start_offset,end_offset,quote,status) '
+                                'VALUES(?,?,?,?,?,?) RETURNING id',
+                                (entity_id, document_id, start, end, quote, status)).fetchone()['id']
         self._log(db, 'create', 'mention', mention_id, '', str(entity_id))
         return mention_id
 
@@ -1252,6 +1315,7 @@ class Store(DocumentMetadata, Organization, Relations, Graph, ChunkStrategies, V
         13: frozenset(schema_contract),  # nor are the tables of step 8A.3
         14: frozenset(schema_contract),  # nor is the relation table of step 8A.4
         15: frozenset(schema_contract),  # nor are the graph tables of step 8B.1
+        16: frozenset(schema_contract),
         CURRENT_SCHEMA_VERSION: frozenset(schema_contract),
     }
     primary_keys = {
