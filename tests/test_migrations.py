@@ -203,6 +203,43 @@ SQLITE_HISTORICAL_MIGRATIONS = (
             UNIQUE(source_id, target_id, kind)
         )""",
     )),
+    (16, (
+        """CREATE TABLE entity_types (
+            id INTEGER PRIMARY KEY, name TEXT NOT NULL, normalized TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE relation_types (
+            id INTEGER PRIMARY KEY, name TEXT NOT NULL, normalized TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE entities (
+            id INTEGER PRIMARY KEY, type_id INTEGER NOT NULL REFERENCES entity_types(id),
+            name TEXT NOT NULL, normalized TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'confirmed',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, deleted_at TEXT
+        )""",
+        """CREATE TABLE entity_mentions (
+            id INTEGER PRIMARY KEY, entity_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+            document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            start_offset INTEGER NOT NULL, end_offset INTEGER NOT NULL, quote TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, deleted_at TEXT
+        )""",
+        """CREATE TABLE graph_relations (
+            id INTEGER PRIMARY KEY, source_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+            target_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+            type_id INTEGER NOT NULL REFERENCES relation_types(id),
+            document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            start_offset INTEGER NOT NULL, end_offset INTEGER NOT NULL, quote TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'confirmed',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, deleted_at TEXT
+        )""",
+        """CREATE TABLE graph_changes (
+            id INTEGER PRIMARY KEY, action TEXT NOT NULL, object_type TEXT NOT NULL, object_id INTEGER NOT NULL,
+            old_value TEXT NOT NULL DEFAULT '', new_value TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, reverted_at TEXT
+        )""",
+        "INSERT INTO entity_types(name,normalized) VALUES ('Person','person'), ('Organisation','organisation'), ('Prozess','prozess'), ('System','system'), ('Entscheidung','entscheidung')",
+        "INSERT INTO relation_types(name,normalized) VALUES ('arbeitet für','arbeitet für'), ('verantwortet','verantwortet'), ('nutzt','nutzt'), ('entscheidet über','entscheidet über'), ('gehört zu','gehört zu')",
+    )),
 )
 
 
@@ -322,9 +359,11 @@ class FakePostgres:
                                                      ('owner', 'text', 'NO', "''::text"),
                                                      ('review_date', 'text', 'YES', None)):
             if normalized.startswith('ALTER TABLE ') and f' ADD COLUMN {column} ' in normalized:
-                self.columns.append({'table_name': normalized.split()[2], 'column_name': column,
+                table = normalized.split()[2]
+                self.columns.append({'table_name': table, 'column_name': column,
                                      'data_type': data_type, 'is_nullable': nullable, 'is_identity': 'NO',
-                                     'column_default': default, 'identity_generation': None,
+                                     'column_default': "'confirmed'::text" if table == 'entity_mentions' else default,
+                                     'identity_generation': None,
                                      'generation_expression': None})
         if normalized.startswith('DROP INDEX '):
             self.indexes = [row for row in self.indexes if row['index_name'] != normalized.split()[2]]
@@ -443,6 +482,8 @@ class SQLiteMigrationTests(unittest.TestCase):
                     self.assertEqual(db.execute('SELECT count(*) FROM entity_types').fetchone()[0], 5)
                     self.assertEqual(db.execute('SELECT count(*) FROM relation_types').fetchone()[0], 5)
                     self.assertEqual(db.execute('SELECT count(*) FROM entities').fetchone()[0], 0)
+                    # Migration 17 adds the status of a mention (proposed or confirmed).
+                    self.assertIn('status', [row[1] for row in db.execute('PRAGMA table_info(entity_mentions)')])
 
     def test_historical_fixtures_do_not_depend_on_runtime_migrations(self):
         with tempfile.TemporaryDirectory() as directory:

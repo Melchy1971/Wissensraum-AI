@@ -81,6 +81,16 @@
 
 **Status:** 8B.1 🟡 bis Matrix-Gate 7 von 7 und GitHub-CI grün.
 
+## Aktualisierung 06.11.2026 – Phase 8B, Schritt 8B.2 KI-Vorschläge 🟡
+
+**Umfang:** Schema 17 ergänzt `entity_mentions.status` (Standard `confirmed`). Neues Modul `graph_suggest.py`: liest ein Dokument in den Abschnitten der aktuellen Chunk-Strategie, fragt ausschließlich das lokale Ollama (`qwen3:8b`, Temperatur 0, JSON-Format, D-023) und übergibt den Text als JSON-Daten mit festen Regeln gegen Anweisungen im Text. Übernommen wird nur, was ein wörtliches Zitat im Abschnitt und eine vorhandene Art hat; Entitäten, Erwähnungen und Relationen entstehen als `proposed`, vorhandene Entitäten gleichen Namens werden wiederverwendet, Doppelungen nicht angelegt. `confirm_graph_item` bestätigt Entität, Erwähnung oder Relation (Relation erst nach ihren Entitäten), protokolliert und zurücknehmbar; Zurücknahme der Bestätigung einer Entität mit bestätigten Relationen wird abgelehnt. Oberfläche: Spalte „Prüfung“, „KI-Vorschläge (Ollama)“ im Hintergrund, „Markierte bestätigen“. CLI: `graph-suggest`, `graph-confirm`.
+
+**Nachweise:** Gemeinsamer Vertrag `check_suggestion_contract` (SQLite und PostgreSQL) mit gefälschtem Ollama: erfundenes Zitat, unbekannte Art, kein Objekt, nicht wörtliche und unbekannte Relationen verworfen (5 von 9), drei Entitäten, drei Erwähnungen und eine Relation als ungeprüft, Anfrage mit Modell, JSON-Format und Temperatur 0, Dokument unverändert, Bestätigungsreihenfolge, Protokoll und Rücknahme, zweiter Lauf ohne Doppelungen, ungültige Modellantwort nur gezählt. Dazu lange Dokumente mit Dokument-Offsets über drei Abschnitte, CLI- und Oberflächentest (Hintergrundlauf und Bestätigen). Keine Tests rufen ein echtes Modell auf. Kurztest mit echtem `qwen3:8b` am 06.11.2026 auf einem erfundenen Sitzungsprotokoll (kein Bestand des Product Owners): 8 sinnvolle Entitäten (Personen, Organisationen, System, Entscheidung, Prozess) und 3 korrekte Relationen mit wörtlichem Beleg, 1 Vorschlag verworfen, eine im Text eingeschleuste Aufforderung zum Erfinden einer Person befolgte das Modell nicht, 36 Sekunden für einen Abschnitt. Eine genannte Person fehlte; Vollständigkeit ist kein Gate-Kriterium, Vorschläge ersetzen keine Prüfung.
+
+**Gate:** Lokales Matrix-Gate an `282f8b8`: 7 von 7 (`local-ci-gate-282f8b8.md`), Windows und Linux je 625 Tests, PostgreSQL 34; windows-3.11 im ersten Lauf mit 6 Fehlern nur beim Aufräumen (Virenscanner), im Wiederholungslauf grün.
+
+**Status:** 8B.2 🟡 bis GitHub-CI grün.
+
 ## Aktualisierung 06.11.2026 – Phase 8A abgeschlossen, Release 2.2 freigegeben ✅
 
 Der Product Owner hat Release 2.2 am 06.11.2026 freigegeben (D-022). Grundlage: 8A.1 bis 8A.5 je mit Matrix-Gate 7 von 7 und 14 von 14 GitHub-Checks, offene Punkte erledigt (Verlauf für Sammlungen und Favoriten, Ausschluss auf V2 gemessen, manuelle Prüfung bestanden), letztes Gate 7 von 7 an `2aadc5c`, CI auf `main` grün. Tag `v2.2`. Datenbankschema 15; bestehende Datenbanken werden beim ersten Start migriert, SQLite mit geprüfter Sicherung.

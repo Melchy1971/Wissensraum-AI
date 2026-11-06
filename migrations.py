@@ -9,7 +9,7 @@ import uuid
 from contextlib import closing, contextmanager
 from pathlib import Path
 
-CURRENT_SCHEMA_VERSION = 16
+CURRENT_SCHEMA_VERSION = 17
 # Unversioned PostgreSQL schemas predate schema_migrations and match version 4.
 POSTGRES_LEGACY_SCHEMA_VERSION = 4
 # ponytail: source_type is validated in application code (core.SOURCE_TYPES), not by a
@@ -277,6 +277,11 @@ SQLITE_MIGRATIONS = (
         "INSERT INTO entity_types(name,normalized) VALUES ('Person','person'), ('Organisation','organisation'), ('Prozess','prozess'), ('System','system'), ('Entscheidung','entscheidung')",
         "INSERT INTO relation_types(name,normalized) VALUES ('arbeitet für','arbeitet für'), ('verantwortet','verantwortet'), ('nutzt','nutzt'), ('entscheidet über','entscheidet über'), ('gehört zu','gehört zu')",
     )),
+    # Release 2.3, step 8B.2: AI suggestions; a mention, like entities and relations, is 'proposed'
+    # until the user confirms it. Existing mentions were all made by hand.
+    (17, (
+        "ALTER TABLE entity_mentions ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmed'",
+    )),
 )
 
 
@@ -524,14 +529,18 @@ POSTGRES_MIGRATIONS = (
         "INSERT INTO entity_types(name,normalized) VALUES ('Person','person'), ('Organisation','organisation'), ('Prozess','prozess'), ('System','system'), ('Entscheidung','entscheidung')",
         "INSERT INTO relation_types(name,normalized) VALUES ('arbeitet für','arbeitet für'), ('verantwortet','verantwortet'), ('nutzt','nutzt'), ('entscheidet über','entscheidet über'), ('gehört zu','gehört zu')",
     )),
+    (17, (
+        "ALTER TABLE entity_mentions ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmed'",
+    )),
 )
 
 # Columns added to an existing table by a later migration: (table, column) -> version.
 POSTGRES_COLUMN_VERSIONS = {('chunks', 'search_vector'): 11, ('documents', 'search_vector'): 11,
                             ('documents', 'status'): 13, ('documents', 'owner'): 13,
-                            ('documents', 'review_date'): 13}
+                            ('documents', 'review_date'): 13, ('entity_mentions', 'status'): 17}
 # Columns added to an existing SQLite table by a later migration: (table, column) -> version.
-SQLITE_COLUMN_VERSIONS = {('documents', 'status'): 13, ('documents', 'owner'): 13, ('documents', 'review_date'): 13}
+SQLITE_COLUMN_VERSIONS = {('documents', 'status'): 13, ('documents', 'owner'): 13, ('documents', 'review_date'): 13,
+                          ('entity_mentions', 'status'): 17}
 # Generated columns and their expression as PostgreSQL reports it (whitespace-insensitive).
 POSTGRES_GENERATED_COLUMNS = {
     ('chunks', 'search_vector'): "to_tsvector('simple'::regconfig, content)",
@@ -646,7 +655,7 @@ SQLITE_COLUMNS = {
     'entity_mentions': (('id','INTEGER',0,None,1), ('entity_id','INTEGER',1,None,0), ('document_id','INTEGER',1,None,0),
                         ('start_offset','INTEGER',1,None,0), ('end_offset','INTEGER',1,None,0),
                         ('quote','TEXT',1,None,0), ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0),
-                        ('deleted_at','TEXT',0,None,0)),
+                        ('deleted_at','TEXT',0,None,0), ('status','TEXT',1,"'confirmed'",0)),
     'graph_relations': (('id','INTEGER',0,None,1), ('source_id','INTEGER',1,None,0), ('target_id','INTEGER',1,None,0),
                         ('type_id','INTEGER',1,None,0), ('document_id','INTEGER',1,None,0),
                         ('start_offset','INTEGER',1,None,0), ('end_offset','INTEGER',1,None,0),
@@ -880,6 +889,7 @@ POSTGRES_LEGACY_COLUMNS = {
     ('entity_mentions','quote','text','NO','NO',None,None),
     ('entity_mentions','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
     ('entity_mentions','deleted_at','timestamp with time zone','YES','NO',None,None),
+    ('entity_mentions','status','text','NO','NO',"'confirmed'::text",None),
     ('graph_relations','id','bigint','NO','YES',None,'ALWAYS'),
     ('graph_relations','source_id','bigint','NO','NO',None,None),
     ('graph_relations','target_id','bigint','NO','NO',None,None),

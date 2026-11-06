@@ -84,7 +84,7 @@ Grenzen: 50 MB lokale Originaldatei und je E-Mail-Anhang, Dateiinhalt passend zu
 | `saved_searches` | Gespeicherte Suchen mit Name, Suchbegriff, optionalem Suchmodus und Tag (Schema 14) |
 | `document_relations` | Beziehungen zwischen zwei Dokumenten: verweist auf, ersetzt, gehört zu (ohne Richtung), mit Notiz; jede Art je Paar höchstens einmal, wird mit einem der beiden Dokumente gelöscht (Schema 15) |
 | `entity_types`, `relation_types` | Konfigurierbare Entitäts- und Relationsarten des Wissensgraphen; Start mit Person, Organisation, Prozess, System, Entscheidung bzw. arbeitet für, verantwortet, nutzt, entscheidet über, gehört zu (Schema 16) |
-| `entities`, `entity_mentions` | Entitäten mit Art und Name sowie ihre Erwähnungen als exakte Textstelle eines Dokuments (Start, Ende, Zitat) |
+| `entities`, `entity_mentions` | Entitäten mit Art und Name sowie ihre Erwähnungen als exakte Textstelle eines Dokuments (Start, Ende, Zitat); Status `proposed` (KI-Vorschlag, ungeprüft) oder `confirmed`, bei Erwähnungen seit Schema 17 |
 | `graph_relations` | Relationen zwischen zwei Entitäten, jede mit Pflichtbeleg (Dokument, Start, Ende, Zitat); wird mit dem Belegdokument gelöscht |
 | `graph_changes` | Protokoll jeder Änderung am Wissensgraphen mit Rücknahmezeitpunkt; Entitäten, Erwähnungen und Relationen werden nur als gelöscht markiert, damit jede Änderung zurückgenommen werden kann |
 
@@ -341,6 +341,10 @@ Im Dialog **Sammlungen** schreibt **Exportieren** die markierte Sammlung als ZIP
 ### Wissensgraph (Release 2.3, Schritt 8B.1)
 
 **Wissensgraph** zeigt für das ausgewählte Dokument alle Entitäten, die dort erwähnt werden, und alle Relationen, deren Beleg im Dokument steht. Ein Beleg ist immer eine wörtliche Textstelle: in der Detailansicht Text markieren, im Dialog **Markierung übernehmen**, dann **Entität anlegen** (Art und Name), **Erwähnung hinzufügen** (vorhandene Entität) oder **Relation anlegen** (Quelle, Relationsart, Ziel). Ohne markierte Textstelle entsteht nichts; ein Zitat, das so nicht im Dokument steht, wird abgelehnt. Wird das Belegdokument gelöscht, verschwinden seine Erwähnungen und Relationen. **Änderungen** listet jede Änderung am Graphen; **Markierte zurücknehmen** macht sie einmal rückgängig. Das Dokument selbst bleibt unverändert. Entitäts- und Relationsarten sind konfigurierbar. CLI: `entity-types`, `relation-types`, `entity-type-add`, `relation-type-add`, `entity-create <art> <name> <dokument> <zitat> [--start …]`, `entity-relate <quelle> <ziel> <art> <dokument> <zitat> [--start …]`, `entities [--type …] [--query …]`, `entity <id>`, `entity-delete`, `graph-relation-delete`, `graph-changes`, `graph-revert <änderung>`. Schema 16 legt die Tabellen an und füllt nur die beiden Artenkataloge.
+
+### KI-Vorschläge für den Wissensgraphen (Release 2.3, Schritt 8B.2)
+
+**KI-Vorschläge (Ollama)** im Dialog „Wissensgraph“ lässt das lokale Modell `qwen3:8b` das Dokument Abschnitt für Abschnitt lesen und Entitäten und Relationen vorschlagen. Andere Anbieter werden dafür nie verwendet. Der Text geht als Daten in die Anfrage, nicht als Anweisung. Ein Vorschlag wird nur übernommen, wenn sein Zitat wörtlich im gelesenen Abschnitt steht und Entitäts- bzw. Relationsart existieren; alles andere wird gezählt und verworfen. Übernommene Vorschläge erscheinen als „ungeprüft“ und bleiben es, bis du sie mit **Markierte bestätigen** übernimmst; eine Relation lässt sich erst bestätigen, wenn ihre beiden Entitäten bestätigt sind. Ablehnen heißt entfernen. Bestätigen steht im Änderungsprotokoll und lässt sich zurücknehmen. Ein zweiter Lauf legt nichts doppelt an. Die Anfrage läuft im Hintergrund, die Oberfläche bleibt bedienbar. CLI: `graph-suggest <dokument> [--model …]`, `graph-confirm entity|mention|relation <id>`. Schema 17 ergänzt den Status der Erwähnungen; vorhandene Erwähnungen gelten als bestätigt.
 
 ### Postfachsynchronisation (Release 2.0.1, Schritt S3)
 

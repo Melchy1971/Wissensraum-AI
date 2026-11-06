@@ -608,6 +608,35 @@ class InterfaceTests(unittest.TestCase):
         self.assertEqual(len(window.store.document_graph(doc)['relations']),1)
         changes.destroy(); dialog.destroy()
 
+    def test_graph_dialog_runs_suggestions_in_the_background_and_confirms_them(self):
+        window=self.window
+        text='Anna Berg leitet den Einkauf bei der Nordwerk GmbH.'
+        doc,_=window.store.add('Organigramm',text)
+        window.refresh(); window.tree.selection_set(str(doc)); window.update()
+        dialog=window.edit_graph()
+        from test_graph_suggest import FakeOllama
+        fake=FakeOllama({'entitaeten':[{'art':'Person','name':'Anna Berg','zitat':'Anna Berg'},
+                                       {'art':'Organisation','name':'Nordwerk GmbH','zitat':'Nordwerk GmbH'}],
+                         'relationen':[{'quelle':'Anna Berg','art':'arbeitet für','ziel':'Nordwerk GmbH',
+                                        'zitat':'Anna Berg leitet den Einkauf'}]})
+        with patch('urllib.request.urlopen',fake), patch.object(app.messagebox,'showinfo') as info:
+            dialog.graph_suggest(); self.wait_until_idle(window)
+        self.assertIn('ungeprüft',info.call_args.args[1])
+        rows=[dialog.graph_trees['relations'].item(i,'values') for i in dialog.graph_trees['relations'].get_children()]
+        self.assertEqual(rows[0][3],'ungeprüft')
+        relations=dialog.graph_trees['relations']
+        relations.selection_set(relations.get_children()[0])
+        with patch.object(app.messagebox,'showerror') as error:
+            dialog.graph_confirm()  # entities still proposed
+        error.assert_called_once()
+        mentions=dialog.graph_trees['mentions']
+        relations.selection_remove(relations.get_children()); mentions.selection_set(mentions.get_children())
+        dialog.graph_confirm()
+        relations.selection_set(relations.get_children()[0]); dialog.graph_confirm()
+        self.assertEqual({row['status'] for row in window.store.document_graph(doc)['relations']},{'confirmed'})
+        self.assertEqual({row['status'] for row in window.store.entities()},{'confirmed'})
+        dialog.destroy()
+
     def test_relations_dialog_adds_opens_and_removes(self):
         window=self.window
         plan,_=window.store.add('Wartungsplan','Die Therme bekommt jährlich eine Wartung.')

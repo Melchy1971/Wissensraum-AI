@@ -786,9 +786,10 @@ class App(tk.Tk if tk is not None else object):
             marked.set('Beleg: „'+evidence[0][:200]+'“' if evidence else
                        'Kein Beleg markiert. Text im Dokument markieren, dann „Markierung übernehmen“.')
         trees={}
-        for key,columns in (('mentions',[('entity','Entität',220),('type','Art',120),('quote','Beleg',460)]),
-                            ('relations',[('source','Quelle',180),('type','Relation',140),('target','Ziel',180),
-                                          ('quote','Beleg',300)])):
+        for key,columns in (('mentions',[('entity','Entität',220),('type','Art',120),('state','Prüfung',90),
+                                         ('quote','Beleg',370)]),
+                            ('relations',[('source','Quelle',160),('type','Relation',130),('target','Ziel',160),
+                                          ('state','Prüfung',90),('quote','Beleg',260)])):
             tree=ttk.Treeview(window,columns=[c for c,_,_ in columns],show='headings',height=6)
             for col,title,width in columns:
                 tree.heading(col,text=title); tree.column(col,width=width)
@@ -814,11 +815,13 @@ class App(tk.Tk if tk is not None else object):
             graph=self.store.document_graph(doc_id)
             for key in trees:
                 trees[key].delete(*trees[key].get_children())
+            state={'proposed':'ungeprüft','confirmed':'bestätigt'}
             for row in graph['mentions']:
-                trees['mentions'].insert('','end',iid=str(row['id']),values=(row['entity'],row['type'],row['quote']))
+                trees['mentions'].insert('','end',iid=str(row['id']),values=(row['entity'],row['type'],
+                                                                             state[row['status']],row['quote']))
             for row in graph['relations']:
                 trees['relations'].insert('','end',iid=str(row['id']),values=(row['source'],row['type'],row['target'],
-                                                                              row['quote']))
+                                                                              state[row['status']],row['quote']))
             lookup['etype']={row['name']:row['id'] for row in self.store.entity_types()}
             lookup['rtype']={row['name']:row['id'] for row in self.store.relation_types()}
             lookup['entity']={f'{row["name"]} ({row["type"]})':row['id'] for row in self.store.entities()}
@@ -848,6 +851,29 @@ class App(tk.Tk if tk is not None else object):
             evidence=self.marked_evidence(doc); show_marked()
             if evidence and not name.get():
                 name.set(' '.join(evidence[0].split())[:200])
+        def confirm():
+            # An AI suggestion becomes confirmed: first the entity, then the mention, relations last (step 8B.2).
+            try:
+                for iid in trees['mentions'].selection():
+                    mention=next(m for m in self.store.document_graph(doc_id)['mentions'] if str(m['id'])==iid)
+                    if self.store.entity(mention['entity_id'])['status']=='proposed':
+                        self.store.confirm_graph_item('entity',mention['entity_id'])
+                    if mention['status']=='proposed':
+                        self.store.confirm_graph_item('mention',mention['id'])
+                for iid in trees['relations'].selection():
+                    self.store.confirm_graph_item('relation',int(iid))
+            except ValueError as error:
+                messagebox.showerror('Wissensgraph',str(error),parent=window)
+            show()
+        def suggest():
+            import graph_suggest
+            def done(counts):
+                show()
+                messagebox.showinfo('KI-Vorschläge',f'{counts["entitaeten"]} Entitäten, {counts["erwaehnungen"]} '
+                                    f'Erwähnungen und {counts["relationen"]} Relationen vorgeschlagen, '
+                                    f'{counts["verworfen"]} ohne wörtlichen Beleg oder gültige Art verworfen. '
+                                    'Vorschläge bleiben ungeprüft, bis du sie bestätigst.',parent=window)
+            self.work(lambda:graph_suggest.suggest(self.store,doc_id),done)
         def remove():
             for iid in trees['mentions'].selection():
                 self.store.delete_mention(int(iid))
@@ -857,7 +883,8 @@ class App(tk.Tk if tk is not None else object):
         buttons=ttk.Frame(window,padding=(18,10,18,16)); buttons.pack(fill='x')
         for label,command in [('Markierung übernehmen',take_marked),('Entität anlegen',lambda:act(create)),
                               ('Erwähnung hinzufügen',lambda:act(mention)),('Relation anlegen',lambda:act(relate)),
-                              ('Markierte entfernen',remove),('Änderungen',self.show_graph_changes)]:
+                              ('Markierte bestätigen',confirm),('Markierte entfernen',remove),
+                              ('KI-Vorschläge (Ollama)',suggest),('Änderungen',self.show_graph_changes)]:
             ttk.Button(buttons,text=label,command=command).pack(side='left',padx=(0,8))
         if evidence:
             name.set(' '.join(evidence[0].split())[:200])
@@ -866,6 +893,7 @@ class App(tk.Tk if tk is not None else object):
                                                        'source':source,'relation_type':relation_type,'target':target}
         window.graph_create=lambda:act(create); window.graph_mention=lambda:act(mention)
         window.graph_relate=lambda:act(relate); window.graph_take=take_marked; window.graph_remove=remove
+        window.graph_confirm=confirm; window.graph_suggest=suggest
         return window
 
     def show_graph_changes(self):
@@ -879,7 +907,7 @@ class App(tk.Tk if tk is not None else object):
                                 ('old','vorher',150),('new','nachher',150),('state','',110)]:
             tree.heading(col,text=title); tree.column(col,width=width)
         tree.pack(fill='both',expand=True,padx=18,pady=(16,8))
-        actions={'create':'angelegt','delete':'entfernt','rename':'umbenannt','revert':'Rücknahme'}
+        actions={'create':'angelegt','delete':'entfernt','rename':'umbenannt','revert':'Rücknahme','confirm':'bestätigt'}
         objects={'entity':'Entität','mention':'Erwähnung','relation':'Relation','entity_type':'Entitätsart',
                  'relation_type':'Relationsart','change':'Änderung'}
         def show():

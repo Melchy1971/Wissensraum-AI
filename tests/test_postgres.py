@@ -186,7 +186,7 @@ class PostgresStoreTests(unittest.TestCase):
         store = PostgresStore(self.profile, self.password)
         with store.connect() as db:
             self.assertEqual([row['version'] for row in db.execute(
-                'SELECT version FROM schema_migrations ORDER BY version')], list(range(1, 17)))
+                'SELECT version FROM schema_migrations ORDER BY version')], list(range(1, 18)))
             old = db.execute("""SELECT -ts_rank_cd(to_tsvector('simple',d.title || ' ' || d.category || ' ' || c.content),
                                 websearch_to_tsquery('simple','Wartung OR Haus')) AS rank
                                 FROM chunks c JOIN documents d ON d.id=c.document_id""").fetchone()['rank']
@@ -438,6 +438,10 @@ class PostgresStoreTests(unittest.TestCase):
         from test_organization import check_export_contract
         with tempfile.TemporaryDirectory() as folder:
             check_export_contract(self, PostgresStore(self.profile, self.password), folder)
+
+    def test_graph_suggestions_on_real_postgresql(self):
+        from test_graph_suggest import check_suggestion_contract
+        check_suggestion_contract(self, PostgresStore(self.profile, self.password))
 
     def test_graph_on_real_postgresql(self):
         from test_graph import check_graph_contract
