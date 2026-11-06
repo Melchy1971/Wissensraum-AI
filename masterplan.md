@@ -46,13 +46,23 @@
 
 **Status:** 8A.3 ✅.
 
-## Aktualisierung 05.11.2026 (Abend) – Phase 8A, Schritt 8A.4 Beziehungen und Fassungsvergleich 🟡
+## Aktualisierung 05.11.2026 (Abend) – Phase 8A, Schritt 8A.4 Beziehungen und Fassungsvergleich ✅
 
 **Umfang:** Schema 15 mit der Tabelle `document_relations` (Quelle, Ziel, Art `references`, `supersedes` oder `related`, Notiz; je Paar und Art eindeutig, `related` ohne Richtung mit der kleineren Kennung als Quelle), Migration für SQLite mit geprüfter Sicherung und für PostgreSQL unter Advisory Lock, Kataloge und `schema.sql` angepasst. `Relations` (beide Backends): `relate`, `unrelate`, `relations` aus Sicht eines Dokuments, `compare` als zeilenweiser Vergleich zweier Dokumente (difflib, höchstens 2.000 Zeilen). Anlegen und Entfernen einer Beziehung stehen im Metadatenverlauf (`relation`). Oberfläche: Dialog „Beziehungen“; im Dialog „Versionen“ Vergleich zweier markierter Versionen mit farbigen Zeilen. CLI: `relate`, `unrelate`, `relations`, `compare`.
 
 **Nachweise:** Gemeinsamer Vertrag `check_relations_contract` (SQLite und PostgreSQL): Richtung je Art, Notiz normalisiert, doppelte und ungültige Beziehungen abgelehnt (auch Selbstbezug und unbekanntes Dokument), Verlauf bei Anlegen und Entfernen, Dokumente unverändert, Löschen eines Dokuments entfernt seine Beziehungen, Vergleich zweier Versionen mit Zählung und identischer Fassung. Dazu Test der Begrenzung, CLI- und Oberflächentests, Migrations- und Diagnosetests auf Schema 15.
 
-**Status:** 8A.4 🟡 bis Matrix-Gate 7 von 7 und GitHub-CI grün.
+**Gate:** Lokales Matrix-Gate an `9fc8ba9`: 7 von 7 (`local-ci-gate-9fc8ba9.md`). Linux 3.11, 3.12, 3.13 je 614 Tests bestanden, 31 übersprungen; PostgreSQL 18.6 31 von 31; Windows 3.11, 3.12, 3.13 je 614 bestanden, 35 übersprungen (windows-3.11 mit 9 wiederholten Tests nach Dateisperren des Virenscanners). GitHub Actions für PR #11: 14 von 14 grün.
+
+**Status:** 8A.4 ✅.
+
+## Aktualisierung 05.11.2026 (Abend) – Phase 8A, Schritt 8A.5 Sammlungsexport mit Quellenmanifest 🟡
+
+**Umfang:** Ohne Schemaänderung. `Organization.export_collection` schreibt eine Sammlung als ZIP-Archiv: alle Originale bytegetreu (Notizen als UTF-8-Text) unter `dokumente/` mit bereinigtem, nummeriertem Dateinamen und `manifest.json` (Format `wissensraum-sammlung` Version 1, Schemaversion, Exportzeit UTC, Metadaten je Dokument, Quelltyp und ursprünglicher Dateiname ohne Fundort, Größe und SHA-256 jeder Datei, Hash des gespeicherten Textes, Beziehungen innerhalb der Sammlung). Schreiben über eine temporäre Datei mit `os.replace`; eine vorhandene Zieldatei wird nur ausdrücklich ersetzt. Oberfläche: „Exportieren“ im Dialog „Sammlungen“; CLI: `collection-export`.
+
+**Nachweise:** Gemeinsamer Vertrag `check_export_contract` (SQLite und PostgreSQL): Archivinhalt und Dateinamen, jede Datei mit Größe und SHA-256 laut Manifest, Original bytegetreu, Notiz als Text, Metadaten und Quelltyp, Beziehungen nach außen ausgelassen, kein Überschreiben ohne Freigabe, unbekannte Sammlung ohne Datei und ohne temporäre Reste, leere Sammlung. Dazu CLI- und Oberflächentest.
+
+**Status:** 8A.5 🟡 bis Matrix-Gate 7 von 7 und GitHub-CI grün. Danach Abnahme von Release 2.2 durch den Product Owner.
 
 ## Aktualisierung 05.11.2026 – Phase 7 abgeschlossen, Release 2.1 freigegeben ✅
 
@@ -654,7 +664,7 @@ Die Phasen werden in der angegebenen Reihenfolge getestet. Eine Phase wird erst 
 | 5 | Release 1.9 Betriebsfähigkeit | ✅ | freigegeben 23.10.2026 |
 | 6 | Release 2.0 Importplattform | ✅ | freigegeben 23.10.2026, in vier Teilschritten (D-010); 6.1 ✅ (23.10.2026, CI [39925457254](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39925457254) auf `ca5bce6`), 6.2 ✅ (23.10.2026, CI [39932577799](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39932577799) auf `4cdb50e`), 6.3a ✅ (23.10.2026, CI [39942033441](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39942033441) auf `e36be53`), 6.3 ✅ (6.3b 23.10.2026, CI [39976859099](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39976859099) auf `e4d1f95`), alle vier Teilschritte ✅ (6.4 24.10.2026, CI [40097227667](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40097227667) auf `d05ef87`); abgenommen 26.10.2026 durch den Product Owner mit eigenen Daten; Soll-Umfang folgt als Release 2.0.1 (D-013), S1 in Arbeit |
 | 7 | Release 2.1 Hybrid-RAG | ✅ freigegeben 05.11.2026 (D-021) | nach Phase 6 |
-| 8 | Wissensorganisation und Wissensgraph | 🟡 8A.1 ✅, 8A.2 ✅, 8A.3 ✅, 8A.4 🟡 | nach Phase 7 |
+| 8 | Wissensorganisation und Wissensgraph | 🟡 8A.1 ✅, 8A.2 ✅, 8A.3 ✅, 8A.4 ✅, 8A.5 🟡 | nach Phase 7 |
 | 9 | Betrieb und Governance | ⬜ | nach Phase 8 |
 | 10 | Release 3.0 Sicherheitskern und Mehrbenutzerbetrieb | ⬜ | separates Architektur- und Sicherheits-Gate |
 | 11 | Release 3.1 VPS-Webanwendung und eigene Domain | ⬜ | erst nach Phase 10; öffentliche Bereitstellung nur mit vollständigem Sicherheits- und Betriebs-Gate |
@@ -949,9 +959,9 @@ Frühere Zwischenstände: Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33
 - Tags, Sammlungen, Favoriten und gespeicherte Suchen ✅ 8A.3 (`10253b7`)
 - Dokumentstatus: neu, geprüft, veraltet, archiviert ✅ 8A.2 (`046efaa`)
 - Verantwortlicher und Wiedervorlagedatum ✅ 8A.2 (`046efaa`)
-- Beziehungen zwischen Dokumenten
+- Beziehungen zwischen Dokumenten ✅ 8A.4 (`9fc8ba9`)
 - Metadatenbearbeitung ohne Veränderung des Originals ✅ 8A.1 (`4d2ecbe`): Titel, Bereich, Tags mit Verlauf
-- kontrollierte Versionierung und Vergleich zweier Fassungen
+- kontrollierte Versionierung und Vergleich zweier Fassungen ✅ 8A.4 (`9fc8ba9`)
 - Export einzelner Sammlungen mit Quellenmanifest
 
 **Test und Abnahme:**

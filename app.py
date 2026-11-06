@@ -579,13 +579,31 @@ class App(tk.Tk if tk is not None else object):
             for index in box.curselection():
                 self.store.delete_collection(rows[index]['id'])
             show(); self.refresh()
+        def export():
+            chosen = box.curselection()
+            if len(chosen) != 1:
+                messagebox.showerror('Sammlungen','Genau eine Sammlung zum Exportieren markieren.',parent=window)
+                return
+            row = rows[chosen[0]]
+            target = filedialog.asksaveasfilename(parent=window,title='Sammlung exportieren',defaultextension='.zip',
+                                                  initialfile=f'{row["name"]}.zip',filetypes=[('ZIP-Archiv','*.zip')])
+            if not target:
+                return
+            try:  # the save dialog has already asked before replacing an existing file
+                report = self.store.export_collection(row['id'],target,overwrite=True)
+            except (OSError,ValueError) as error:
+                messagebox.showerror('Sammlung exportieren',str(error),parent=window)
+                return
+            messagebox.showinfo('Sammlung exportieren',f'{len(report["documents"])} Dokumente mit Quellenmanifest '
+                                                       'exportiert.',parent=window)
         buttons = ttk.Frame(window,padding=(18,10,18,16)); buttons.pack(fill='x')
         ttk.Button(buttons,text='Übernehmen',command=save,style='Accent.TButton').pack(side='left')
         ttk.Button(buttons,text='Neue Sammlung',command=create).pack(side='left',padx=(8,0))
         ttk.Button(buttons,text='Markierte löschen',command=delete).pack(side='left',padx=(8,0))
+        ttk.Button(buttons,text='Exportieren',command=export).pack(side='left',padx=(8,0))
         show()
         window.collection_box = box; window.collection_save = save; window.collection_create = create
-        window.collection_delete = delete
+        window.collection_delete = delete; window.collection_export = export
         return window
 
     def show_document(self):

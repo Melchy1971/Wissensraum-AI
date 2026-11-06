@@ -629,6 +629,12 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn('Sammlungen: Fahrten',window.detail.get('1.0','end'))
         dialog=window.edit_collections()
         dialog.collection_box.selection_set(0)
+        target=self.base/'fahrten.zip'
+        with patch.object(app.filedialog,'asksaveasfilename',return_value=str(target)), \
+                patch.object(app.messagebox,'showinfo') as info:
+            dialog.collection_export()
+        self.assertIn('1 Dokumente',info.call_args.args[1])
+        self.assertTrue(target.is_file())
         with patch.object(app.messagebox,'askyesno',return_value=True):
             dialog.collection_delete()
         self.assertEqual(window.store.collections(),[])
