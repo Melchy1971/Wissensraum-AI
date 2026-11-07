@@ -59,6 +59,7 @@ Ohne ausdrückliche Anweisung keine Arbeit aus einer späteren Phase beginnen, s
 | `graph_view.py` | Graphansicht mit Filtern und Ringlayout |
 | `operations.py` | Betriebsübersicht: nur Zahlen, Status und Fehlercodes, keine Inhalte |
 | `budgets.py` | Tokenzählung je Antwort und Monatsbudgets je KI-Anbieter mit Sperre |
+| `retention.py` | Aufbewahrungsregeln für KI-Verlauf, Nutzungszählung, Importfehler und gelöschte Graphobjekte |
 | `vector_sync.py` | Einbettung der Abschnitte im Hintergrund |
 | `configuration.py`, `configuration_authority.py` | Konfigurationstransfer ohne Zugangsdaten |
 | `diagnostics.py`, `local_logging.py` | Startdiagnose und strukturiertes Betriebsprotokoll |

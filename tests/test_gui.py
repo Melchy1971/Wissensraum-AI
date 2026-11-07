@@ -786,6 +786,30 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn('nur Zahlen',error.call_args.args[1])
         self.assertEqual(budgets.limits(window.store,'anthropic')['tokens'],500000)
 
+    def test_retention_page_saves_rules_and_applies_only_after_confirmation(self):
+        import retention
+        window=self.window
+        self.assertIn('Aufbewahrung',[window.settings_sections.tab(t,'text') for t in window.settings_sections.tabs()])
+        window.store.log('question','Alt','Antwort',{},'gpt')
+        with window.store.connect() as db:
+            db.execute("UPDATE ai_runs SET created_at='2020-01-01 00:00:00'")
+        window.retention_days['ki_verlauf'].set('30')
+        window.save_retention()
+        self.assertEqual(retention.rules(window.store)['ki_verlauf'],30)
+        self.assertIn('ai_runs 1',window.retention_status.get())
+        with patch.object(app.messagebox,'askyesno',return_value=False):
+            window.apply_retention()
+        self.assertEqual(len(window.store.history()),1)
+        with patch.object(app.messagebox,'askyesno',return_value=True) as ask:
+            window.apply_retention()
+        self.assertIn('ai_runs 1',ask.call_args.args[1])
+        self.assertEqual(window.store.history(),[])
+        window.retention_days['ki_verlauf'].set('-5')
+        with patch.object(app.messagebox,'showerror') as error:
+            window.save_retention()
+        self.assertIn('ganze Tage',error.call_args.args[1])
+        self.assertEqual(retention.rules(window.store)['ki_verlauf'],30)
+
     def test_metadata_dialog_saves_changes_with_history(self):
         window=self.window
         doc_id,_=window.store.add('Wartungsplan','Die Therme bekommt jährlich eine Wartung.',category='Haus')

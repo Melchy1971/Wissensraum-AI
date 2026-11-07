@@ -1737,6 +1737,7 @@ class App(tk.Tk if tk is not None else object):
         self.bind('<Configure>',lambda event:self.refit_settings_page() if event.widget is self else None,add='+')
         self.ai_settings_frame=self.add_scrollable_settings_page('KI-Anbieter')
         self.budget_settings_frame=self.add_scrollable_settings_page('Budgets')
+        self.retention_settings_frame=self.add_scrollable_settings_page('Aufbewahrung')
         self.database_settings_frame=self.add_scrollable_settings_page('Datenbank')
         self.mail_settings_frame=self.add_scrollable_settings_page('E-Mail-Konten')
         self.rules_settings_frame=self.add_scrollable_settings_page('Regeln')
@@ -1793,6 +1794,7 @@ class App(tk.Tk if tk is not None else object):
         self.build_mail_settings()
         self.build_design_settings()
         self.build_budget_settings()
+        self.build_retention_settings()
         self.build_configuration_settings()
         self.rules_page=RulesPage(self,self.rules_settings_frame)
 
@@ -1903,6 +1905,64 @@ class App(tk.Tk if tk is not None else object):
             return
         self.load_budget()
         self.status.set('Budget gespeichert')
+
+    def build_retention_settings(self):
+        import retention
+        frame=self.retention_settings_frame
+        ttk.Label(frame,text='Aufbewahrung',font=('Segoe UI',18,'bold')).pack(anchor='w')
+        ttk.Label(frame,text='Wie viele Tage Einträge aufbewahrt werden; 0 bedeutet unbegrenzt. Entfernt wird nur, wenn '
+                  'du „Jetzt anwenden“ bestätigst, und endgültig. Die Zählung für Budgets behält den laufenden Monat '
+                  'immer. Ältere Änderungen am Wissensgraphen lassen sich danach nicht mehr zurücknehmen.',
+                  wraplength=940).pack(anchor='w',pady=(6,12))
+        form=ttk.Frame(frame)
+        form.pack(fill='x')
+        self.retention_days={}
+        for row,(key,(title,_)) in enumerate(retention.CATEGORIES.items()):
+            ttk.Label(form,text=title).grid(row=row,column=0,sticky='w',padx=(0,20),pady=4)
+            self.retention_days[key]=tk.StringVar()
+            ttk.Spinbox(form,from_=0,to=retention.MAX_DAYS,width=8,textvariable=self.retention_days[key]
+                        ).grid(row=row,column=1,sticky='w',pady=4)
+        actions=ttk.Frame(frame)
+        actions.pack(anchor='w',pady=(12,8))
+        ttk.Button(actions,text='Regeln speichern',command=self.save_retention,style='Accent.TButton').pack(side='left')
+        ttk.Button(actions,text='Jetzt anwenden …',command=self.apply_retention).pack(side='left',padx=(8,0))
+        self.retention_status=tk.StringVar()
+        ttk.Label(frame,textvariable=self.retention_status,wraplength=940).pack(anchor='w')
+        self.load_retention()
+
+    def load_retention(self):
+        import retention
+        for key,days in retention.rules(self.store).items():
+            self.retention_days[key].set(str(days))
+        self.retention_status.set('Vorschau: '+retention.report(retention.preview(self.store)))
+
+    def save_retention(self):
+        import retention
+        try:
+            days={key:int(var.get().strip() or 0) for key,var in self.retention_days.items()}
+            if not all(0<=value<=retention.MAX_DAYS for value in days.values()):
+                raise ValueError
+        except ValueError:
+            messagebox.showerror('Regeln nicht gespeichert',f'Bitte ganze Tage zwischen 0 und {retention.MAX_DAYS} '
+                                 'eintragen.',parent=self)
+            return
+        for key,value in days.items():
+            retention.set_rule(self.store,key,value)
+        self.load_retention()
+        self.status.set('Aufbewahrungsregeln gespeichert')
+
+    def apply_retention(self):
+        import retention
+        counts=retention.preview(self.store)
+        if not any(n for tables in counts.values() for n in tables.values()):
+            messagebox.showinfo('Aufbewahrung','Nach den gespeicherten Regeln ist nichts zu entfernen.',parent=self)
+            return
+        if not messagebox.askyesno('Aufbewahrung anwenden','Diese Einträge werden endgültig entfernt:\n\n'
+                                   +retention.report(counts)+'\n\nFortfahren?',parent=self):
+            return
+        removed=retention.apply(self.store)
+        self.load_retention()
+        self.status.set('Entfernt: '+', '.join(f'{t} {n}' for tables in removed.values() for t,n in tables.items() if n))
 
     def build_design_settings(self):
         frame=self.design_settings_frame

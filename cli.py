@@ -86,6 +86,11 @@ def main(argv=None):
     budget.add_argument('--eur',type=float,help='Kosten in Euro je Kalendermonat, braucht Preise')
     budget.add_argument('--price-in',type=float,help='Euro je 1 Million Eingabe-Token')
     budget.add_argument('--price-out',type=float,help='Euro je 1 Million Ausgabe-Token')
+    keep = commands.add_parser('retention',help='Aufbewahrungsregeln: ohne Angabe Vorschau, mit --apply --confirm anwenden')
+    keep.add_argument('category',nargs='?',choices=('ki_verlauf','ki_nutzung','importfehler','graph_geloescht'))
+    keep.add_argument('--days',type=int,help='Tage aufbewahren (0 = unbegrenzt)')
+    keep.add_argument('--apply',action='store_true',help='Regeln jetzt anwenden (entfernt endgültig)')
+    keep.add_argument('--confirm',action='store_true',help='Bestätigung für --apply')
     listing = commands.add_parser('list')
     listing.add_argument('--all-versions',action='store_true',help='auch ältere Versionen anzeigen')
     listing.add_argument('--tag',help='nur Dokumente mit diesem Tag')
@@ -460,6 +465,21 @@ def main(argv=None):
                     budgets.set_limits(store,args.provider,tokens=args.tokens,eur=args.eur,
                                        price_in=args.price_in,price_out=args.price_out)
                 result = budgets.status(store,args.provider)
+            elif args.command == 'retention':
+                import retention
+                if args.category is not None:
+                    if args.days is None:
+                        raise ValueError('Für eine Regel --days angeben (0 = unbegrenzt).')
+                    result = retention.set_rule(store,args.category,args.days)
+                elif args.apply and not args.confirm:
+                    print(retention.report(retention.preview(store)))
+                    print('Zum endgültigen Entfernen --apply --confirm angeben.',file=sys.stderr)
+                    return 2
+                else:
+                    counts = retention.apply(store) if args.apply else retention.preview(store)
+                    print(('Entfernt:\n' if args.apply else 'Vorschau:\n') + retention.report(counts))
+                    _log_event(logger,'command_completed',metadata=metadata)
+                    return 0
             elif args.command == 'status':
                 results = health_overview(store,Settings(store,BASE,vault),
                                           MailAccounts(store,vault,BASE),PROVIDERS)
