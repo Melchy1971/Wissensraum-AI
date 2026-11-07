@@ -71,6 +71,18 @@
 - Ausschluss auf V2 gemessen (06.11.2026, nur Suche ohne Antwortmodell, Messkopie danach gelöscht): 90 Fragen, alle Bestandsdokumente nach Migration `new`. Recall@10 63 von 66 ohne und mit Ausschluss, 0 von 90 Trefferlisten verschieden. Nach Markieren der 2 erwarteten Dokumente der Fragen e01 bis e11 (ohne e07) als veraltet fanden ohne Ausschluss alle 10 Fragen sie weiter, mit Ausschluss enthielt keine der 90 Trefferlisten sie.
 - Manuelle Prüfung der Dialoge Metadaten, Sammlungen, Beziehungen, Versionsvergleich und Export am Desktop: durch den Product Owner bestanden (06.11.2026).
 
+## Aktualisierung 07.11.2026 – Phase 9, Schritt 9.6 Datenschutzexport und selektive Löschung 🟡
+
+**Umfang 9.6:** Neues Modul `privacy.py`, kein neues Schema. Export: alle Anwendungstabellen außer den abgeleiteten (`chunks`, `chunk_vectors`) als JSON, Binärwerte als Dateien, Manifest; Datei entsteht vollständig oder gar nicht. Selektive Löschung: Suche nach Text in Titel, Dateiname oder Inhalt (Platzhalterzeichen wörtlich), Vorschau der Folgen, Löschung in einer Transaktion samt Abschnitten, Volltexteinträgen, Vektoren, Versionen, Tags, Beziehungen, Graph-Erwähnungen und -Relationen, verwaisten Entitäten und deren Protokolleinträgen, KI-Antworten mit Zitat der Dokumente (beide Speicherformate) und Importeinträgen. SQLite: `secure_delete`, FTS5 `optimize` und `wal_checkpoint(TRUNCATE)`; die Meldung nennt die Zahl der Sicherungen, die die Daten noch enthalten. PostgreSQL: Freigabe über Autovacuum, dokumentiert. Oberfläche: Einstellungsseite „Datenschutz“; CLI `privacy-export`, `privacy-find`, `privacy-erase --confirm`.
+
+**Nachweise:** Gemeinsamer Vertrag `check_privacy_contract` (SQLite und PostgreSQL): Suche ohne Rücksicht auf Groß- und Kleinschreibung und mit wörtlichen Platzhaltern, Folgenvorschau, Ablehnung unbekannter Nummern ohne Teillöschung, vollständige Löschung des Abgeleiteten, unbeteiligtes Dokument und seine KI-Antwort bleiben, Volltextsuche findet nichts mehr. SQLite: gelöschter Text steht weder in Datei, WAL noch Volltextindex. Export mit allen Tabellen und Originalen, ohne abgeleitete Tabellen, ohne Restdatei. CLI mit Pflichtbestätigung, Oberflächentest. Linux Python 3.13: 673 Tests, 0 Fehler, 42 übersprungen (umgebungsbedingt). gitleaks ohne Fund.
+
+**Offen für die Phasenabnahme:** Gesamtübung (Sicherung, Wiederherstellung, Sicherheitsprüfung, Datenschutzexport) mit den echten Daten des Product Owners; Bestätigung der Annahmen aus 9.2 und 9.4.
+
+**Gate:** Lokales Matrix-Gate und GitHub Actions stehen aus.
+
+**Status:** 9.6 🟡.
+
 ## Aktualisierung 07.11.2026 – Phase 9, Schritt 9.5 Sicherheitsprüfungen in CI, SBOM, signierte Release-Artefakte 🟡
 
 **Umfang 9.5:** Workflow `security.yml` (Push, Pull Request, Aufruf aus dem Release): `pip-audit` 2.10.1 für `requirements-ocr.txt` mit allen abhängigen Paketen und `requirements-pst.txt`; `gitleaks` 8.28.0 (Prüfsumme festgelegt) über die gesamte Historie mit `.gitleaks.toml`, die nur die vier synthetischen Testwerte ausnimmt; `bandit` 1.9.4, hohe Schwere blockiert, Gesamtbericht als Artefakt; CycloneDX-Stückliste aus einer Umgebung mit genau den Anwendungsabhängigkeiten. Workflow `release.yml` für Tags `v*`: Tests und Sicherheitsprüfungen als Voraussetzung, dann Quellarchiv, Stückliste und Prüfsummenliste, schlüssellose Sigstore-Signatur (`sigstore/gh-action-sigstore-python` v3.5.0, an den Commit gebunden) und GitHub-Release mit Bündeln; manueller Start als Probelauf ohne Release. `tests.yml` zusätzlich aufrufbar, Push-Auslöser auf Branches begrenzt.
@@ -1127,7 +1139,7 @@ Frühere Zwischenstände: Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33
 
 ### Phase 9 – Release 2.4 Betrieb und Governance 🟡
 
-**Stand 07.11.2026:** Plan 9.1 bis 9.6 freigegeben (siehe Aktualisierung 07.11.2026), 9.1 Betriebsübersicht 🟡, 9.2 Budgets je Anbieter 🟡 (Schema 18), 9.3 Aufbewahrungsregeln 🟡, 9.4 Integrität, Sicherung und Übung 🟡, 9.5 Sicherheitsprüfungen, SBOM, Signatur 🟡, 9.6 ⬜.
+**Stand 07.11.2026:** Plan 9.1 bis 9.6 freigegeben (siehe Aktualisierung 07.11.2026), 9.1 Betriebsübersicht 🟡, 9.2 Budgets je Anbieter 🟡 (Schema 18), 9.3 Aufbewahrungsregeln 🟡, 9.4 Integrität, Sicherung und Übung 🟡, 9.5 Sicherheitsprüfungen, SBOM, Signatur 🟡, 9.6 Datenschutzexport und selektive Löschung 🟡. Offen: Gates, Gesamtübung, Abnahme.
 
 **Ziel:** Datenqualität, Kosten, Sicherheit und Wiederherstellbarkeit werden messbar gesteuert.
 

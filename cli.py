@@ -94,6 +94,12 @@ def main(argv=None):
     backup_settings = commands.add_parser('backup-settings',help='Sicherungsordner, Anzahl und Automatik')
     backup_settings.add_argument('--folder'); backup_settings.add_argument('--keep',type=int)
     backup_settings.add_argument('--auto',choices=('on','off'))
+    commands.add_parser('privacy-export',help='Alle gespeicherten Daten als ZIP (Tabellen als JSON, Originale als '
+                        'Dateien)').add_argument('target',type=Path)
+    commands.add_parser('privacy-find',help='Dokumente mit einem Text in Titel, Dateiname oder Inhalt und die Folgen '
+                        'einer Löschung').add_argument('text')
+    erase = commands.add_parser('privacy-erase',help='Dokumente samt allem Abgeleiteten endgültig löschen')
+    erase.add_argument('ids',type=int,nargs='+'); erase.add_argument('--confirm',action='store_true')
     keep = commands.add_parser('retention',help='Aufbewahrungsregeln: ohne Angabe Vorschau, mit --apply --confirm anwenden')
     keep.add_argument('category',nargs='?',choices=('ki_verlauf','ki_nutzung','importfehler','graph_geloescht'))
     keep.add_argument('--days',type=int,help='Tage aufbewahren (0 = unbegrenzt)')
@@ -492,6 +498,21 @@ def main(argv=None):
                 import backups
                 result = backups.set_settings(store,auto=None if args.auto is None else args.auto=='on',
                                               folder=args.folder,keep=args.keep)
+            elif args.command == 'privacy-export':
+                import privacy
+                result = privacy.export(store,args.target)
+            elif args.command == 'privacy-find':
+                import privacy
+                found = privacy.find(store,args.text)
+                result = {'dokumente':[{'id':d['id'],'title':d['title']} for d in found],
+                          'folgen':privacy.impact(store,[d['id'] for d in found])}
+            elif args.command == 'privacy-erase':
+                import privacy
+                if not args.confirm:
+                    print(json.dumps(privacy.impact(store,args.ids),ensure_ascii=False,indent=2))
+                    print('Zum endgültigen Löschen --confirm angeben.',file=sys.stderr)
+                    return 2
+                result = privacy.erase(store,args.ids)
             elif args.command == 'retention':
                 import retention
                 if args.category is not None:
