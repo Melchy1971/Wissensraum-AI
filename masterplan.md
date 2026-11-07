@@ -71,6 +71,42 @@
 - Ausschluss auf V2 gemessen (06.11.2026, nur Suche ohne Antwortmodell, Messkopie danach gelöscht): 90 Fragen, alle Bestandsdokumente nach Migration `new`. Recall@10 63 von 66 ohne und mit Ausschluss, 0 von 90 Trefferlisten verschieden. Nach Markieren der 2 erwarteten Dokumente der Fragen e01 bis e11 (ohne e07) als veraltet fanden ohne Ausschluss alle 10 Fragen sie weiter, mit Ausschluss enthielt keine der 90 Trefferlisten sie.
 - Manuelle Prüfung der Dialoge Metadaten, Sammlungen, Beziehungen, Versionsvergleich und Export am Desktop: durch den Product Owner bestanden (06.11.2026).
 
+## Aktualisierung 07.11.2026 – Phase 9, Schritt 9.5 Sicherheitsprüfungen in CI, SBOM, signierte Release-Artefakte 🟡
+
+**Umfang 9.5:** Workflow `security.yml` (Push, Pull Request, Aufruf aus dem Release): `pip-audit` 2.10.1 für `requirements-ocr.txt` mit allen abhängigen Paketen und `requirements-pst.txt`; `gitleaks` 8.28.0 (Prüfsumme festgelegt) über die gesamte Historie mit `.gitleaks.toml`, die nur die vier synthetischen Testwerte ausnimmt; `bandit` 1.9.4, hohe Schwere blockiert, Gesamtbericht als Artefakt; CycloneDX-Stückliste aus einer Umgebung mit genau den Anwendungsabhängigkeiten. Workflow `release.yml` für Tags `v*`: Tests und Sicherheitsprüfungen als Voraussetzung, dann Quellarchiv, Stückliste und Prüfsummenliste, schlüssellose Sigstore-Signatur (`sigstore/gh-action-sigstore-python` v3.5.0, an den Commit gebunden) und GitHub-Release mit Bündeln; manueller Start als Probelauf ohne Release. `tests.yml` zusätzlich aufrufbar, Push-Auslöser auf Branches begrenzt.
+
+**Befunde und Korrekturen:** `pip-audit` meldete für den bisherigen Stand 67 Schwachstellen in pypdf 6.10.0 und 39 in Pillow 12.3.0 (beide verarbeiten importierte, unvertrauenswürdige Dateien). Angehoben auf pypdf 6.21.4 und Pillow 13.0.0, danach keine bekannten Schwachstellen. `gitleaks` fand 9 Stellen, alle synthetische Testwerte; Gegenprobe mit einem echt aussehenden Schlüssel schlägt weiterhin an. `bandit`: keine hohe Schwere; 46 mittlere Funde geprüft: 45 × B608 (f-String mit festen Tabellen- und Spaltennamen aus Konstanten, Werte immer parametrisiert), 1 × B310 (`urlopen` in `importer._graph_get`, vorher auf `https://graph.microsoft.com` beschränkt). Keine Änderung nötig.
+
+**Nachweise:** Lokal mit denselben Versionen: `pip-audit` sauber, `gitleaks git` und `gitleaks dir` ohne Fund, `bandit -lll` ohne Fund, Stückliste CycloneDX 1.6 mit 34 Komponenten. Testsuite mit den neuen Bibliotheksversionen im Matrix-Gate. Die Release-Signatur lässt sich erst mit einem Tag oder manuellem Start auf GitHub nachweisen.
+
+**Gate:** Lokales Matrix-Gate und GitHub Actions (einschließlich `Security`) stehen aus.
+
+**Status:** 9.5 🟡.
+
+## Aktualisierung 07.11.2026 – Phase 9, Schritt 9.4 Integritätsprüfung, tägliche Sicherung, Wiederherstellungsübung 🟡
+
+**Umfang 9.4:** Neues Modul `backups.py`, kein neues Schema (Einstellungen in `settings`). Integritätsprüfung: SQLite `integrity_check`, Fremdschlüssel, `validate_sqlite` und Prüfsumme jedes Dokuments; PostgreSQL Schemaversion und Prüfsummen; Ergebnis nur mit Zählungen und Dokumentnummern. Tägliche Sicherung (SQLite): Kopie über die Backup-API in eine temporäre Datei, Prüfung von Struktur, Schema und Prüfsummen, erst dann Umbenennen in `wissen-<Zeitstempel>.db`; Aufräumen auf die neuesten N Dateien dieses Musters; Abbruch bei weniger als doppelter Datenbankgröße frei. Auslösung in der Oberfläche eine Minute nach Start und danach stündlich im eigenen Thread, wenn die letzte Sicherung 24 Stunden oder älter ist; CLI `backup-daily` für die Aufgabenplanung. Wiederherstellungsübung: neueste Sicherung über `restore_sqlite` in eine temporäre Datei, Prüfung, Messung der Dauer gegen 2 Stunden, Ergebnis gespeichert; die aktive Datenbank bleibt unberührt. Betriebsübersicht zeigt Alter der Sicherung (RPO) und letzte Übung, Warnung nach 24 Stunden bzw. 90 Tagen. PostgreSQL: Sicherung und Übung weiter mit pg_dump und pg_restore auf dem Server, in der Anwendung nur Integritätsprüfung. Oberfläche im Reiter „Betrieb“, CLI `integrity`, `backup-daily [--force]`, `restore-drill`, `backup-settings`.
+
+**Annahmen (vom Product Owner zu bestätigen):** Automatische Sicherung standardmäßig an, Ordner `backups` neben der Datenbank, 7 Sicherungen behalten, Übung manuell mit Erinnerung nach 90 Tagen.
+
+**Nachweise:** `check_integrity_contract` (SQLite und PostgreSQL) mit manipulierter Prüfsumme; beschädigte Datei wird als Befund gemeldet statt abzubrechen; Sicherung geprüft, fällig nach 24 Stunden, Aufräumen auf N, keine Restdateien, Automatik aus, Speicherplatzgrenze, anderer Ordner; Übung bestanden, aktive Datenbank unberührt, Fälligkeit nach 90 Tagen; Übersicht ohne Pfade; CLI- und Oberflächentest. Linux Python 3.13: 667 Tests, 0 Fehler, 41 übersprungen (umgebungsbedingt).
+
+**Offen für die Phasenabnahme:** Gesamtübung nach Gate von Phase 9 (Sicherung, Wiederherstellung, Sicherheitsprüfung und Datenschutzexport in einem Durchgang) mit den echten Daten des Product Owners.
+
+**Gate:** Lokales Matrix-Gate und GitHub Actions stehen aus.
+
+**Status:** 9.4 🟡.
+
+## Aktualisierung 07.11.2026 – Phase 9, Schritt 9.3 Aufbewahrungsregeln 🟡
+
+**Umfang 9.3:** Neues Modul `retention.py`, kein neues Schema (Regeln in `settings`). Vier Kategorien mit Aufbewahrung in Tagen, 0 = unbegrenzt (Voreinstellung): KI-Verlauf (`ai_runs`), KI-Nutzungszählung (`ai_usage`, laufender Monat bleibt immer), Fehlereinträge von Importaufträgen (`import_item_errors`), gelöschte Objekte und Änderungsprotokoll des Wissensgraphen (`graph_relations`, `entity_mentions`, `entities` mit `deleted_at`, `graph_changes`). Anwenden nur auf ausdrückliche Bestätigung nach Vorschau, in einer Transaktion. SQLite: `secure_delete` für die Löschung und anschließend `wal_checkpoint(TRUNCATE)`, damit entfernter Text nicht in Datei oder WAL lesbar bleibt. PostgreSQL: Freigabe über Autovacuum, dokumentiert. Oberfläche: Einstellungsseite „Aufbewahrung“ mit Vorschau und „Jetzt anwenden …“ mit Bestätigung. CLI: `retention [kategorie --days N] [--apply --confirm]`. Dokumente, Metadatenverlauf und Sammlungen sind ausgenommen; die selektive Löschung von Inhalten folgt mit 9.6.
+
+**Nachweise:** Gemeinsamer Vertrag `check_retention_contract` (SQLite und PostgreSQL): ohne Regel wird nichts entfernt, Vorschau entfernt nichts, Anwenden entfernt genau die Vorschau, Bestandteile in Gebrauch bleiben, laufender Budgetmonat bleibt auch bei einem Tag Frist, ungültige Werte abgelehnt. SQLite: entfernter Text steht danach weder in der Datenbankdatei noch im WAL. Dazu CLI mit Pflichtbestätigung und Oberflächentest (Ablehnen entfernt nichts, ungültige Eingabe speichert nichts). Linux Python 3.13: 658 Tests, 0 Fehler, 40 übersprungen (umgebungsbedingt).
+
+**Gate:** Lokales Matrix-Gate und GitHub Actions stehen aus.
+
+**Status:** 9.3 🟡.
+
 ## Aktualisierung 07.11.2026 – Phase 9, Schritt 9.2 Token- und Kostenbudgets je Anbieter 🟡
 
 **Umfang 9.2:** Schema 18 mit Tabelle `ai_usage` (Anbieter, Modell, Eingabe- und Ausgabe-Token, Zeitpunkt, kein Text), Migration für SQLite mit geprüfter Sicherung und für PostgreSQL unter Advisory Lock, Kataloge und `schema.sql` angepasst. Neues Modul `budgets.py`: Jede Antwort eines Anbieters wird mit den von ihm gemeldeten Tokenzahlen gezählt (OpenAI, Anthropic, Gemini einschließlich Denktoken, Ollama), auch abgeschnittene Antworten. Budget je Anbieter und Kalendermonat (UTC) in Token und optional in Euro mit selbst eingetragenen Preisen je 1 Million Token; 0 bedeutet ohne Grenze. Ab 80 % Warnung, ab 100 % lehnt `AI._request` jede weitere Anfrage an diesen Anbieter vor dem Senden ab (`ProviderError` der Art `budget`, ohne Wiederholung); die KI-Vorschläge für den Wissensgraphen enden dann sofort. Eine laufende Anfrage wird nicht abgebrochen, das Budget kann um eine Antwort überschritten werden. Einbettungen der semantischen Suche werden nicht gezählt. Oberfläche: Einstellungsseite „Budgets“, Monatsstand in der Betriebsübersicht. CLI: `budget [anbieter] [--tokens N] [--eur X] [--price-in X] [--price-out Y]`.
@@ -1091,7 +1127,7 @@ Frühere Zwischenstände: Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33
 
 ### Phase 9 – Release 2.4 Betrieb und Governance 🟡
 
-**Stand 07.11.2026:** Plan 9.1 bis 9.6 freigegeben (siehe Aktualisierung 07.11.2026), 9.1 Betriebsübersicht 🟡, 9.2 Budgets je Anbieter 🟡 (Schema 18), 9.3 bis 9.6 ⬜.
+**Stand 07.11.2026:** Plan 9.1 bis 9.6 freigegeben (siehe Aktualisierung 07.11.2026), 9.1 Betriebsübersicht 🟡, 9.2 Budgets je Anbieter 🟡 (Schema 18), 9.3 Aufbewahrungsregeln 🟡, 9.4 Integrität, Sicherung und Übung 🟡, 9.5 Sicherheitsprüfungen, SBOM, Signatur 🟡, 9.6 ⬜.
 
 **Ziel:** Datenqualität, Kosten, Sicherheit und Wiederherstellbarkeit werden messbar gesteuert.
 

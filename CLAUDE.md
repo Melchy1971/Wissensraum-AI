@@ -59,6 +59,8 @@ Ohne ausdrückliche Anweisung keine Arbeit aus einer späteren Phase beginnen, s
 | `graph_view.py` | Graphansicht mit Filtern und Ringlayout |
 | `operations.py` | Betriebsübersicht: nur Zahlen, Status und Fehlercodes, keine Inhalte |
 | `budgets.py` | Tokenzählung je Antwort und Monatsbudgets je KI-Anbieter mit Sperre |
+| `backups.py` | Integritätsprüfung, tägliche geprüfte SQLite-Sicherung und Wiederherstellungsübung |
+| `retention.py` | Aufbewahrungsregeln für KI-Verlauf, Nutzungszählung, Importfehler und gelöschte Graphobjekte |
 | `vector_sync.py` | Einbettung der Abschnitte im Hintergrund |
 | `configuration.py`, `configuration_authority.py` | Konfigurationstransfer ohne Zugangsdaten |
 | `diagnostics.py`, `local_logging.py` | Startdiagnose und strukturiertes Betriebsprotokoll |
@@ -195,7 +197,7 @@ PGTEST_ALLOW_DESTRUCTIVE=1 python -m unittest tests.test_postgres -v
 
 Vor Ausführung sicherstellen, dass der konfigurierte Datenbankname auf `_test` endet. Fehlt `migrations.py` im ausgecheckten Stand, zuerst Repository-Stand und Branch klären; die Prüfung nicht stillschweigend abschwächen.
 
-Matrix-Gate: Das lokale Gate `tests/local_ci.py` bildet die Actions-Matrix mit denselben sieben Jobs ab (seit 28.10.2026 verbindlich, als GitHub Actions kein Budget hatte): Windows und Linux jeweils mit Python 3.11, 3.12 und 3.13 sowie der PostgreSQL-18-Vertrag gegen einen Wegwerf-Cluster. Jede Maschine führt `python tests/local_ci.py run` für ihre Plattform aus, der PostgreSQL-Job läuft mit `--postgres --pg-bin <PostgreSQL-18-bin>`. Die Ergebnisdateien beider Plattformen gehören nach `.local-ci/results/<commit>/`. `python tests/local_ci.py report` schreibt `local-ci-gate-<commit>.md` und gilt nur bei 7 von 7 grünen Jobs am selben Commit als bestanden. Einzelne lokale Testläufe ohne dieses Protokoll ersetzen das Gate nicht. GitHub Actions läuft seit 03.11.2026 wieder; ein Pull Request wird nur bei vollständig grünem Workflow gemergt. Scheitert windows-3.11 lokal nur an Dateisperren des Virenscanners beim Aufräumen der Temp-Ordner, gilt Windows 3.11 über GitHub Actions als nachgewiesen (D-020).
+Matrix-Gate: Das lokale Gate `tests/local_ci.py` bildet die Actions-Matrix mit denselben sieben Jobs ab (seit 28.10.2026 verbindlich, als GitHub Actions kein Budget hatte): Windows und Linux jeweils mit Python 3.11, 3.12 und 3.13 sowie der PostgreSQL-18-Vertrag gegen einen Wegwerf-Cluster. Jede Maschine führt `python tests/local_ci.py run` für ihre Plattform aus, der PostgreSQL-Job läuft mit `--postgres --pg-bin <PostgreSQL-18-bin>`. Die Ergebnisdateien beider Plattformen gehören nach `.local-ci/results/<commit>/`. `python tests/local_ci.py report` schreibt `local-ci-gate-<commit>.md` und gilt nur bei 7 von 7 grünen Jobs am selben Commit als bestanden. Einzelne lokale Testläufe ohne dieses Protokoll ersetzen das Gate nicht. GitHub Actions läuft seit 03.11.2026 wieder; ein Pull Request wird nur bei vollständig grünem Workflow gemergt. Seit Schritt 9.5 gehört dazu auch `.github/workflows/security.yml` (pip-audit, gitleaks, bandit, Stückliste); synthetische Testwerte, die wie Zugangsdaten aussehen, einzeln in `.gitleaks.toml` eintragen, nicht ganze Ordner ausnehmen. Scheitert windows-3.11 lokal nur an Dateisperren des Virenscanners beim Aufräumen der Temp-Ordner, gilt Windows 3.11 über GitHub Actions als nachgewiesen (D-020).
 
 ## 10. Phasen- und Statusregeln
 
