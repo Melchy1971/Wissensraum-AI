@@ -83,7 +83,7 @@ def check_retention_contract(case, store):
     case.assertEqual(budgets.status(store, 'openai')['token'], 4)  # this month stays for the budget
     with store.connect() as db:  # the current month is kept even with a one-day rule
         db.execute("UPDATE ai_usage SET created_at=?", (datetime.now(timezone.utc).replace(day=1, hour=0, minute=0,
-                    second=1, microsecond=0).strftime('%Y-%m-%d %H:%M:%S'),))
+                    second=1, microsecond=0).strftime('%Y-%m-%d %H:%M:%S+00:00'),))
     retention.set_rule(store, 'ki_nutzung', 1)
     now = datetime.now(timezone.utc).replace(day=1, hour=23)
     case.assertEqual(retention.preview(store, now)['ki_nutzung'], {'ai_usage': 0})
