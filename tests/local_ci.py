@@ -17,7 +17,8 @@ machine into the same folder before ``report``. ``report`` writes ``local-ci-gat
 and exits with 0 only when all seven jobs passed on that commit.
 
 Interpreters: ``LOCAL_CI_PY311`` (``..._PY312``, ``..._PY313``) override the search, otherwise
-``uv python find``, the Windows ``py`` launcher and ``python3.X`` on PATH are tried in this order.
+the Windows ``py`` launcher (python.org builds), ``uv python find`` and ``python3.X`` on PATH are
+tried in this order. A virtual environment whose base is no longer the found interpreter is rebuilt.
 
 Tests write their temporary files to ``.local-ci/tmp/<job>``. Exclude this folder from on-access
 virus scanning: a scanner that opens new files there makes cleanup and file-list assertions flaky.
@@ -172,16 +173,31 @@ def find_python(version):
     override = os.environ.get('LOCAL_CI_PY' + version.replace('.', ''))
     if override:
         return override
+    # Windows asks the py launcher first: it lists the python.org builds the gate is meant to use.
+    # uv may return its own python-build-standalone build (cleanup errors, see above) or the
+    # interpreter of an unrelated virtual environment on PATH.
+    if os.name == 'nt' and shutil.which('py'):
+        found = subprocess.run(['py', f'-{version}', '-c', 'import sys;print(sys.executable)'],
+                               capture_output=True, text=True, check=False)
+        if found.returncode == 0 and found.stdout.strip():
+            return found.stdout.strip()
     if shutil.which('uv'):
         found = subprocess.run(['uv', 'python', 'find', version], capture_output=True, text=True, check=False)
         if found.returncode == 0 and found.stdout.strip():
             return found.stdout.strip()
-    if os.name == 'nt' and shutil.which('py'):
-        found = subprocess.run(['py', f'-{version}', '-c', 'import sys;print(sys.executable)'],
-                               capture_output=True, text=True, check=False)
-        if found.returncode == 0:
-            return found.stdout.strip()
     return shutil.which(f'python{version}')
+
+
+def venv_home(target):
+    """Resolved folder of the interpreter a virtual environment was built from ('' if unknown)."""
+    try:
+        for line in (target / 'pyvenv.cfg').read_text(encoding='utf-8').splitlines():
+            key, _, value = line.partition('=')
+            if key.strip() == 'home':
+                return os.path.normcase(str(Path(value.strip()).resolve()))
+    except OSError:
+        pass
+    return ''
 
 
 def venv_python(version, base):
@@ -190,6 +206,8 @@ def venv_python(version, base):
     exe = target / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
     stamp = target / 'requirements.stamp'
     wanted = (ROOT / 'requirements-ocr.txt').read_text() + (ROOT / 'requirements.txt').read_text()
+    if exe.exists() and venv_home(target) != os.path.normcase(str(Path(base).resolve().parent)):
+        shutil.rmtree(target)  # built from another interpreter, e.g. uv's build before the py launcher
     if not exe.exists():
         subprocess.run([base, '-m', 'venv', str(target)], check=True)
     if not stamp.exists() or stamp.read_text() != wanted:
