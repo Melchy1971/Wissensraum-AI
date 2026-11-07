@@ -127,6 +127,10 @@ Die SQLite-Datei ist nicht durch die Anwendung verschlüsselt. Sie enthält auch
 
 **Sicherung:** Bei SQLite erstellt „Datenbank sichern“ eine vollständige Datenbankkopie einschließlich Originalen und KI-Verlauf. **Wiederherstellung (SQLite):** „Sicherung wiederherstellen“ unter **Einstellungen → Datenbank** wählt eine Sicherungsdatei und verlangt zur Bestätigung den exakten Dateinamen der aktiven Datenbank. Die Sicherung wird nur gelesen. Ihre Kopie wird vorab auf Integrität, unterstützte Schemaversion (1 bis 11) und exakte Schemastruktur geprüft. Danach legt die Anwendung den aktuellen Stand als geprüfte Datei `wissen.db.pre-restore-<Zeitstempel>-<Kennung>.bak` ab und spielt die Sicherung unter der Migrationssperre über die SQLite-Backup-API ein. Anschließend werden Integrität, Schema und alle Dokument-Prüfsummen mit der Sicherung verglichen. Bei einer Abweichung wird der vorherige Stand automatisch zurückgespielt. Ältere Schemaversionen werden danach regulär auf die aktuelle Schemaversion migriert. Ist die aktuelle Datenbank selbst nicht lesbar, wird sie nicht überschrieben: Datei samt `-wal`/`-shm` umbenennen und die Wiederherstellung erneut ausführen. Gleiches über die CLI: `python cli.py restore sicherung.db --confirm wissen.db`. Bei aktivem PostgreSQL öffnet die lokale Sicherungsschaltfläche derzeit noch den Dateidialog und meldet anschließend, dass diese Sicherungsart nicht unterstützt wird. PostgreSQL wird außerhalb der Anwendung gesichert, siehe **PostgreSQL-Sicherung und -Wiederherstellung**. Schlüsseldatei separat sichern.
 
+### Betriebsübersicht (Release 2.4, Schritt 9.1)
+
+Der Reiter **Betrieb** zeigt auf Knopfdruck, was gespeichert ist und was im gewählten Zeitraum (Standard 30 Tage, höchstens 3.650) passiert ist: Dokumente nach Status und Quelle, Textumfang und Größe der Originale, fällige Wiedervorlagen, Abschnitte mit Vektoren je Modell und ohne Vektor, Importaufträge und Einträge nach Status, Importfehler nach Fehlercode, KI-Anfragen nach Art, Modell und Antwortstatus sowie Entitäten und Relationen des Wissensgraphen. Die Übersicht enthält nur Zahlen, Status und Fehlercodes, keine Titel, Texte, Fragen, Antworten, Pfade oder Fehlermeldungen; der JSON-Export lässt sich deshalb für Support weitergeben. CLI: `python cli.py overview --days 7` oder mit `--json`.
+
 ### PostgreSQL-Sicherung und -Wiederherstellung
 
 Gesichert wird nur das Anwendungsschema `wissensraum`. Voraussetzung sind `pg_dump`, `pg_restore` und `psql` in mindestens der Hauptversion des Servers. Das Kennwort fragen die Werkzeuge interaktiv ab; es gehört nicht in die Befehlszeile. Für den VPS vorher `PGSSLMODE=verify-full` setzen (Windows: `set PGSSLMODE=verify-full`). Platzhalter in spitzen Klammern ersetzen.
@@ -162,6 +166,7 @@ python cli.py job-resume 3
 python cli.py job-report 3 importbericht.csv
 python cli.py preview Dokumente
 python cli.py list
+python cli.py overview --days 30  # Betriebsübersicht, nur Zahlen
 python cli.py vectors --activate     # semantische Suche vorbereiten (lokales Ollama)
 python cli.py vectors --run          # alle Abschnitte ohne Vektor jetzt einbetten
 python cli.py list --all-versions

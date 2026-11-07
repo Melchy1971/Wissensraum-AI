@@ -76,6 +76,10 @@ def main(argv=None):
     commands.add_parser('doctor')
     commands.add_parser('status',help='Gesundheit von Datenbank, aktiver KI und E-Mail-Konten anzeigen')
     commands.add_parser('config-sync')
+    overview = commands.add_parser('overview',help='Betriebsübersicht: Datenmenge, Importfehler, Vektorstand, KI-Nutzung '
+                                   '(nur Zahlen, keine Inhalte)')
+    overview.add_argument('--days',type=int,default=30,help='Zeitraum für Importfehler und KI-Anfragen (1 bis 3.650)')
+    overview.add_argument('--json',action='store_true',help='als JSON statt als Text')
     listing = commands.add_parser('list')
     listing.add_argument('--all-versions',action='store_true',help='auch ältere Versionen anzeigen')
     listing.add_argument('--tag',help='nur Dokumente mit diesem Tag')
@@ -433,6 +437,13 @@ def main(argv=None):
                 result = ImportJobs(store).run(args.job_id)
             elif args.command == 'job-report':
                 result = {'bericht':str(ImportJobs(store).write_report(args.job_id,args.target))}
+            elif args.command == 'overview':
+                import operations
+                result = operations.overview(store,args.days)
+                if not args.json:
+                    print(operations.report(result))
+                    _log_event(logger,'command_completed',metadata=metadata)
+                    return 0
             elif args.command == 'status':
                 results = health_overview(store,Settings(store,BASE,vault),
                                           MailAccounts(store,vault,BASE),PROVIDERS)

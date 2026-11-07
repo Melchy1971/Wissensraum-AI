@@ -224,6 +224,8 @@ class App(tk.Tk if tk is not None else object):
         self.tabs.add(self.history_tab,text='KI-Verlauf')
         self.import_tab = ttk.Frame(self.tabs,padding=16)
         self.tabs.add(self.import_tab,text='Import')
+        self.operations_tab = ttk.Frame(self.tabs,padding=16)
+        self.tabs.add(self.operations_tab,text='Betrieb')
         self.settings_tab = ttk.Frame(self.tabs,padding=16)
         self.tabs.add(self.settings_tab,text='Einstellungen')
         search = ttk.Frame(self.library)
@@ -307,6 +309,17 @@ class App(tk.Tk if tk is not None else object):
         ttk.Button(self.history_tab,text='Verlauf aktualisieren',command=self.show_history).pack(anchor='w',pady=(0,12))
         self.history = ScrolledText(self.history_tab,wrap='word',font=('Segoe UI',11),padx=14,pady=12)
         self.history.pack(fill='both',expand=True)
+        bar = ttk.Frame(self.operations_tab)
+        bar.pack(fill='x',pady=(0,12))
+        ttk.Label(bar,text='Zeitraum in Tagen').pack(side='left')
+        self.operations_days = tk.StringVar(value='30')
+        ttk.Spinbox(bar,from_=1,to=3650,width=6,textvariable=self.operations_days).pack(side='left',padx=(6,12))
+        ttk.Button(bar,text='Übersicht aktualisieren',command=self.show_operations).pack(side='left')
+        ttk.Button(bar,text='Als JSON exportieren',command=self.export_operations).pack(side='left',padx=(8,0))
+        ttk.Label(self.operations_tab,text='Nur Zahlen, Status und Fehlercodes; keine Titel, Texte, Fragen oder Pfade.'
+                  ).pack(anchor='w',pady=(0,8))
+        self.operations = ScrolledText(self.operations_tab,wrap='word',font=('Segoe UI',11),padx=14,pady=12)
+        self.operations.pack(fill='both',expand=True)
         source='PostgreSQL' if self.store.backend=='postgresql' else 'SQLite · Einzelplatz'
         self.status = tk.StringVar(value='Bereit · '+source)
         ttk.Label(self,textvariable=self.status,padding=(24,0,24,12)).pack(fill='x')
@@ -357,7 +370,7 @@ class App(tk.Tk if tk is not None else object):
                   foreground=[('selected','white'),('active',palette['text'])])
         if hasattr(self,'brand_bar'):
             self.brand_bar.configure(bg=palette['accent'])
-        for name in ('detail','answer','history'):
+        for name in ('detail','answer','history','operations'):
             widget=getattr(self,name,None)
             if widget:
                 self.configure_text_widget(widget)
@@ -1358,6 +1371,25 @@ class App(tk.Tk if tk is not None else object):
             self.work(lambda:self.ai().summarize(doc_id),self.present_answer)
         except ValueError as e:
             messagebox.showinfo('Dokument auswählen',str(e),parent=self)
+
+    def operations_overview(self):
+        import operations
+        try:
+            days = int(self.operations_days.get())
+        except ValueError:
+            days = operations.DEFAULT_DAYS
+        return operations.overview(self.store,days)
+
+    def show_operations(self):
+        import operations
+        self.write(self.operations,operations.report(self.operations_overview()))
+
+    def export_operations(self):
+        target = filedialog.asksaveasfilename(parent=self,title='Betriebsübersicht exportieren',defaultextension='.json',
+                                              initialfile='betriebsuebersicht.json',filetypes=[('JSON','*.json')])
+        if target:
+            Path(target).write_text(json.dumps(self.operations_overview(),ensure_ascii=False,indent=2),encoding='utf-8')
+            self.status.set('Betriebsübersicht exportiert')
 
     def show_history(self):
         items = self.store.history()
