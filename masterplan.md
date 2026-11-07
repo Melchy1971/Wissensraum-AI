@@ -98,7 +98,7 @@
 **Offen für die Abnahme von Release 2.3:**
 - Manuelle Prüfung am Desktop: Dialog „Wissensgraph“ (Beleg aus Markierung, KI-Vorschläge, Bestätigen, Zusammenführen, Trennen, Änderungen mit Rücknahme) und „Graphansicht“.
 - Graphkontext mit gefülltem Graphen: Die V2-Messung belegt nur, dass Antworten ohne Graph unverändert bleiben. Eine Messung mit bestätigten Relationen braucht einen vom Product Owner geprüften Graphen in seinem Bestand.
-- Zeitabhängige Tests: `test_sqlite_migrations_serialize_across_spawned_processes` (GitHub, 10 Sekunden), `test_import_lock_blocks_an_independent_process_and_releases_after_exit` (lokal windows-3.12) und ein Hänger in `test_matrix_for_50000_vectors_stays_below_200_mib` (lokal windows-3.12) traten je einmal auf; sie berühren den Graphen nicht.
+- Zeitabhängige Tests: `test_sqlite_migrations_serialize_across_spawned_processes` (GitHub, 10 Sekunden), `test_import_lock_blocks_an_independent_process_and_releases_after_exit` (lokal windows-3.12) und ein Hänger in `test_matrix_for_50000_vectors_stays_below_200_mib` (lokal windows-3.12) traten je einmal auf; sie berühren den Graphen nicht. Die beiden prozessbasierten Tests warten seit 07.11.2026 bis zu 30 bzw. 60 Sekunden auf den Kindprozess (vorher 5 bzw. 10); ein bestandener Test endet weiter, sobald der Prozess fertig ist. Für den Hänger im Matrixtest gibt es keinen Befund, er bleibt beobachtet.
 
 
 ## Aktualisierung 06.11.2026 – Phase 8B, Schritt 8B.4 Graphansicht mit Filtern ✅

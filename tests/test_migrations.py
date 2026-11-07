@@ -548,10 +548,10 @@ class SQLiteMigrationTests(unittest.TestCase):
             try:
                 with _database_file_lock(path):
                     process.start()
-                    self.assertTrue(started.wait(5), 'child process did not start')
+                    self.assertTrue(started.wait(30), 'child process did not start')
                     time.sleep(0.15)
                     self.assertTrue(process.is_alive(), 'child bypassed the migration lock')
-                process.join(10)
+                process.join(60)  # a full migration from schema 0 in a fresh process, slow on CI runners
                 self.assertFalse(process.is_alive(), 'child migration did not finish after lock release')
                 self.assertEqual(process.exitcode, 0)
                 self.assertEqual(result.get(timeout=2), ('ok', None))

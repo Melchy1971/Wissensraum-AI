@@ -28,6 +28,10 @@ from design import DesignSettings
 from settings import Settings
 from test_settings import FakeVault
 
+# Child processes start slowly on loaded CI machines (Windows runners, virus scanner); generous upper bounds
+# keep the tests about behaviour, not speed. A passing test returns as soon as the child is done.
+PROCESS_TIMEOUT = 30
+
 
 class HostileString(str):
     called = False
@@ -601,7 +605,7 @@ finally:
            ready=str(ready), release=str(release))
         process = subprocess.Popen([sys.executable, '-c', script])
         try:
-            deadline = time.monotonic() + 5
+            deadline = time.monotonic() + PROCESS_TIMEOUT
             while not ready.exists() and process.poll() is None and time.monotonic() < deadline:
                 time.sleep(.01)
             self.assertTrue(ready.exists())
@@ -611,7 +615,7 @@ finally:
                 self.transfer.import_document(import_document)
             self.assertTrue(ConfigurationAuthority(self.base).pending_path.exists())
             release.write_text('release', encoding='utf-8')
-            self.assertEqual(process.wait(timeout=5), 0)
+            self.assertEqual(process.wait(timeout=PROCESS_TIMEOUT), 0)
             self.assertFalse(ConfigurationAuthority(self.base).pending_path.exists())
             self.assertEqual(Settings(self.store, self.base, self.vault, {}).active(), 'ollama')
         finally:
@@ -642,7 +646,7 @@ finally:
             "lock.release()")
         process = subprocess.Popen([sys.executable, '-c', script], cwd=str(Path(__file__).parents[1]))
         try:
-            deadline = time.monotonic() + 5
+            deadline = time.monotonic() + PROCESS_TIMEOUT
             while not ready.exists() and process.poll() is None and time.monotonic() < deadline:
                 time.sleep(.01)
             self.assertTrue(ready.exists())
@@ -650,7 +654,7 @@ finally:
             with self.assertRaisesRegex(ConfigurationTransferError, '^' + re.escape(APPLY_ERROR) + '$'):
                 other.import_document(document)
             release.write_text('release', encoding='utf-8')
-            self.assertEqual(process.wait(timeout=5), 0)
+            self.assertEqual(process.wait(timeout=PROCESS_TIMEOUT), 0)
             self.assertEqual(other.import_document(document), {'restart_required': False})
         finally:
             release.write_text('release', encoding='utf-8')
@@ -670,7 +674,7 @@ finally:
         process = subprocess.Popen([sys.executable, '-c', script],
                                    cwd=str(Path(__file__).parents[1]))
         try:
-            deadline = time.monotonic() + 5
+            deadline = time.monotonic() + PROCESS_TIMEOUT
             while not ready.exists() and process.poll() is None and time.monotonic() < deadline:
                 time.sleep(.01)
             self.assertTrue(ready.exists())
@@ -678,7 +682,7 @@ finally:
                                         '^' + re.escape(EXPORT_ERROR) + '$'):
                 self.transfer.export_document()
             release.write_text('release', encoding='utf-8')
-            self.assertEqual(process.wait(timeout=5), 0)
+            self.assertEqual(process.wait(timeout=PROCESS_TIMEOUT), 0)
             self.assertEqual(self.transfer.export_document()['format'],
                              'wissensraum-configuration')
         finally:
