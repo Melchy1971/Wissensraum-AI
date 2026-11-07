@@ -2,7 +2,7 @@
 
 **Dokumentversion:** 1.9
 
-**Stand:** 05.11.2026
+**Stand:** 07.11.2026
 
 **Produktstand:** 2.1 freigegeben am 05.11.2026 (Code-Stand `4957182`, Gate an `b0b41de`) · 2.0 abgenommen am 26.10.2026 (Code-Stand `84f9ecf`) · 1.9 freigegeben am 23.10.2026
 
@@ -12,7 +12,7 @@
 
 **Ablage:** Einziger Masterplan ist diese Datei `masterplan.md`. Die frühere Kopie `docs/masterplan.md` wurde am 22.10.2026 entfernt.
 
-**Status:** Phasen- und Testplan · Release 1.9 freigegeben, Release 2.0 abgenommen 26.10.2026, Phasen 0 bis 6 ✅ · Release 2.0.1 (Soll-Umfang von Phase 6, D-013) abgenommen 26.10.2026, Phase 7 (Release 2.1) ✅, Release 2.1 freigegeben 05.11.2026 (D-021): 7.1 Evaluationsdatensatz ✅, 7.2a Vektorspeicher und Embedding-Adapter ✅, 7.2b Einbettung im Hintergrund ✅, 7.3 hybride Suche ✅, 7.4 Quellenabsicherung ✅ (eingefrorener Bestand V2 mit `qwen3:8b`: False Reject 3 von 66, False Accept 1 von 24 in zwei Läufen, synthetisch 9,3 % und 3,1 %), Chunk-Strategie je Dokumenttyp ✅ und Fundstellenanzeige ✅ (Gate 7 von 7 an `b0b41de`) · Phase 8A (Release 2.2 Wissensorganisation) ✅, Release 2.2 freigegeben 06.11.2026 (D-022, Tag `v2.2`): 8A.1 bis 8A.5 ✅, Schema 15, letztes Gate 7 von 7 an `2aadc5c`
+**Status:** Phasen- und Testplan · Release 1.9 freigegeben, Release 2.0 abgenommen 26.10.2026, Phasen 0 bis 6 ✅ · Release 2.0.1 (Soll-Umfang von Phase 6, D-013) abgenommen 26.10.2026, Phase 7 (Release 2.1) ✅, Release 2.1 freigegeben 05.11.2026 (D-021): 7.1 Evaluationsdatensatz ✅, 7.2a Vektorspeicher und Embedding-Adapter ✅, 7.2b Einbettung im Hintergrund ✅, 7.3 hybride Suche ✅, 7.4 Quellenabsicherung ✅ (eingefrorener Bestand V2 mit `qwen3:8b`: False Reject 3 von 66, False Accept 1 von 24 in zwei Läufen, synthetisch 9,3 % und 3,1 %), Chunk-Strategie je Dokumenttyp ✅ und Fundstellenanzeige ✅ (Gate 7 von 7 an `b0b41de`) · Phase 8A (Release 2.2 Wissensorganisation) ✅, Release 2.2 freigegeben 06.11.2026 (D-022, Tag `v2.2`): 8A.1 bis 8A.5 ✅, Schema 15, letztes Gate 7 von 7 an `2aadc5c` · Phase 8B (Release 2.3) 🟡, Abnahme offen · Phase 9 (Release 2.4) 🟡: 9.1 bis 9.6 umgesetzt und gemergt (07.11.2026), Schema 18, Abnahme offen
 
 **Legende:** ✅ vollständig implementiert und gesamtes Gate nachweislich bestanden · 🟡 implementiert oder teilweise geprüft, aber noch nicht vollständig abgenommen · ❌ Gate fehlgeschlagen oder Freigabe blockiert · ⬜ geplant und noch nicht begonnen
 
@@ -71,7 +71,7 @@
 - Ausschluss auf V2 gemessen (06.11.2026, nur Suche ohne Antwortmodell, Messkopie danach gelöscht): 90 Fragen, alle Bestandsdokumente nach Migration `new`. Recall@10 63 von 66 ohne und mit Ausschluss, 0 von 90 Trefferlisten verschieden. Nach Markieren der 2 erwarteten Dokumente der Fragen e01 bis e11 (ohne e07) als veraltet fanden ohne Ausschluss alle 10 Fragen sie weiter, mit Ausschluss enthielt keine der 90 Trefferlisten sie.
 - Manuelle Prüfung der Dialoge Metadaten, Sammlungen, Beziehungen, Versionsvergleich und Export am Desktop: durch den Product Owner bestanden (06.11.2026).
 
-## Aktualisierung 07.11.2026 – Phase 9, Schritt 9.6 Datenschutzexport und selektive Löschung 🟡
+## Aktualisierung 07.11.2026 – Phase 9, Schritt 9.6 Datenschutzexport und selektive Löschung ✅
 
 **Umfang 9.6:** Neues Modul `privacy.py`, kein neues Schema. Export: alle Anwendungstabellen außer den abgeleiteten (`chunks`, `chunk_vectors`) als JSON, Binärwerte als Dateien, Manifest; Datei entsteht vollständig oder gar nicht. Selektive Löschung: Suche nach Text in Titel, Dateiname oder Inhalt (Platzhalterzeichen wörtlich), Vorschau der Folgen, Löschung in einer Transaktion samt Abschnitten, Volltexteinträgen, Vektoren, Versionen, Tags, Beziehungen, Graph-Erwähnungen und -Relationen, verwaisten Entitäten und deren Protokolleinträgen, KI-Antworten mit Zitat der Dokumente (beide Speicherformate) und Importeinträgen. SQLite: `secure_delete`, FTS5 `optimize` und `wal_checkpoint(TRUNCATE)`; die Meldung nennt die Zahl der Sicherungen, die die Daten noch enthalten. PostgreSQL: Freigabe über Autovacuum, dokumentiert. Oberfläche: Einstellungsseite „Datenschutz“; CLI `privacy-export`, `privacy-find`, `privacy-erase --confirm`.
 
@@ -79,9 +79,9 @@
 
 **Offen für die Phasenabnahme:** Gesamtübung (Sicherung, Wiederherstellung, Sicherheitsprüfung, Datenschutzexport) mit den echten Daten des Product Owners; Bestätigung der Annahmen aus 9.2 und 9.4.
 
-**Gate:** Lokales Matrix-Gate und GitHub Actions stehen aus.
+**Gate:** Lokales Matrix-Gate an `84e5dc1`: 7 Jobs, windows-3.11 nur mit Aufräumfehlern durch fremde `*.DB-SHM.tmp`-Dateien des Virenscanners, damit nach D-020 über GitHub Actions nachgewiesen (`local-ci-gate-84e5dc1.md`); Windows und Linux je 673 Tests, PostgreSQL 42. GitHub Actions für PR #29 einschließlich `Security`: alle Jobs grün.
 
-**Status:** 9.6 🟡.
+**Status:** 9.6 ✅.
 
 ## Aktualisierung 07.11.2026 – Phase 9, Schritt 9.5 Sicherheitsprüfungen in CI, SBOM, signierte Release-Artefakte 🟡
 
@@ -91,11 +91,11 @@
 
 **Nachweise:** Lokal mit denselben Versionen: `pip-audit` sauber, `gitleaks git` und `gitleaks dir` ohne Fund, `bandit -lll` ohne Fund, Stückliste CycloneDX 1.6 mit 34 Komponenten. Testsuite mit den neuen Bibliotheksversionen im Matrix-Gate. Die Release-Signatur lässt sich erst mit einem Tag oder manuellem Start auf GitHub nachweisen.
 
-**Gate:** Lokales Matrix-Gate und GitHub Actions (einschließlich `Security`) stehen aus.
+**Gate:** Lokales Matrix-Gate an `f2d754e`: 7 von 7 (`local-ci-gate-f2d754e.md`), Windows und Linux je 667 Tests mit pypdf 6.21.4 und Pillow 13.0.0, PostgreSQL 41. GitHub Actions für PR #28: Tests und `Security` (dependencies, secrets, code, sbom) grün. Release-Signatur noch nicht auf GitHub ausgeführt (erst mit Tag oder manuellem Probelauf).
 
-**Status:** 9.5 🟡.
+**Status:** 9.5 🟡: Prüfungen und Stückliste ✅, Sigstore-Signatur erst nach einem manuellen Probelauf oder dem ersten Tag nachgewiesen.
 
-## Aktualisierung 07.11.2026 – Phase 9, Schritt 9.4 Integritätsprüfung, tägliche Sicherung, Wiederherstellungsübung 🟡
+## Aktualisierung 07.11.2026 – Phase 9, Schritt 9.4 Integritätsprüfung, tägliche Sicherung, Wiederherstellungsübung ✅
 
 **Umfang 9.4:** Neues Modul `backups.py`, kein neues Schema (Einstellungen in `settings`). Integritätsprüfung: SQLite `integrity_check`, Fremdschlüssel, `validate_sqlite` und Prüfsumme jedes Dokuments; PostgreSQL Schemaversion und Prüfsummen; Ergebnis nur mit Zählungen und Dokumentnummern. Tägliche Sicherung (SQLite): Kopie über die Backup-API in eine temporäre Datei, Prüfung von Struktur, Schema und Prüfsummen, erst dann Umbenennen in `wissen-<Zeitstempel>.db`; Aufräumen auf die neuesten N Dateien dieses Musters; Abbruch bei weniger als doppelter Datenbankgröße frei. Auslösung in der Oberfläche eine Minute nach Start und danach stündlich im eigenen Thread, wenn die letzte Sicherung 24 Stunden oder älter ist; CLI `backup-daily` für die Aufgabenplanung. Wiederherstellungsübung: neueste Sicherung über `restore_sqlite` in eine temporäre Datei, Prüfung, Messung der Dauer gegen 2 Stunden, Ergebnis gespeichert; die aktive Datenbank bleibt unberührt. Betriebsübersicht zeigt Alter der Sicherung (RPO) und letzte Übung, Warnung nach 24 Stunden bzw. 90 Tagen. PostgreSQL: Sicherung und Übung weiter mit pg_dump und pg_restore auf dem Server, in der Anwendung nur Integritätsprüfung. Oberfläche im Reiter „Betrieb“, CLI `integrity`, `backup-daily [--force]`, `restore-drill`, `backup-settings`.
 
@@ -105,21 +105,21 @@
 
 **Offen für die Phasenabnahme:** Gesamtübung nach Gate von Phase 9 (Sicherung, Wiederherstellung, Sicherheitsprüfung und Datenschutzexport in einem Durchgang) mit den echten Daten des Product Owners.
 
-**Gate:** Lokales Matrix-Gate und GitHub Actions stehen aus.
+**Gate:** Lokales Matrix-Gate an `98b7ea1`: windows-3.11 nur mit Aufräumfehlern durch fremde `*.DB-SHM.tmp`-Dateien (D-020, über GitHub Actions nachgewiesen), übrige 6 Jobs grün (`local-ci-gate-98b7ea1.md`); Windows und Linux je 667 Tests, PostgreSQL 41. GitHub Actions für PR #27: alle Jobs grün.
 
-**Status:** 9.4 🟡.
+**Status:** 9.4 ✅.
 
-## Aktualisierung 07.11.2026 – Phase 9, Schritt 9.3 Aufbewahrungsregeln 🟡
+## Aktualisierung 07.11.2026 – Phase 9, Schritt 9.3 Aufbewahrungsregeln ✅
 
 **Umfang 9.3:** Neues Modul `retention.py`, kein neues Schema (Regeln in `settings`). Vier Kategorien mit Aufbewahrung in Tagen, 0 = unbegrenzt (Voreinstellung): KI-Verlauf (`ai_runs`), KI-Nutzungszählung (`ai_usage`, laufender Monat bleibt immer), Fehlereinträge von Importaufträgen (`import_item_errors`), gelöschte Objekte und Änderungsprotokoll des Wissensgraphen (`graph_relations`, `entity_mentions`, `entities` mit `deleted_at`, `graph_changes`). Anwenden nur auf ausdrückliche Bestätigung nach Vorschau, in einer Transaktion. SQLite: `secure_delete` für die Löschung und anschließend `wal_checkpoint(TRUNCATE)`, damit entfernter Text nicht in Datei oder WAL lesbar bleibt. PostgreSQL: Freigabe über Autovacuum, dokumentiert. Oberfläche: Einstellungsseite „Aufbewahrung“ mit Vorschau und „Jetzt anwenden …“ mit Bestätigung. CLI: `retention [kategorie --days N] [--apply --confirm]`. Dokumente, Metadatenverlauf und Sammlungen sind ausgenommen; die selektive Löschung von Inhalten folgt mit 9.6.
 
 **Nachweise:** Gemeinsamer Vertrag `check_retention_contract` (SQLite und PostgreSQL): ohne Regel wird nichts entfernt, Vorschau entfernt nichts, Anwenden entfernt genau die Vorschau, Bestandteile in Gebrauch bleiben, laufender Budgetmonat bleibt auch bei einem Tag Frist, ungültige Werte abgelehnt. SQLite: entfernter Text steht danach weder in der Datenbankdatei noch im WAL. Dazu CLI mit Pflichtbestätigung und Oberflächentest (Ablehnen entfernt nichts, ungültige Eingabe speichert nichts). Linux Python 3.13: 658 Tests, 0 Fehler, 40 übersprungen (umgebungsbedingt).
 
-**Gate:** Lokales Matrix-Gate und GitHub Actions stehen aus.
+**Gate:** Lokales Matrix-Gate an `dd9f51c`: windows-3.11 nur mit Aufräumfehlern (D-020, über GitHub Actions nachgewiesen), übrige 6 Jobs grün (`local-ci-gate-dd9f51c.md`); Windows und Linux je 658 Tests, PostgreSQL 40. Zwei Testkorrekturen vor dem Gate: LIKE-Muster als Parameter (psycopg) und Zeitstempel mit UTC-Angabe (PostgreSQL-Sitzungszeitzone). GitHub Actions für PR #26: alle Jobs grün.
 
-**Status:** 9.3 🟡.
+**Status:** 9.3 ✅.
 
-## Aktualisierung 07.11.2026 – Phase 9, Schritt 9.2 Token- und Kostenbudgets je Anbieter 🟡
+## Aktualisierung 07.11.2026 – Phase 9, Schritt 9.2 Token- und Kostenbudgets je Anbieter ✅
 
 **Umfang 9.2:** Schema 18 mit Tabelle `ai_usage` (Anbieter, Modell, Eingabe- und Ausgabe-Token, Zeitpunkt, kein Text), Migration für SQLite mit geprüfter Sicherung und für PostgreSQL unter Advisory Lock, Kataloge und `schema.sql` angepasst. Neues Modul `budgets.py`: Jede Antwort eines Anbieters wird mit den von ihm gemeldeten Tokenzahlen gezählt (OpenAI, Anthropic, Gemini einschließlich Denktoken, Ollama), auch abgeschnittene Antworten. Budget je Anbieter und Kalendermonat (UTC) in Token und optional in Euro mit selbst eingetragenen Preisen je 1 Million Token; 0 bedeutet ohne Grenze. Ab 80 % Warnung, ab 100 % lehnt `AI._request` jede weitere Anfrage an diesen Anbieter vor dem Senden ab (`ProviderError` der Art `budget`, ohne Wiederholung); die KI-Vorschläge für den Wissensgraphen enden dann sofort. Eine laufende Anfrage wird nicht abgebrochen, das Budget kann um eine Antwort überschritten werden. Einbettungen der semantischen Suche werden nicht gezählt. Oberfläche: Einstellungsseite „Budgets“, Monatsstand in der Betriebsübersicht. CLI: `budget [anbieter] [--tokens N] [--eur X] [--price-in X] [--price-out Y]`.
 
@@ -127,11 +127,11 @@
 
 **Nachweise:** Gemeinsamer Vertrag `check_budget_contract` (SQLite und PostgreSQL): Zählung, Monatsgrenze, Warnung, Sperre je Anbieter, Eurobudget über Preise, Prüfung ungültiger Werte, kein Inhalt in `ai_usage`. Dazu Auswertung der Tokenangaben aller Anbieter einschließlich fehlerhafter Werte, Sperre vor dem Senden ohne Wiederholung, Abbruch der Graphvorschläge, deutsche Ausgabe, CLI- und Oberflächentest. Migrations-, Diagnose- und Resettests auf Schema 18. Linux Python 3.13: 653 Tests, 0 Fehler, 39 übersprungen (umgebungsbedingt).
 
-**Gate:** Lokales Matrix-Gate und GitHub Actions stehen aus.
+**Gate:** Lokales Matrix-Gate an `a5177e0`: 7 von 7 (`local-ci-gate-a5177e0.md`), Windows und Linux je 653 Tests, PostgreSQL 39. Korrektur vor dem Gate: Versionsliste im PostgreSQL-Test folgt jetzt `CURRENT_SCHEMA_VERSION`. GitHub Actions für PR #25: alle Jobs grün.
 
-**Status:** 9.2 🟡.
+**Status:** 9.2 ✅.
 
-## Aktualisierung 07.11.2026 – Phase 9, Schritt 9.1 Betriebsübersicht 🟡
+## Aktualisierung 07.11.2026 – Phase 9, Schritt 9.1 Betriebsübersicht ✅
 
 **Plan Phase 9 (freigegeben vom Product Owner 06.11.2026, Beginn vor der Abnahme von Release 2.3 ausdrücklich freigegeben):** 9.1 Betriebsübersicht (Importfehler, Datenmenge, Vektorstand, KI-Nutzung) · 9.2 Token- und Kostenbudgets je Anbieter mit Sperre bei Überschreitung · 9.3 Aufbewahrungsregeln für KI-Verlauf und gelöschte Inhalte · 9.4 Integritätsprüfung, tägliche Sicherung (RPO 24 h) und Wiederherstellungsübung (RTO 2 h) · 9.5 Sicherheitsprüfungen in CI (Abhängigkeiten, Secrets, Code) mit Software-Stückliste und signierten Release-Artefakten · 9.6 Datenschutzexport und selektive Löschung. Jeder Schritt mit Tests für beide Backends, Matrix-Gate 7 von 7 und eigenem PR. Signatur über Sigstore in GitHub Actions (D-024).
 
@@ -139,9 +139,9 @@
 
 **Nachweise:** Gemeinsamer Vertrag `check_operations_contract` (SQLite und PostgreSQL): Zählungen je Bereich, Zeitraumfilter für Importfehler und KI-Anfragen, Begrenzung auf 3.650 Tage, kein Titel-, Text-, Fragen-, Pfad- oder Meldungsinhalt in Bericht und JSON. Dazu Test der deutschen Zahlenformatierung, der Wiedervorlage zum angegebenen Tag und Oberflächentest des Reiters mit JSON-Export. Linux Python 3.13: 645 Tests, 0 Fehler, 38 übersprungen (umgebungsbedingt, unter anderem PostgreSQL ohne Wegwerf-Cluster).
 
-**Gate:** Lokales Matrix-Gate und GitHub Actions stehen aus.
+**Gate:** Lokales Matrix-Gate an `fa1659d`: 7 von 7 (`local-ci-gate-fa1659d.md`), Windows und Linux je 645 Tests, PostgreSQL 38. GitHub Actions für PR #24: alle Jobs grün.
 
-**Status:** 9.1 🟡.
+**Status:** 9.1 ✅.
 
 ## Aktualisierung 06.11.2026 – Phase 8B, Schritt 8B.1 Datenmodell des Wissensgraphen ✅
 
@@ -1139,7 +1139,7 @@ Frühere Zwischenstände: Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33
 
 ### Phase 9 – Release 2.4 Betrieb und Governance 🟡
 
-**Stand 07.11.2026:** Plan 9.1 bis 9.6 freigegeben (siehe Aktualisierung 07.11.2026), 9.1 Betriebsübersicht 🟡, 9.2 Budgets je Anbieter 🟡 (Schema 18), 9.3 Aufbewahrungsregeln 🟡, 9.4 Integrität, Sicherung und Übung 🟡, 9.5 Sicherheitsprüfungen, SBOM, Signatur 🟡, 9.6 Datenschutzexport und selektive Löschung 🟡. Offen: Gates, Gesamtübung, Abnahme.
+**Stand 07.11.2026:** Plan 9.1 bis 9.6 freigegeben (siehe Aktualisierung 07.11.2026), alle sechs Schritte umgesetzt, Gate bestanden und gemergt (PR #24 bis #29, Schema 18); 9.1 bis 9.4 und 9.6 ✅, 9.5 🟡 bis zum ersten signierten Lauf. Offen für die Abnahme von Release 2.4: Gesamtübung mit den echten Daten des Product Owners (Sicherung, Wiederherstellung, Sicherheitsprüfung, Datenschutzexport), manuelle Prüfung der neuen Oberflächen (Reiter Betrieb, Einstellungsseiten Budgets, Aufbewahrung, Datenschutz), Bestätigung der Annahmen aus 9.2 und 9.4, erster Release-Lauf mit Sigstore-Signatur. Risiko: Der lokale Windows-Job 3.11 läuft mit einem uv-Build von Python statt dem vorgesehenen python.org-Build; die wiederkehrenden Dateisperren könnten damit zusammenhängen (Umstellung prüfen).
 
 **Ziel:** Datenqualität, Kosten, Sicherheit und Wiederherstellbarkeit werden messbar gesteuert.
 
