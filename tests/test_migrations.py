@@ -490,6 +490,18 @@ class SQLiteMigrationTests(unittest.TestCase):
                     # Migration 18 adds the token counter for budgets, empty after the upgrade.
                     self.assertEqual(db.execute('SELECT count(*) FROM ai_usage').fetchone()[0], 0)
 
+    def test_start_check_accepts_every_older_version_as_needing_migration(self):
+        # Release 2.4: schema 18 left 17 out of Store.version_tables; the start check then rejected
+        # every unchanged database of version 17 before the migration could run.
+        from core import Store
+        for old_version in range(1, CURRENT_SCHEMA_VERSION):
+            with self.subTest(old_version=old_version), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / 'wissen.db'
+                self.create_version_fixture(path, old_version)
+                Store(path, initialize=False).health()
+                with closing(sqlite3.connect(path)) as db:
+                    self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], old_version)
+
     def test_historical_fixtures_do_not_depend_on_runtime_migrations(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'wissen.db'
