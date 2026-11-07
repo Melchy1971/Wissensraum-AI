@@ -144,6 +144,19 @@ Unter **Einstellungen → Aufbewahrung** legst du fest, wie viele Tage vier Arte
 
 Ziele: höchstens 24 Stunden Datenverlust (RPO) und höchstens 2 Stunden bis zur Wiederherstellung (RTO), vierteljährlich eine bestandene Wiederherstellungsübung. Im Reiter **Betrieb** prüft **Integrität prüfen** Dateistruktur, Fremdschlüssel, Schema und die Prüfsumme jedes Dokuments und meldet abweichende Dokumente mit ihrer Nummer. Bei SQLite legt die Anwendung täglich eine geprüfte Sicherung `wissen-<Datum>-<Uhrzeit>.db` im Sicherungsordner ab (Voreinstellung `backups` neben der Datenbank, wählbar über **Sicherungsordner …**): eine Minute nach dem Start und danach stündlich wird geprüft, ob die letzte Sicherung älter als 24 Stunden ist; die Sicherung läuft im Hintergrund. Behalten werden die neuesten 7 (einstellbar 1 bis 365); ältere Sicherungen dieses Namensmusters werden gelöscht, andere Dateien im Ordner nicht. Ist weniger als die doppelte Datenbankgröße frei, entfällt die Sicherung mit Hinweis in der Statuszeile. Ein Ordner auf einem anderen Laufwerk schützt auch vor Plattenausfall. **Wiederherstellungsübung** stellt die neueste Sicherung über denselben geprüften Weg wie „Sicherung wiederherstellen“ in eine temporäre Kopie her, prüft sie, misst die Dauer und vermerkt das Ergebnis; die aktive Datenbank bleibt unberührt. Die Betriebsübersicht zeigt Alter der letzten Sicherung und letzte Übung und warnt nach 24 Stunden ohne Sicherung bzw. 90 Tagen ohne Übung. Für Zeiten, in denen die Anwendung nicht läuft, kann `python cli.py backup-daily` über die Aufgabenplanung des Betriebssystems gestartet werden. Weitere Befehle: `integrity`, `restore-drill`, `backup-settings [--folder …] [--keep N] [--auto on|off]`. PostgreSQL wird weiterhin mit pg_dump auf dem Server gesichert und mit pg_restore geübt; die Anwendung prüft dort nur Schemaversion und Dokument-Prüfsummen.
 
+### Sicherheitsprüfungen und signierte Release-Artefakte (Release 2.4, Schritt 9.5)
+
+Der Workflow `Security` läuft für jeden Push und Pull Request: `pip-audit` meldet bekannte Schwachstellen der festgelegten Abhängigkeiten, `gitleaks` durchsucht die gesamte Git-Historie nach Zugangsdaten (synthetische Testwerte stehen einzeln in `.gitleaks.toml`), `bandit` prüft den Code und blockiert Funde hoher Schwere; der vollständige Bericht und eine Software-Stückliste im CycloneDX-Format (`sbom.cdx.json`) liegen als Artefakte am Lauf. Jede bekannte Schwachstelle einer Abhängigkeit blockiert den Merge, nicht nur kritische. Für ein Tag `v*` startet `Release`: erst Tests und Sicherheitsprüfungen, dann Quellarchiv, Stückliste und `SHA256SUMS.txt`, schlüssellos signiert mit Sigstore über die Identität des Workflows; Dateien und `.sigstore.json`-Bündel hängen am GitHub-Release. Ein manueller Start signiert probeweise ohne Release.
+
+**Release-Artefakte prüfen:**
+
+```bash
+python -m pip install sigstore
+python -m sigstore verify github Wissensraum-AI-v2.4.zip \
+  --bundle Wissensraum-AI-v2.4.zip.sigstore.json \
+  --cert-identity https://github.com/Melchy1971/Wissensraum-AI/.github/workflows/release.yml@refs/tags/v2.4
+```
+
 ### PostgreSQL-Sicherung und -Wiederherstellung
 
 Gesichert wird nur das Anwendungsschema `wissensraum`. Voraussetzung sind `pg_dump`, `pg_restore` und `psql` in mindestens der Hauptversion des Servers. Das Kennwort fragen die Werkzeuge interaktiv ab; es gehört nicht in die Befehlszeile. Für den VPS vorher `PGSSLMODE=verify-full` setzen (Windows: `set PGSSLMODE=verify-full`). Platzhalter in spitzen Klammern ersetzen.

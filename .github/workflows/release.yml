@@ -1,0 +1,55 @@
+name: Release
+# Release 2.4, step 9.5: for a tag v*, after green tests and security checks, the source archive,
+# the SBOM and the checksum list are signed keyless with Sigstore (identity of this workflow, no
+# signing key in the repository) and attached to the GitHub release. A manual run signs the same
+# files as a trial and keeps them as workflow artifacts instead of creating a release.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  tests:
+    uses: ./.github/workflows/tests.yml
+  security:
+    uses: ./.github/workflows/security.yml
+  release:
+    needs: [tests, security]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Source archive, SBOM and checksums
+        run: |
+          name="Wissensraum-AI-${GITHUB_REF_NAME//\//-}"
+          git archive --format=zip --prefix="$name/" -o "$name.zip" HEAD
+          python -m venv app-env
+          app-env/bin/python -m pip install -q -r requirements-ocr.txt
+          python -m pip install cyclonedx-bom==8.0.1
+          cyclonedx-py environment app-env/bin/python --output-format JSON -o sbom.cdx.json
+          sha256sum "$name.zip" sbom.cdx.json > SHA256SUMS.txt
+          mkdir dist && mv "$name.zip" sbom.cdx.json SHA256SUMS.txt dist/
+      - uses: sigstore/gh-action-sigstore-python@790bc6befb9d733738f18d8f895854b453640ec9  # v3.5.0
+        with:
+          inputs: ./dist/*.zip ./dist/sbom.cdx.json ./dist/SHA256SUMS.txt
+          release-signing-artifacts: false
+          upload-signing-artifacts: false
+      - name: Attach to the GitHub release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" \
+            --notes "Signiert mit Sigstore. Prüfung siehe README, Abschnitt Release-Artefakte prüfen." dist/*
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'push'
+        with:
+          name: signed-trial
+          path: dist/
+          retention-days: 7
