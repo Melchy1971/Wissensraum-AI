@@ -48,7 +48,8 @@ def check_suggestion_contract(case, store):
     before = store.get(doc)
     fake = FakeOllama(ANSWER)
     counts = graph_suggest.suggest(store, doc, transport=fake)
-    case.assertEqual(counts, {'abschnitte': 1, 'entitaeten': 3, 'erwaehnungen': 3, 'relationen': 1, 'verworfen': 5})
+    case.assertEqual(counts, {'abschnitte': 1, 'entitaeten': 3, 'erwaehnungen': 3, 'relationen': 1, 'verworfen': 5,
+                              'fehler': 0})
     request = fake.requests[0]
     case.assertEqual((request['model'], request['format'], request['options']['temperature']), ('qwen3:8b', 'json', 0))
     case.assertEqual(json.loads(request['messages'][1]['content'])['text'], TEXT)  # text only as JSON data
@@ -115,6 +116,30 @@ class SuggestionTests(unittest.TestCase):
         self.assertEqual((counts['abschnitte'], counts['entitaeten'], counts['relationen']), (3, 2, 1))
         for mention in self.store.document_graph(doc)['mentions']:
             self.assertEqual(text[mention['start_offset']:mention['end_offset']], mention['quote'])
+
+    def test_a_failed_section_does_not_stop_the_others(self):
+        import socket
+        import urllib.error
+        text = 'x' * 1700 + ' Anna Berg arbeitet hier. ' + 'y' * 1700 + ' Nordwerk GmbH ist der Arbeitgeber.'
+        doc, _ = self.store.add('Lang', text)
+        answers = iter([socket.timeout('zu langsam'),
+                        {'entitaeten': [{'art': 'Person', 'name': 'Anna Berg', 'zitat': 'Anna Berg'}]},
+                        {'entitaeten': [{'art': 'Organisation', 'name': 'Nordwerk GmbH', 'zitat': 'Nordwerk GmbH'}]}])
+
+        def transport(request, timeout=None):
+            answer = next(answers)
+            if isinstance(answer, Exception):
+                raise answer
+            return io.BytesIO(json.dumps({'done': True, 'done_reason': 'stop',
+                                          'message': {'content': json.dumps(answer)}}).encode())
+        counts = graph_suggest.suggest(self.store, doc, transport=transport)
+        self.assertEqual((counts['fehler'], counts['entitaeten']), (1, 2))
+
+        def unreachable(request, timeout=None):
+            raise urllib.error.URLError('kein Dienst')
+        with self.assertRaises(Exception) as caught:
+            graph_suggest.suggest(self.store, doc, transport=unreachable)
+        self.assertEqual(caught.exception.kind, 'unreachable')
 
     def test_cli(self):
         import os

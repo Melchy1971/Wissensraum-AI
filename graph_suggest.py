@@ -7,7 +7,7 @@ user confirms it. Document text is untrusted data and is passed as JSON, never a
 """
 import json
 
-from core import AI, OLLAMA_TIMEOUT, _chunking, document_type
+from core import AI, OLLAMA_TIMEOUT, ProviderError, _chunking, document_type
 
 DEFAULT_MODEL = 'qwen3:8b'
 MAX_SECTIONS = 200  # ponytail: very long documents are cut off; upgrade path is a resumable job
@@ -39,7 +39,8 @@ def sections(db, document_id):
 def suggest(store, document_id, model=DEFAULT_MODEL, transport=None, progress=None):
     """Ask the local model section by section and store valid suggestions as proposed.
 
-    Returns counts: sections, entities, mentions, relations and rejected suggestions.
+    Returns counts: sections, entities, mentions, relations, rejected suggestions and sections whose
+    request failed (timeout, cut-off or server error); only an unreachable Ollama stops the run.
     """
     ai = AI(store, '', model, transport=transport, provider='ollama')
     with store.connect() as db:
@@ -49,7 +50,8 @@ def suggest(store, document_id, model=DEFAULT_MODEL, transport=None, progress=No
     known = {}
     for row in store.entities():  # entities of earlier sections or confirmed ones, if the name is unique
         known[row['name'].casefold()] = None if row['name'].casefold() in known else row['id']
-    counts = {'abschnitte': len(parts), 'entitaeten': 0, 'erwaehnungen': 0, 'relationen': 0, 'verworfen': 0}
+    counts = {'abschnitte': len(parts), 'entitaeten': 0, 'erwaehnungen': 0, 'relationen': 0, 'verworfen': 0,
+              'fehler': 0}
     for number, (offset, text) in enumerate(parts, 1):
         payload = {'model': model, 'stream': False, 'format': 'json', 'think': False,
                    'messages': [{'role': 'system', 'content': INSTRUCTIONS},
@@ -59,7 +61,15 @@ def suggest(store, document_id, model=DEFAULT_MODEL, transport=None, progress=No
                                      'text': text}, ensure_ascii=False)}],
                    # temperature 0: reproducible; the window leaves room for a long list of suggestions
                    'options': {'temperature': 0, 'num_ctx': 8192, 'num_predict': 2048}}
-        answer = ai._request(ai_endpoint(), {'Content-Type': 'application/json'}, payload, OLLAMA_TIMEOUT)
+        try:
+            answer = ai._request(ai_endpoint(), {'Content-Type': 'application/json'}, payload, OLLAMA_TIMEOUT)
+        except ProviderError as error:
+            if error.kind == 'unreachable':  # no model at all: stop instead of failing every section
+                raise
+            counts['fehler'] += 1  # one slow or cut-off section does not lose the others
+            if progress:
+                progress(number, len(parts))
+            continue
         try:
             data = json.loads(answer)
         except ValueError:
