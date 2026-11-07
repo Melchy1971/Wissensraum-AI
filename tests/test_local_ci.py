@@ -59,5 +59,30 @@ class LocalCiTests(unittest.TestCase):
                                                       "open-file replacement unsupported: 'x'": 1})
 
 
+    def test_windows_prefers_the_py_launcher_over_uv(self):
+        import subprocess
+        from unittest import mock
+        calls = []
+
+        def run(command, **_):
+            calls.append(command[0])
+            return subprocess.CompletedProcess(command, 0, stdout='C:\\Python311\\python.exe\n' if command[0] == 'py'
+                                               else 'C:\\uv\\python.exe\n')
+        with mock.patch.dict('os.environ', {}, clear=False), mock.patch.object(local_ci.os, 'name', 'nt'), \
+                mock.patch.object(local_ci.shutil, 'which', return_value='x'), \
+                mock.patch.object(local_ci.subprocess, 'run', side_effect=run):
+            local_ci.os.environ.pop('LOCAL_CI_PY311', None)
+            self.assertEqual(local_ci.find_python('3.11'), 'C:\\Python311\\python.exe')
+        self.assertEqual(calls, ['py'])
+
+    def test_venv_home_names_the_base_interpreter_folder(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder)
+            self.assertEqual(local_ci.venv_home(target), '')
+            (target / 'pyvenv.cfg').write_text(f'home = {folder}\nversion = 3.11.9\n', encoding='utf-8')
+            self.assertEqual(local_ci.venv_home(target), local_ci.os.path.normcase(str(Path(folder).resolve())))
+
+
 if __name__ == '__main__':
     unittest.main()
