@@ -1821,6 +1821,7 @@ class App(tk.Tk if tk is not None else object):
         self.ai_settings_frame=self.add_scrollable_settings_page('KI-Anbieter')
         self.budget_settings_frame=self.add_scrollable_settings_page('Budgets')
         self.retention_settings_frame=self.add_scrollable_settings_page('Aufbewahrung')
+        self.privacy_settings_frame=self.add_scrollable_settings_page('Datenschutz')
         self.database_settings_frame=self.add_scrollable_settings_page('Datenbank')
         self.mail_settings_frame=self.add_scrollable_settings_page('E-Mail-Konten')
         self.rules_settings_frame=self.add_scrollable_settings_page('Regeln')
@@ -1878,6 +1879,7 @@ class App(tk.Tk if tk is not None else object):
         self.build_design_settings()
         self.build_budget_settings()
         self.build_retention_settings()
+        self.build_privacy_settings()
         self.build_configuration_settings()
         self.rules_page=RulesPage(self,self.rules_settings_frame)
 
@@ -2046,6 +2048,73 @@ class App(tk.Tk if tk is not None else object):
         removed=retention.apply(self.store)
         self.load_retention()
         self.status.set('Entfernt: '+', '.join(f'{t} {n}' for tables in removed.values() for t,n in tables.items() if n))
+
+    def build_privacy_settings(self):
+        frame=self.privacy_settings_frame
+        ttk.Label(frame,text='Datenschutz',font=('Segoe UI',18,'bold')).pack(anchor='w')
+        ttk.Label(frame,text='Der Export enthält alles, was die Anwendung speichert: jede Tabelle als JSON und Originale '
+                  'als Dateien. Zugangsschlüssel liegen im Schlüsselspeicher des Betriebssystems und sind nicht enthalten.',
+                  wraplength=940).pack(anchor='w',pady=(6,8))
+        ttk.Button(frame,text='Alle Daten exportieren …',command=self.privacy_export).pack(anchor='w',pady=(0,16))
+        ttk.Label(frame,text='Selektive Löschung: Dokumente mit einem Text in Titel, Dateiname oder Inhalt suchen und '
+                  'endgültig löschen, samt Abschnitten, Versionen, Erwähnungen im Wissensgraphen, Entitäten ohne weitere '
+                  'Erwähnung und gespeicherten KI-Antworten, die diese Dokumente zitieren. Vorhandene Sicherungen '
+                  'enthalten die Daten weiter.',wraplength=940).pack(anchor='w',pady=(0,8))
+        row=ttk.Frame(frame)
+        row.pack(fill='x')
+        self.privacy_query=tk.StringVar()
+        ttk.Entry(row,textvariable=self.privacy_query,width=40).pack(side='left')
+        ttk.Button(row,text='Suchen',command=self.privacy_find).pack(side='left',padx=(8,0))
+        self.privacy_hits=tk.Listbox(frame,selectmode='extended',height=8,exportselection=False)
+        self.privacy_hits.pack(fill='x',pady=(8,8))
+        self.privacy_ids=[]
+        ttk.Button(frame,text='Markierte endgültig löschen …',command=self.privacy_erase).pack(anchor='w')
+        self.privacy_status=tk.StringVar()
+        ttk.Label(frame,textvariable=self.privacy_status,wraplength=940).pack(anchor='w',pady=(8,0))
+
+    def privacy_export(self):
+        import privacy
+        target=filedialog.asksaveasfilename(parent=self,title='Alle Daten exportieren',defaultextension='.zip',
+                                            initialfile='wissensraum-datenexport.zip',filetypes=[('ZIP','*.zip')])
+        if target:
+            self.work(lambda:privacy.export(self.store,target,overwrite=True),
+                      lambda result:self.status.set(f'Datenexport mit {sum(result["tabellen"].values())} Einträgen '
+                                                    f'und {result["dateien"]} Dateien erstellt'))
+
+    def privacy_find(self):
+        import privacy
+        try:
+            found=privacy.find(self.store,self.privacy_query.get())
+        except ValueError as error:
+            messagebox.showerror('Suche',str(error),parent=self)
+            return
+        self.privacy_ids=[row['id'] for row in found]
+        self.privacy_hits.delete(0,'end')
+        for row in found:
+            self.privacy_hits.insert('end',f'{row["id"]} · {row["title"]} · {row["category"]}')
+        self.privacy_status.set(f'{len(found)} Dokumente gefunden.')
+
+    def privacy_erase(self):
+        import privacy
+        ids=[self.privacy_ids[i] for i in self.privacy_hits.curselection()]
+        if not ids:
+            messagebox.showinfo('Löschen','Bitte zuerst Dokumente markieren.',parent=self)
+            return
+        effect=privacy.impact(self.store,ids)
+        if not messagebox.askyesno('Endgültig löschen',
+                                   f'{effect["dokumente"]} Dokumente, {effect["ki_verlauf"]} gespeicherte KI-Antworten, '
+                                   f'{effect["erwaehnungen"]} Erwähnungen und {effect["relationen"]} Relationen im '
+                                   'Wissensgraphen werden endgültig gelöscht. Vorhandene Sicherungen enthalten die Daten '
+                                   'weiter.\n\nFortfahren?',parent=self):
+            return
+        def done(counts):
+            if len(self.privacy_query.get().strip())>=2:
+                self.privacy_find()
+            note=(f' {counts["sicherungen_mit_daten"]} Sicherungen enthalten die Daten noch.'
+                  if counts.get('sicherungen_mit_daten') else '')
+            self.privacy_status.set(f'{counts["dokumente"]} Dokumente gelöscht.'+note)
+            self.refresh()
+        self.work(lambda:privacy.erase(self.store,ids),done)
 
     def build_design_settings(self):
         frame=self.design_settings_frame

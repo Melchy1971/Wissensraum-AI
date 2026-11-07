@@ -60,6 +60,7 @@ Ohne ausdrückliche Anweisung keine Arbeit aus einer späteren Phase beginnen, s
 | `operations.py` | Betriebsübersicht: nur Zahlen, Status und Fehlercodes, keine Inhalte |
 | `budgets.py` | Tokenzählung je Antwort und Monatsbudgets je KI-Anbieter mit Sperre |
 | `backups.py` | Integritätsprüfung, tägliche geprüfte SQLite-Sicherung und Wiederherstellungsübung |
+| `privacy.py` | Datenschutzexport aller Tabellen und selektive Löschung von Dokumenten mit allem Abgeleiteten |
 | `retention.py` | Aufbewahrungsregeln für KI-Verlauf, Nutzungszählung, Importfehler und gelöschte Graphobjekte |
 | `vector_sync.py` | Einbettung der Abschnitte im Hintergrund |
 | `configuration.py`, `configuration_authority.py` | Konfigurationstransfer ohne Zugangsdaten |

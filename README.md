@@ -157,6 +157,10 @@ python -m sigstore verify github Wissensraum-AI-v2.4.zip \
   --cert-identity https://github.com/Melchy1971/Wissensraum-AI/.github/workflows/release.yml@refs/tags/v2.4
 ```
 
+### Datenschutzexport und selektive Löschung (Release 2.4, Schritt 9.6)
+
+Unter **Einstellungen → Datenschutz** erzeugt **Alle Daten exportieren …** eine ZIP-Datei mit allem, was die Anwendung speichert: jede Tabelle als JSON unter `daten/`, Originale und andere Binärdaten als Dateien unter `dateien/`, dazu `manifest.json`. Abschnitte und Vektoren fehlen, weil sie aus den Dokumenten berechnet werden; Zugangsschlüssel liegen im Schlüsselspeicher des Betriebssystems und sind nie enthalten. Die selektive Löschung sucht Dokumente mit einem Text in Titel, Dateiname oder Inhalt, zeigt vor dem Löschen die Folgen und löscht die markierten Dokumente nach Bestätigung endgültig in einem Schritt: mit Abschnitten, Vektoren, Versionen, Tags, Beziehungen, Erwähnungen und Relationen im Wissensgraphen, Entitäten ohne weitere Erwähnung, deren Protokolleinträgen, gespeicherten KI-Antworten, die diese Dokumente zitieren, und Importeinträgen mit Pfad. Unter SQLite werden die Einträge überschrieben, der Volltextindex ohne sie neu geschrieben und das Write-Ahead-Log geleert. Vorhandene Sicherungen enthalten die Daten weiter; die Meldung nennt ihre Anzahl, gelöscht werden sie nicht automatisch. Unter PostgreSQL bleiben alte Zeilen bis zum Autovacuum in den Datendateien. CLI: `privacy-export <ziel.zip>`, `privacy-find <text>`, `privacy-erase <id …> --confirm`.
+
 ### PostgreSQL-Sicherung und -Wiederherstellung
 
 Gesichert wird nur das Anwendungsschema `wissensraum`. Voraussetzung sind `pg_dump`, `pg_restore` und `psql` in mindestens der Hauptversion des Servers. Das Kennwort fragen die Werkzeuge interaktiv ab; es gehört nicht in die Befehlszeile. Für den VPS vorher `PGSSLMODE=verify-full` setzen (Windows: `set PGSSLMODE=verify-full`). Platzhalter in spitzen Klammern ersetzen.

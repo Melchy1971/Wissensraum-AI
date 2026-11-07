@@ -831,6 +831,30 @@ class InterfaceTests(unittest.TestCase):
             window.save_backup_settings()
         self.assertIn('Sicherungen behalten',error.call_args.args[1])
 
+    def test_privacy_page_exports_finds_and_erases_after_confirmation(self):
+        import zipfile
+        window=self.window
+        keep,_=window.store.add('Behalten','Nur Milch.')
+        gone,_=window.store.add('Vertrag Erika','Vertrag mit Erika Musterfrau.')
+        target=self.base/'export.zip'
+        with patch.object(app.filedialog,'asksaveasfilename',return_value=str(target)):
+            window.privacy_export(); self.wait_until_idle(window)
+        with zipfile.ZipFile(target) as archive:
+            self.assertEqual(len(json.loads(archive.read('daten/documents.json'))),2)
+        window.privacy_query.set('musterfrau'); window.privacy_find()
+        self.assertEqual(window.privacy_ids,[gone])
+        window.privacy_hits.selection_set(0)
+        with patch.object(app.messagebox,'askyesno',return_value=False):
+            window.privacy_erase()
+        self.assertIsNotNone(window.store.get(gone))
+        with patch.object(app.messagebox,'askyesno',return_value=True) as ask:
+            window.privacy_erase(); self.wait_until_idle(window)
+        self.assertIn('1 Dokumente',ask.call_args.args[1])
+        with self.assertRaises(ValueError):
+            window.store.get(gone)
+        self.assertEqual(window.store.get(keep)['title'],'Behalten')
+        self.assertIn('1 Dokumente gelöscht',window.privacy_status.get())
+
     def test_metadata_dialog_saves_changes_with_history(self):
         window=self.window
         doc_id,_=window.store.add('Wartungsplan','Die Therme bekommt jährlich eine Wartung.',category='Haus')

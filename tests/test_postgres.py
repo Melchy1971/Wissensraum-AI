@@ -468,6 +468,10 @@ class PostgresStoreTests(unittest.TestCase):
             backups.create(store)
         self.assertEqual(backups.status(store), {'backend': 'postgresql'})
 
+    def test_privacy_on_real_postgresql(self):
+        from test_privacy import check_privacy_contract
+        check_privacy_contract(self, PostgresStore(self.profile, self.password))
+
     def test_graph_context_on_real_postgresql(self):
         from test_graph_context import check_graph_context_contract
         check_graph_context_contract(self, PostgresStore(self.profile, self.password))
