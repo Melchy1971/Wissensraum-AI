@@ -44,7 +44,7 @@ def fill(store):
         for attempt in (1, 2):
             db.execute("INSERT INTO import_item_errors(item_id,attempt,reason,message) VALUES(?,?,'parse','x')",
                        (item, attempt))
-        db.execute(f"UPDATE ai_runs SET created_at='{OLD}' WHERE question LIKE 'Alte%'")
+        db.execute('UPDATE ai_runs SET created_at=? WHERE question LIKE ?', (OLD, 'Alte%'))
         db.execute(f"UPDATE ai_usage SET created_at='{OLD}' WHERE input_tokens=1")
         db.execute(f"UPDATE import_item_errors SET created_at='{OLD}' WHERE attempt=1")
         db.execute(f"UPDATE entities SET deleted_at='{OLD}' WHERE id=?", (ids['Einkauf'],))
