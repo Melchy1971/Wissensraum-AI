@@ -66,17 +66,20 @@ def overview(store, days=DEFAULT_DAYS, now=None):
             runs['mit_graphkontext'] += bool(isinstance(meta, dict) and meta.get('graph_relations'))
         graph = {kind: _counts(db, f'SELECT status AS key,count(*) AS n FROM {table} WHERE deleted_at IS NULL GROUP BY status')
                  for kind, table in (('entitaeten', 'entities'), ('relationen', 'graph_relations'))}
-    import budgets
+    import backups, budgets
+    safety = backups.status(store, now)
+    safety.pop('ordner', None)  # no paths in the overview
     return {'zeitraum_tage': days, 'dokumente': documents,
             'abschnitte': {'anzahl': chunks, 'vektoren_je_modell': vectors, 'ohne_vektor': unvectored},
             'import': {'auftraege_nach_status': jobs, 'eintraege_nach_status': items,
                        'fehler_im_zeitraum_nach_grund': dict(sorted(recent_errors.items()))},
-            'ki': runs, 'wissensgraph': graph, 'ki_budget': budgets.statuses(store, now)}
+            'ki': runs, 'wissensgraph': graph, 'ki_budget': budgets.statuses(store, now),
+            'sicherung': safety}
 
 
 def report(data):
     """Plain German text for the GUI and the CLI."""
-    import budgets
+    import backups, budgets
     def join(values):
         return ', '.join(f'{key} {value}' for key, value in sorted(values.items())) or 'keine'
     d, a, i, k, g = data['dokumente'], data['abschnitte'], data['import'], data['ki'], data['wissensgraph']
@@ -91,6 +94,8 @@ def report(data):
         f'KI-Anfragen der letzten {data["zeitraum_tage"]} Tage: {k["anfragen"]} (Art: {join(k["nach_art"])}; '
         f'Modell: {join(k["nach_modell"])}; Ergebnis: {join(k["nach_status"])}; mit Graphkontext: {k["mit_graphkontext"]})',
         f'Wissensgraph: Entitäten {join(g["entitaeten"])}, Relationen {join(g["relationen"])}',
+        'Sicherung:',
+        *('  ' + line for line in (backups.lines(data['sicherung']) if 'sicherung' in data else [])),
         'KI-Budget im laufenden Monat:',
         *('  ' + line for line in budgets.lines(data.get('ki_budget', []))),
     ])
