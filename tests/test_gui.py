@@ -810,6 +810,27 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn('ganze Tage',error.call_args.args[1])
         self.assertEqual(retention.rules(window.store)['ki_verlauf'],30)
 
+    def test_operations_tab_backs_up_checks_and_drills(self):
+        import backups
+        window=self.window
+        window.backup_keep.set('3'); window.backup_auto.set(False)
+        window.save_backup_settings()
+        self.assertEqual((backups.settings(window.store)['behalten'],backups.settings(window.store)['auto']),(3,False))
+        with patch.object(app.filedialog,'askdirectory',return_value=str(self.base/'sicherungen')):
+            window.choose_backup_folder()
+        window.backup_now(); self.wait_until_idle(window)
+        self.assertEqual(len(backups.existing(self.base/'sicherungen')),1)
+        with patch.object(app.messagebox,'showinfo') as info:
+            window.check_integrity(); self.wait_until_idle(window)
+            self.assertIn('Keine Auffälligkeiten',info.call_args.args[1])
+            window.restore_drill(); self.wait_until_idle(window)
+            self.assertIn('Bestanden',info.call_args.args[1])
+        self.assertIn('Letzte Wiederherstellungsübung',window.operations.get('1.0','end'))
+        window.backup_keep.set('0')
+        with patch.object(app.messagebox,'showerror') as error:
+            window.save_backup_settings()
+        self.assertIn('Sicherungen behalten',error.call_args.args[1])
+
     def test_metadata_dialog_saves_changes_with_history(self):
         window=self.window
         doc_id,_=window.store.add('Wartungsplan','Die Therme bekommt jährlich eine Wartung.',category='Haus')

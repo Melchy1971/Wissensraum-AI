@@ -316,6 +316,22 @@ class App(tk.Tk if tk is not None else object):
         ttk.Spinbox(bar,from_=1,to=3650,width=6,textvariable=self.operations_days).pack(side='left',padx=(6,12))
         ttk.Button(bar,text='Übersicht aktualisieren',command=self.show_operations).pack(side='left')
         ttk.Button(bar,text='Als JSON exportieren',command=self.export_operations).pack(side='left',padx=(8,0))
+        safety = ttk.Frame(self.operations_tab)
+        safety.pack(fill='x',pady=(0,8))
+        for title,command in [('Integrität prüfen',self.check_integrity),('Jetzt sichern',self.backup_now),
+                              ('Wiederherstellungsübung',self.restore_drill)]:
+            ttk.Button(safety,text=title,command=command).pack(side='left',padx=(0,8))
+        if self.store.backend!='postgresql':
+            import backups
+            current=backups.settings(self.store)
+            self.backup_auto=tk.BooleanVar(value=current['auto'])
+            ttk.Checkbutton(safety,text='täglich automatisch sichern',variable=self.backup_auto,
+                            command=self.save_backup_settings).pack(side='left',padx=(8,8))
+            ttk.Label(safety,text='behalten').pack(side='left')
+            self.backup_keep=tk.StringVar(value=str(current['behalten']))
+            ttk.Spinbox(safety,from_=1,to=backups.MAX_KEEP,width=4,textvariable=self.backup_keep,
+                        command=self.save_backup_settings).pack(side='left',padx=(4,8))
+            ttk.Button(safety,text='Sicherungsordner …',command=self.choose_backup_folder).pack(side='left')
         ttk.Label(self.operations_tab,text='Nur Zahlen, Status und Fehlercodes; keine Titel, Texte, Fragen oder Pfade.'
                   ).pack(anchor='w',pady=(0,8))
         self.operations = ScrolledText(self.operations_tab,wrap='word',font=('Segoe UI',11),padx=14,pady=12)
@@ -329,6 +345,8 @@ class App(tk.Tk if tk is not None else object):
         self.refresh()
         self.show_history()
         self.after(100,self.poll)
+        if self.store.backend!='postgresql':
+            self.after(60_000,self.auto_backup)  # a minute after the start, then hourly
 
     def apply_theme(self,theme):
         """Apply the selected Telekom-oriented palette to existing and future widgets."""
@@ -1383,6 +1401,71 @@ class App(tk.Tk if tk is not None else object):
     def show_operations(self):
         import operations
         self.write(self.operations,operations.report(self.operations_overview()))
+
+    def check_integrity(self):
+        import backups
+        def done(result):
+            text='Keine Auffälligkeiten.' if result['ok'] else '\n'.join(result['probleme'])
+            show=messagebox.showinfo if result['ok'] else messagebox.showwarning
+            show('Integritätsprüfung',f'{result["dokumente"]} Dokumente geprüft. {text}',parent=self)
+        self.work(lambda:backups.integrity(self.store),done)
+
+    def backup_now(self):
+        import backups
+        def done(result):
+            self.status.set(f'Sicherung {result["datei"]} erstellt und geprüft')
+            self.show_operations()
+        self.work(lambda:backups.create(self.store),done)
+
+    def restore_drill(self):
+        import backups
+        def done(result):
+            seconds=f'{result["sekunden"]:.1f}'.replace('.',',')
+            text=(f'Sicherung {result["sicherung"]} in {seconds} Sekunden in eine Prüfkopie wiederhergestellt, '
+                  f'{result["dokumente"]} Dokumente. ')
+            if result['ok']:
+                messagebox.showinfo('Wiederherstellungsübung',text+'Bestanden.',parent=self)
+            else:
+                messagebox.showwarning('Wiederherstellungsübung',text+'Nicht bestanden: '
+                                       +('; '.join(result['probleme']) or 'länger als 2 Stunden'),parent=self)
+            self.show_operations()
+        self.work(lambda:backups.drill(self.store),done)
+
+    def save_backup_settings(self):
+        import backups
+        try:
+            backups.set_settings(self.store,auto=self.backup_auto.get(),keep=int(self.backup_keep.get()))
+        except ValueError:
+            messagebox.showerror('Sicherung',f'Zwischen 1 und {backups.MAX_KEEP} Sicherungen behalten.',parent=self)
+            return
+        self.status.set('Sicherungseinstellung gespeichert')
+
+    def choose_backup_folder(self):
+        import backups
+        target=filedialog.askdirectory(parent=self,title='Sicherungsordner wählen',
+                                       initialdir=str(backups.folder(self.store)))
+        if target:
+            backups.set_settings(self.store,folder=target)
+            self.status.set('Sicherungsordner gespeichert')
+
+    def auto_backup(self):
+        """Daily backup in its own thread, without blocking other work; checked again every hour."""
+        import backups
+        def run():
+            try:
+                result=backups.auto(self.store)
+                self.auto_backup_result=('Tägliche Sicherung '+result['datei']+' erstellt') if result else None
+            except Exception as error:  # shown in the status line; the next check tries again
+                self.auto_backup_result='Tägliche Sicherung fehlgeschlagen: '+str(error)
+        def show():
+            if self.auto_backup_thread.is_alive():
+                self.after(1000,show)
+            elif getattr(self,'auto_backup_result',None):
+                self.status.set(self.auto_backup_result)
+        self.auto_backup_thread=threading.Thread(target=run,daemon=True)
+        self.auto_backup_thread.start()
+        self.after(1000,show)
+        self.after(3_600_000,self.auto_backup)
 
     def export_operations(self):
         target = filedialog.asksaveasfilename(parent=self,title='Betriebsübersicht exportieren',defaultextension='.json',

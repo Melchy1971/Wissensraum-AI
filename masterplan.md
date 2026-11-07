@@ -71,6 +71,20 @@
 - Ausschluss auf V2 gemessen (06.11.2026, nur Suche ohne Antwortmodell, Messkopie danach gelöscht): 90 Fragen, alle Bestandsdokumente nach Migration `new`. Recall@10 63 von 66 ohne und mit Ausschluss, 0 von 90 Trefferlisten verschieden. Nach Markieren der 2 erwarteten Dokumente der Fragen e01 bis e11 (ohne e07) als veraltet fanden ohne Ausschluss alle 10 Fragen sie weiter, mit Ausschluss enthielt keine der 90 Trefferlisten sie.
 - Manuelle Prüfung der Dialoge Metadaten, Sammlungen, Beziehungen, Versionsvergleich und Export am Desktop: durch den Product Owner bestanden (06.11.2026).
 
+## Aktualisierung 07.11.2026 – Phase 9, Schritt 9.4 Integritätsprüfung, tägliche Sicherung, Wiederherstellungsübung 🟡
+
+**Umfang 9.4:** Neues Modul `backups.py`, kein neues Schema (Einstellungen in `settings`). Integritätsprüfung: SQLite `integrity_check`, Fremdschlüssel, `validate_sqlite` und Prüfsumme jedes Dokuments; PostgreSQL Schemaversion und Prüfsummen; Ergebnis nur mit Zählungen und Dokumentnummern. Tägliche Sicherung (SQLite): Kopie über die Backup-API in eine temporäre Datei, Prüfung von Struktur, Schema und Prüfsummen, erst dann Umbenennen in `wissen-<Zeitstempel>.db`; Aufräumen auf die neuesten N Dateien dieses Musters; Abbruch bei weniger als doppelter Datenbankgröße frei. Auslösung in der Oberfläche eine Minute nach Start und danach stündlich im eigenen Thread, wenn die letzte Sicherung 24 Stunden oder älter ist; CLI `backup-daily` für die Aufgabenplanung. Wiederherstellungsübung: neueste Sicherung über `restore_sqlite` in eine temporäre Datei, Prüfung, Messung der Dauer gegen 2 Stunden, Ergebnis gespeichert; die aktive Datenbank bleibt unberührt. Betriebsübersicht zeigt Alter der Sicherung (RPO) und letzte Übung, Warnung nach 24 Stunden bzw. 90 Tagen. PostgreSQL: Sicherung und Übung weiter mit pg_dump und pg_restore auf dem Server, in der Anwendung nur Integritätsprüfung. Oberfläche im Reiter „Betrieb“, CLI `integrity`, `backup-daily [--force]`, `restore-drill`, `backup-settings`.
+
+**Annahmen (vom Product Owner zu bestätigen):** Automatische Sicherung standardmäßig an, Ordner `backups` neben der Datenbank, 7 Sicherungen behalten, Übung manuell mit Erinnerung nach 90 Tagen.
+
+**Nachweise:** `check_integrity_contract` (SQLite und PostgreSQL) mit manipulierter Prüfsumme; beschädigte Datei wird als Befund gemeldet statt abzubrechen; Sicherung geprüft, fällig nach 24 Stunden, Aufräumen auf N, keine Restdateien, Automatik aus, Speicherplatzgrenze, anderer Ordner; Übung bestanden, aktive Datenbank unberührt, Fälligkeit nach 90 Tagen; Übersicht ohne Pfade; CLI- und Oberflächentest. Linux Python 3.13: 667 Tests, 0 Fehler, 41 übersprungen (umgebungsbedingt).
+
+**Offen für die Phasenabnahme:** Gesamtübung nach Gate von Phase 9 (Sicherung, Wiederherstellung, Sicherheitsprüfung und Datenschutzexport in einem Durchgang) mit den echten Daten des Product Owners.
+
+**Gate:** Lokales Matrix-Gate und GitHub Actions stehen aus.
+
+**Status:** 9.4 🟡.
+
 ## Aktualisierung 07.11.2026 – Phase 9, Schritt 9.3 Aufbewahrungsregeln 🟡
 
 **Umfang 9.3:** Neues Modul `retention.py`, kein neues Schema (Regeln in `settings`). Vier Kategorien mit Aufbewahrung in Tagen, 0 = unbegrenzt (Voreinstellung): KI-Verlauf (`ai_runs`), KI-Nutzungszählung (`ai_usage`, laufender Monat bleibt immer), Fehlereinträge von Importaufträgen (`import_item_errors`), gelöschte Objekte und Änderungsprotokoll des Wissensgraphen (`graph_relations`, `entity_mentions`, `entities` mit `deleted_at`, `graph_changes`). Anwenden nur auf ausdrückliche Bestätigung nach Vorschau, in einer Transaktion. SQLite: `secure_delete` für die Löschung und anschließend `wal_checkpoint(TRUNCATE)`, damit entfernter Text nicht in Datei oder WAL lesbar bleibt. PostgreSQL: Freigabe über Autovacuum, dokumentiert. Oberfläche: Einstellungsseite „Aufbewahrung“ mit Vorschau und „Jetzt anwenden …“ mit Bestätigung. CLI: `retention [kategorie --days N] [--apply --confirm]`. Dokumente, Metadatenverlauf und Sammlungen sind ausgenommen; die selektive Löschung von Inhalten folgt mit 9.6.
@@ -1101,7 +1115,7 @@ Frühere Zwischenstände: Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33
 
 ### Phase 9 – Release 2.4 Betrieb und Governance 🟡
 
-**Stand 07.11.2026:** Plan 9.1 bis 9.6 freigegeben (siehe Aktualisierung 07.11.2026), 9.1 Betriebsübersicht 🟡, 9.2 Budgets je Anbieter 🟡 (Schema 18), 9.3 Aufbewahrungsregeln 🟡, 9.4 bis 9.6 ⬜.
+**Stand 07.11.2026:** Plan 9.1 bis 9.6 freigegeben (siehe Aktualisierung 07.11.2026), 9.1 Betriebsübersicht 🟡, 9.2 Budgets je Anbieter 🟡 (Schema 18), 9.3 Aufbewahrungsregeln 🟡, 9.4 Integrität, Sicherung und Übung 🟡, 9.5 und 9.6 ⬜.
 
 **Ziel:** Datenqualität, Kosten, Sicherheit und Wiederherstellbarkeit werden messbar gesteuert.
 
