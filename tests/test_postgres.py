@@ -186,7 +186,7 @@ class PostgresStoreTests(unittest.TestCase):
         store = PostgresStore(self.profile, self.password)
         with store.connect() as db:
             self.assertEqual([row['version'] for row in db.execute(
-                'SELECT version FROM schema_migrations ORDER BY version')], list(range(1, 18)))
+                'SELECT version FROM schema_migrations ORDER BY version')], list(range(1, CURRENT_SCHEMA_VERSION + 1)))
             old = db.execute("""SELECT -ts_rank_cd(to_tsvector('simple',d.title || ' ' || d.category || ' ' || c.content),
                                 websearch_to_tsquery('simple','Wartung OR Haus')) AS rank
                                 FROM chunks c JOIN documents d ON d.id=c.document_id""").fetchone()['rank']
