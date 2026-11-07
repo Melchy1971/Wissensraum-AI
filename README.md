@@ -161,6 +161,22 @@ python -m sigstore verify github Wissensraum-AI-v2.4.zip \
 
 Unter **Einstellungen → Datenschutz** erzeugt **Alle Daten exportieren …** eine ZIP-Datei mit allem, was die Anwendung speichert: jede Tabelle als JSON unter `daten/`, Originale und andere Binärdaten als Dateien unter `dateien/`, dazu `manifest.json`. Abschnitte und Vektoren fehlen, weil sie aus den Dokumenten berechnet werden; Zugangsschlüssel liegen im Schlüsselspeicher des Betriebssystems und sind nie enthalten. Die selektive Löschung sucht Dokumente mit einem Text in Titel, Dateiname oder Inhalt, zeigt vor dem Löschen die Folgen und löscht die markierten Dokumente nach Bestätigung endgültig in einem Schritt: mit Abschnitten, Vektoren, Versionen, Tags, Beziehungen, Erwähnungen und Relationen im Wissensgraphen, Entitäten ohne weitere Erwähnung, deren Protokolleinträgen, gespeicherten KI-Antworten, die diese Dokumente zitieren, und Importeinträgen mit Pfad. Unter SQLite werden die Einträge überschrieben, der Volltextindex ohne sie neu geschrieben und das Write-Ahead-Log geleert. Vorhandene Sicherungen enthalten die Daten weiter; die Meldung nennt ihre Anzahl, gelöscht werden sie nicht automatisch. Unter PostgreSQL bleiben alte Zeilen bis zum Autovacuum in den Datendateien. CLI: `privacy-export <ziel.zip>`, `privacy-find <text>`, `privacy-erase <id …> --confirm`.
 
+### Betriebsübung für die Abnahme von Release 2.4
+
+Die Übung weist Sicherung, Wiederherstellung, Sicherheitsprüfung und Datenschutzexport in einem Durchgang mit den echten Daten nach. Dauer etwa 30 Minuten. Notiert werden nur Zahlen, Zeiten und Ja/Nein, keine Titel oder Inhalte.
+
+1. Anwendung starten, Reiter **Betrieb**, **Übersicht aktualisieren**. Notieren: Anzahl Dokumente, Abschnitte ohne Vektor, Importfehler der letzten 30 Tage.
+2. **Integrität prüfen**. Erwartet: keine Auffälligkeiten. Sonst die gemeldeten Dokumentnummern notieren und abbrechen.
+3. **Jetzt sichern**. Erwartet: Statuszeile nennt `wissen-<Zeitstempel>.db`. Sicherungsordner und Größe notieren.
+4. **Wiederherstellungsübung**. Erwartet: bestanden, gleiche Dokumentzahl wie in Schritt 1, Dauer deutlich unter 2 Stunden. Dauer notieren.
+5. Probe für den Ernstfall: Anwendung schließen, die neueste Sicherung in einen leeren Ordner kopieren, `python cli.py --db <Ordner>\wissen-<Zeitstempel>.db integrity` ausführen. Erwartet: Rückgabe 0. Die Kopie danach löschen.
+6. **Einstellungen → Datenschutz → Alle Daten exportieren …**. Erwartet: ZIP-Datei, `manifest.json` nennt dieselbe Dokumentzahl wie Schritt 1. Datei danach sicher löschen oder verschlüsselt aufbewahren, sie enthält alle Inhalte.
+7. Selektive Löschung an einem Testdokument: eine Notiz mit einem eindeutigen Wort anlegen, eine Frage dazu stellen, dann über **Datenschutz** suchen und löschen. Erwartet: Vorschau nennt 1 Dokument und mindestens 1 KI-Antwort, danach findet weder die Suche noch die Volltextsuche das Wort.
+8. Sicherheitsprüfung: Auf GitHub den letzten Lauf von `Security` für `main` öffnen. Erwartet: alle vier Jobs grün. Für den ersten Release ein Tag `v2.4` setzen oder `Release` manuell starten und die Signatur wie unter **Release-Artefakte prüfen** beschrieben kontrollieren.
+9. Budgets und Aufbewahrung: gewünschte Werte eintragen oder bewusst bei 0 lassen.
+
+Ergebnis an Claude oder in den Masterplan: Zahlen und Zeiten aus 1, 3, 4 und 6 sowie Ja/Nein je Schritt.
+
 ### PostgreSQL-Sicherung und -Wiederherstellung
 
 Gesichert wird nur das Anwendungsschema `wissensraum`. Voraussetzung sind `pg_dump`, `pg_restore` und `psql` in mindestens der Hauptversion des Servers. Das Kennwort fragen die Werkzeuge interaktiv ab; es gehört nicht in die Befehlszeile. Für den VPS vorher `PGSSLMODE=verify-full` setzen (Windows: `set PGSSLMODE=verify-full`). Platzhalter in spitzen Klammern ersetzen.

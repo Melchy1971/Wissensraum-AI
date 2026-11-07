@@ -1160,7 +1160,7 @@ Frühere Zwischenstände: Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33
 - quartalsweise Wiederherstellungsprüfung erfolgreich
 - kritische Sicherheitslücken blockieren ein Release
 
-**Gate:** Backup-Wiederherstellung, Sicherheitsprüfung und Datenschutzexport werden in einer vollständigen Betriebsübung nachgewiesen.
+**Gate:** Backup-Wiederherstellung, Sicherheitsprüfung und Datenschutzexport werden in einer vollständigen Betriebsübung nachgewiesen. Ablauf und erwartete Ergebnisse: README, Abschnitt „Betriebsübung für die Abnahme von Release 2.4“.
 
 ### Phase 10 – Release 3.0 Mehrbenutzerbetrieb, nur nach eigener Freigabe ⬜
 
