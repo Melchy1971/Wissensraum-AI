@@ -29,12 +29,13 @@ Statusangaben im Masterplan dürfen nur aufgrund nachprüfbarer Ergebnisse geän
 
 Phasen 0 bis 7 und 8A sind abgenommen. Release 2.0, 2.0.1, 2.1 und 2.2 sind freigegeben, Release 2.1 am 05.11.2026 (Tag `v2.1`, D-021), Release 2.2 am 06.11.2026 (Tag `v2.2`, D-022). Den verbindlichen Stand je Phase, offene Gate-Kriterien und Entscheidungen enthält `masterplan.md` (Abschnitte „Aktualisierung“ am Anfang und Entscheidungstabelle).
 
-Stand 06.11.2026:
+Stand 07.11.2026:
 
 - Phase 7 (Release 2.1 Hybrid-RAG): 7.1 bis 7.4, Chunk-Strategie je Dokumenttyp und Fundstellenanzeige ✅. Produktionsvariante der Quellenabsicherung ist B2 (Zweitabschnitt des besten Dokuments im Fenster von 9.216 Token, zweiter Beleglauf aus, D-020).
 - Reihenfolge nach Masterplan (Entscheidung Product Owner 05.11.2026): Release 2.2 (Phase 8A Wissensorganisation), 2.3 (Phase 8B Wissensgraph), 2.4 (Phase 9 Betrieb und Governance), 3.0 (Phase 10 Mehrbenutzerbetrieb), danach 3.1 (VPS und Domain). 3.1 beginnt erst nach dem Sicherheits- und Mehrbenutzer-Gate von 3.0.
 - Phase 8A (Release 2.2 Wissensorganisation) ✅: Metadaten mit Verlauf, Dokumentstatus und Ausschluss aus KI-Antworten, Sammlungen, Favoriten, gespeicherte Suchen, Beziehungen, Fassungsvergleich, Sammlungsexport mit Quellenmanifest. Datenbankschema 15.
 - Phase 8B (Release 2.3 Wissensgraph) läuft nach dem freigegebenen Plan 8B.1 bis 8B.5 (Masterplan, D-023: Tabellen in SQLite/PostgreSQL, KI-Vorschläge nur lokales Ollama). 8B.1 Datenmodell (Schema 16) und 8B.2 KI-Vorschläge (Schema 17) umgesetzt. 8B.3 Zusammenführen und Trennen, 8B.4 Graphansicht und 8B.5 Graphkontext für Antworten ✅. Offen: Abnahme von Release 2.3 durch den Product Owner (offene Punkte im Masterplan).
+- Phase 9 (Release 2.4 Betrieb und Governance) nach freigegebenem Plan 9.1 bis 9.6 (D-024) umgesetzt und gemergt (07.11.2026, Schema 18): Betriebsübersicht, Budgets je KI-Anbieter, Aufbewahrungsregeln, Integrität mit täglicher Sicherung und Wiederherstellungsübung, Sicherheitsprüfungen in CI mit Stückliste und Sigstore-Signatur, Datenschutzexport und selektive Löschung. Offen: Gesamtübung mit echten Daten, erster signierter Release-Lauf, Abnahme durch den Product Owner.
 
 Messwerte der Antwortqualität stammen aus dem eingefrorenen Bestand V2 (`data/eval-set-v2.freeze.json`). Eigene Fragen und Messkopien der Datenbank des Product Owners bleiben lokal (`data/` ist von Git ausgeschlossen). Messkopien nach der Messung löschen. Einzelfalldaten nur anonymisiert behalten (Frage-IDs, Ränge, Abschnittsnummern, Kategorien). Keine Fragetexte, Dokumenttexte oder privaten Dokumentnamen in Repository, Logs oder Berichte übernehmen, nur Frage-IDs. Für Messungen muss Ollama exklusiv laufen; andere Clients verfälschen die Antwortzeiten.
 
