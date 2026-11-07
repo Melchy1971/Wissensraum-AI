@@ -71,6 +71,16 @@
 - Ausschluss auf V2 gemessen (06.11.2026, nur Suche ohne Antwortmodell, Messkopie danach gelöscht): 90 Fragen, alle Bestandsdokumente nach Migration `new`. Recall@10 63 von 66 ohne und mit Ausschluss, 0 von 90 Trefferlisten verschieden. Nach Markieren der 2 erwarteten Dokumente der Fragen e01 bis e11 (ohne e07) als veraltet fanden ohne Ausschluss alle 10 Fragen sie weiter, mit Ausschluss enthielt keine der 90 Trefferlisten sie.
 - Manuelle Prüfung der Dialoge Metadaten, Sammlungen, Beziehungen, Versionsvergleich und Export am Desktop: durch den Product Owner bestanden (06.11.2026).
 
+## Aktualisierung 07.11.2026 – Phase 9, Schritt 9.3 Aufbewahrungsregeln 🟡
+
+**Umfang 9.3:** Neues Modul `retention.py`, kein neues Schema (Regeln in `settings`). Vier Kategorien mit Aufbewahrung in Tagen, 0 = unbegrenzt (Voreinstellung): KI-Verlauf (`ai_runs`), KI-Nutzungszählung (`ai_usage`, laufender Monat bleibt immer), Fehlereinträge von Importaufträgen (`import_item_errors`), gelöschte Objekte und Änderungsprotokoll des Wissensgraphen (`graph_relations`, `entity_mentions`, `entities` mit `deleted_at`, `graph_changes`). Anwenden nur auf ausdrückliche Bestätigung nach Vorschau, in einer Transaktion. SQLite: `secure_delete` für die Löschung und anschließend `wal_checkpoint(TRUNCATE)`, damit entfernter Text nicht in Datei oder WAL lesbar bleibt. PostgreSQL: Freigabe über Autovacuum, dokumentiert. Oberfläche: Einstellungsseite „Aufbewahrung“ mit Vorschau und „Jetzt anwenden …“ mit Bestätigung. CLI: `retention [kategorie --days N] [--apply --confirm]`. Dokumente, Metadatenverlauf und Sammlungen sind ausgenommen; die selektive Löschung von Inhalten folgt mit 9.6.
+
+**Nachweise:** Gemeinsamer Vertrag `check_retention_contract` (SQLite und PostgreSQL): ohne Regel wird nichts entfernt, Vorschau entfernt nichts, Anwenden entfernt genau die Vorschau, Bestandteile in Gebrauch bleiben, laufender Budgetmonat bleibt auch bei einem Tag Frist, ungültige Werte abgelehnt. SQLite: entfernter Text steht danach weder in der Datenbankdatei noch im WAL. Dazu CLI mit Pflichtbestätigung und Oberflächentest (Ablehnen entfernt nichts, ungültige Eingabe speichert nichts). Linux Python 3.13: 658 Tests, 0 Fehler, 40 übersprungen (umgebungsbedingt).
+
+**Gate:** Lokales Matrix-Gate und GitHub Actions stehen aus.
+
+**Status:** 9.3 🟡.
+
 ## Aktualisierung 07.11.2026 – Phase 9, Schritt 9.2 Token- und Kostenbudgets je Anbieter 🟡
 
 **Umfang 9.2:** Schema 18 mit Tabelle `ai_usage` (Anbieter, Modell, Eingabe- und Ausgabe-Token, Zeitpunkt, kein Text), Migration für SQLite mit geprüfter Sicherung und für PostgreSQL unter Advisory Lock, Kataloge und `schema.sql` angepasst. Neues Modul `budgets.py`: Jede Antwort eines Anbieters wird mit den von ihm gemeldeten Tokenzahlen gezählt (OpenAI, Anthropic, Gemini einschließlich Denktoken, Ollama), auch abgeschnittene Antworten. Budget je Anbieter und Kalendermonat (UTC) in Token und optional in Euro mit selbst eingetragenen Preisen je 1 Million Token; 0 bedeutet ohne Grenze. Ab 80 % Warnung, ab 100 % lehnt `AI._request` jede weitere Anfrage an diesen Anbieter vor dem Senden ab (`ProviderError` der Art `budget`, ohne Wiederholung); die KI-Vorschläge für den Wissensgraphen enden dann sofort. Eine laufende Anfrage wird nicht abgebrochen, das Budget kann um eine Antwort überschritten werden. Einbettungen der semantischen Suche werden nicht gezählt. Oberfläche: Einstellungsseite „Budgets“, Monatsstand in der Betriebsübersicht. CLI: `budget [anbieter] [--tokens N] [--eur X] [--price-in X] [--price-out Y]`.
@@ -1091,7 +1101,7 @@ Frühere Zwischenstände: Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33
 
 ### Phase 9 – Release 2.4 Betrieb und Governance 🟡
 
-**Stand 07.11.2026:** Plan 9.1 bis 9.6 freigegeben (siehe Aktualisierung 07.11.2026), 9.1 Betriebsübersicht 🟡, 9.2 Budgets je Anbieter 🟡 (Schema 18), 9.3 bis 9.6 ⬜.
+**Stand 07.11.2026:** Plan 9.1 bis 9.6 freigegeben (siehe Aktualisierung 07.11.2026), 9.1 Betriebsübersicht 🟡, 9.2 Budgets je Anbieter 🟡 (Schema 18), 9.3 Aufbewahrungsregeln 🟡, 9.4 bis 9.6 ⬜.
 
 **Ziel:** Datenqualität, Kosten, Sicherheit und Wiederherstellbarkeit werden messbar gesteuert.
 
