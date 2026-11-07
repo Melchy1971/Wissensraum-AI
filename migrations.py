@@ -9,7 +9,7 @@ import uuid
 from contextlib import closing, contextmanager
 from pathlib import Path
 
-CURRENT_SCHEMA_VERSION = 17
+CURRENT_SCHEMA_VERSION = 18
 # Unversioned PostgreSQL schemas predate schema_migrations and match version 4.
 POSTGRES_LEGACY_SCHEMA_VERSION = 4
 # ponytail: source_type is validated in application code (core.SOURCE_TYPES), not by a
@@ -282,6 +282,14 @@ SQLITE_MIGRATIONS = (
     (17, (
         "ALTER TABLE entity_mentions ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmed'",
     )),
+    # Release 2.4, step 9.2: token numbers per provider response for budgets; no text.
+    (18, (
+        """CREATE TABLE IF NOT EXISTS ai_usage (
+            id INTEGER PRIMARY KEY, provider TEXT NOT NULL, model TEXT NOT NULL,
+            input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+    )),
 )
 
 
@@ -532,6 +540,13 @@ POSTGRES_MIGRATIONS = (
     (17, (
         "ALTER TABLE entity_mentions ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmed'",
     )),
+    (18, (
+        """CREATE TABLE IF NOT EXISTS ai_usage (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, provider TEXT NOT NULL, model TEXT NOT NULL,
+            input_tokens BIGINT NOT NULL, output_tokens BIGINT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+    )),
 )
 
 # Columns added to an existing table by a later migration: (table, column) -> version.
@@ -560,7 +575,7 @@ SQLITE_TABLE_VERSIONS = {
     'collections': 14, 'collection_documents': 14, 'favorites': 14, 'saved_searches': 14,
     'document_relations': 15,
     'entity_types': 16, 'relation_types': 16, 'entities': 16, 'entity_mentions': 16, 'graph_relations': 16,
-    'graph_changes': 16,
+    'graph_changes': 16, 'ai_usage': 18,
 }
 
 # Constant SQL list of all application tables, derived from the catalog so that
@@ -664,6 +679,9 @@ SQLITE_COLUMNS = {
     'graph_changes': (('id','INTEGER',0,None,1), ('action','TEXT',1,None,0), ('object_type','TEXT',1,None,0),
                       ('object_id','INTEGER',1,None,0), ('old_value','TEXT',1,"''",0), ('new_value','TEXT',1,"''",0),
                       ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0), ('reverted_at','TEXT',0,None,0)),
+    'ai_usage': (('id','INTEGER',0,None,1), ('provider','TEXT',1,None,0), ('model','TEXT',1,None,0),
+                 ('input_tokens','INTEGER',1,None,0), ('output_tokens','INTEGER',1,None,0),
+                 ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
 }
 
 SQLITE_UNIQUE_CONSTRAINTS = {
@@ -678,7 +696,7 @@ SQLITE_UNIQUE_CONSTRAINTS = {
     'saved_searches': {('normalized',)},
     'document_relations': {('source_id','target_id','kind')},
     'entity_types': {('normalized',)}, 'relation_types': {('normalized',)}, 'entities': set(),
-    'entity_mentions': set(), 'graph_relations': set(), 'graph_changes': set(),
+    'entity_mentions': set(), 'graph_relations': set(), 'graph_changes': set(), 'ai_usage': set(),
 }
 
 SQLITE_FOREIGN_KEYS = {
@@ -723,7 +741,7 @@ SQLITE_FOREIGN_KEYS = {
                         ('target_id','entities','id','NO ACTION','CASCADE'),
                         ('type_id','relation_types','id','NO ACTION','NO ACTION'),
                         ('document_id','documents','id','NO ACTION','CASCADE')},
-    'graph_changes': set(),
+    'graph_changes': set(), 'ai_usage': set(),
 }
 
 POSTGRES_LEGACY_COLUMNS = {
@@ -909,6 +927,12 @@ POSTGRES_LEGACY_COLUMNS = {
     ('graph_changes','new_value','text','NO','NO',"''::text",None),
     ('graph_changes','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
     ('graph_changes','reverted_at','timestamp with time zone','YES','NO',None,None),
+    ('ai_usage','id','bigint','NO','YES',None,'ALWAYS'),
+    ('ai_usage','provider','text','NO','NO',None,None),
+    ('ai_usage','model','text','NO','NO',None,None),
+    ('ai_usage','input_tokens','bigint','NO','NO',None,None),
+    ('ai_usage','output_tokens','bigint','NO','NO',None,None),
+    ('ai_usage','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
 }
 
 POSTGRES_LEGACY_CONSTRAINTS = {
@@ -981,6 +1005,7 @@ POSTGRES_LEGACY_CONSTRAINTS = {
     ('graph_relations', 'f', ('type_id',), 'relation_types', ('id',), 'a'),
     ('graph_relations', 'f', ('document_id',), 'documents', ('id',), 'c'),
     ('graph_changes', 'p', ('id',), None, (), ' '),
+    ('ai_usage', 'p', ('id',), None, (), ' '),
 }
 
 

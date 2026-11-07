@@ -87,6 +87,7 @@ Grenzen: 50 MB lokale Originaldatei und je E-Mail-Anhang, Dateiinhalt passend zu
 | `entities`, `entity_mentions` | Entitäten mit Art und Name sowie ihre Erwähnungen als exakte Textstelle eines Dokuments (Start, Ende, Zitat); Status `proposed` (KI-Vorschlag, ungeprüft) oder `confirmed`, bei Erwähnungen seit Schema 17 |
 | `graph_relations` | Relationen zwischen zwei Entitäten, jede mit Pflichtbeleg (Dokument, Start, Ende, Zitat); wird mit dem Belegdokument gelöscht |
 | `graph_changes` | Protokoll jeder Änderung am Wissensgraphen mit Rücknahmezeitpunkt; Entitäten, Erwähnungen und Relationen werden nur als gelöscht markiert, damit jede Änderung zurückgenommen werden kann |
+| `ai_usage` | Tokenzahlen je Antwort eines KI-Anbieters (Anbieter, Modell, Eingabe, Ausgabe, Zeitpunkt), ohne Text; Grundlage der Monatsbudgets (Schema 18) |
 
 `schema.sql` dokumentiert das SQLite-Schema. Die ausführbare Schema-Historie liegt in den geordneten, versionierten SQLite- und PostgreSQL-Migrationen in `migrations.py`. SQLite speichert die Version in `PRAGMA user_version`, PostgreSQL in `wissensraum.schema_migrations`. Beide Backends haben denselben fachlichen Speicherumfang, verwenden aber unterschiedliche Volltexttechnik. SQL-Werte werden parametrisiert gebunden. KI-Ausgaben werden niemals als SQL oder Programmcode ausgeführt.
 
@@ -130,6 +131,10 @@ Die SQLite-Datei ist nicht durch die Anwendung verschlüsselt. Sie enthält auch
 ### Betriebsübersicht (Release 2.4, Schritt 9.1)
 
 Der Reiter **Betrieb** zeigt auf Knopfdruck, was gespeichert ist und was im gewählten Zeitraum (Standard 30 Tage, höchstens 3.650) passiert ist: Dokumente nach Status und Quelle, Textumfang und Größe der Originale, fällige Wiedervorlagen, Abschnitte mit Vektoren je Modell und ohne Vektor, Importaufträge und Einträge nach Status, Importfehler nach Fehlercode, KI-Anfragen nach Art, Modell und Antwortstatus sowie Entitäten und Relationen des Wissensgraphen. Die Übersicht enthält nur Zahlen, Status und Fehlercodes, keine Titel, Texte, Fragen, Antworten, Pfade oder Fehlermeldungen; der JSON-Export lässt sich deshalb für Support weitergeben. CLI: `python cli.py overview --days 7` oder mit `--json`.
+
+### Monatsbudgets je KI-Anbieter (Release 2.4, Schritt 9.2)
+
+Jede Antwort eines KI-Anbieters wird mit den Tokenzahlen gezählt, die der Anbieter selbst meldet (Tabelle `ai_usage`, nur Anbieter, Modell, Eingabe- und Ausgabe-Token, Zeitpunkt, kein Text). Unter **Einstellungen → Budgets** legst du je Anbieter ein Monatsbudget in Token und optional in Euro fest; für Euro trägst du die Preise je 1 Million Eingabe- und Ausgabe-Token selbst ein, weil sie sich ändern. 0 bedeutet ohne Grenze. Ab 80 % zeigt die Betriebsübersicht eine Warnung, ab 100 % lehnt die Anwendung weitere Anfragen an diesen Anbieter vor dem Senden ab, bis du das Budget erhöhst oder der Kalendermonat (UTC) wechselt. Eine laufende Anfrage wird nicht abgebrochen, das Budget kann deshalb um eine Antwort überschritten werden. Einbettungen für die semantische Suche werden nicht gezählt. CLI: `python cli.py budget` zeigt alle Anbieter, `python cli.py budget openai --tokens 2000000 --eur 10 --price-in 0.40 --price-out 1.60` setzt ein Budget (Dezimalpunkt in der CLI).
 
 ### PostgreSQL-Sicherung und -Wiederherstellung
 

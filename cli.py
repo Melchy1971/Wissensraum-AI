@@ -80,6 +80,12 @@ def main(argv=None):
                                    '(nur Zahlen, keine Inhalte)')
     overview.add_argument('--days',type=int,default=30,help='Zeitraum für Importfehler und KI-Anfragen (1 bis 3.650)')
     overview.add_argument('--json',action='store_true',help='als JSON statt als Text')
+    budget = commands.add_parser('budget',help='Monatsbudget je KI-Anbieter anzeigen oder setzen (0 = ohne Grenze)')
+    budget.add_argument('provider',nargs='?',choices=tuple(PROVIDERS),help='ohne Angabe: alle Anbieter mit Budget oder Nutzung')
+    budget.add_argument('--tokens',type=int,help='Token je Kalendermonat (Eingabe und Ausgabe zusammen)')
+    budget.add_argument('--eur',type=float,help='Kosten in Euro je Kalendermonat, braucht Preise')
+    budget.add_argument('--price-in',type=float,help='Euro je 1 Million Eingabe-Token')
+    budget.add_argument('--price-out',type=float,help='Euro je 1 Million Ausgabe-Token')
     listing = commands.add_parser('list')
     listing.add_argument('--all-versions',action='store_true',help='auch ältere Versionen anzeigen')
     listing.add_argument('--tag',help='nur Dokumente mit diesem Tag')
@@ -444,6 +450,16 @@ def main(argv=None):
                     print(operations.report(result))
                     _log_event(logger,'command_completed',metadata=metadata)
                     return 0
+            elif args.command == 'budget':
+                import budgets
+                if args.provider is None:
+                    print('\n'.join(budgets.lines(budgets.statuses(store))))
+                    _log_event(logger,'command_completed',metadata=metadata)
+                    return 0
+                if any(value is not None for value in (args.tokens,args.eur,args.price_in,args.price_out)):
+                    budgets.set_limits(store,args.provider,tokens=args.tokens,eur=args.eur,
+                                       price_in=args.price_in,price_out=args.price_out)
+                result = budgets.status(store,args.provider)
             elif args.command == 'status':
                 results = health_overview(store,Settings(store,BASE,vault),
                                           MailAccounts(store,vault,BASE),PROVIDERS)

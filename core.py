@@ -2483,7 +2483,7 @@ RETRY_KINDS = ('timeout', 'unreachable', 'server', 'incomplete')  # technical an
 
 
 class ProviderError(ValueError):
-    """Technical failure of an AI request; ``kind`` is timeout, unreachable, server, http, incomplete or empty.
+    """Failure of an AI request; ``kind`` is timeout, unreachable, server, http, incomplete, empty or budget.
 
     ``detail`` names only technical facts (status code, stop reason, token count), never content.
     """
@@ -2607,7 +2607,10 @@ class AI:
         return answer.strip()
 
     def _request(self, endpoint, headers, payload, timeout):
-        """One request; the answer text or ``ProviderError``."""
+        """One request; the answer text or ``ProviderError``. Refused before sending once the month's
+        budget is used up; the token numbers of every response are counted (step 9.2)."""
+        import budgets
+        budgets.check(self.store, self.provider)
         req=urllib.request.Request(endpoint,data=json.dumps(payload).encode(),headers=headers,method='POST')
         try:
             with self.transport(req, timeout=timeout) as response:
@@ -2621,6 +2624,7 @@ class AI:
             timed_out = isinstance(e, TimeoutError) or isinstance(getattr(e, 'reason', None), TimeoutError)
             raise ProviderError('KI-Dienst nicht erreichbar. Internetverbindung prüfen.',
                                 'timeout' if timed_out else 'unreachable', type(e).__name__) from None
+        budgets.record(self.store, self.provider, self.model, result)  # cut-off answers are billed as well
         if self.provider=='openai':
             if result.get('status') not in ('completed',None):
                 raise ProviderError('KI-Antwort wurde nicht vollständig erzeugt. Anfrage eingrenzen.', 'incomplete',

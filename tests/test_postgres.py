@@ -451,6 +451,10 @@ class PostgresStoreTests(unittest.TestCase):
         from test_operations import check_operations_contract
         check_operations_contract(self, PostgresStore(self.profile, self.password))
 
+    def test_budgets_on_real_postgresql(self):
+        from test_budgets import check_budget_contract
+        check_budget_contract(self, PostgresStore(self.profile, self.password))
+
     def test_graph_context_on_real_postgresql(self):
         from test_graph_context import check_graph_context_contract
         check_graph_context_contract(self, PostgresStore(self.profile, self.password))
@@ -677,7 +681,7 @@ class PostgresStoreTests(unittest.TestCase):
         reset = DatabaseSettings(Path.cwd(), vault, environ={}).reset_postgresql(
             self.profile, self.password, self.profile['database'])
         self.assertEqual(reset['tables'], [
-            'ai_runs', 'chunk_vectors', 'chunks', 'collection_documents', 'collections', 'document_relations',
+            'ai_runs', 'ai_usage', 'chunk_vectors', 'chunks', 'collection_documents', 'collections', 'document_relations',
             'document_tags',
             'document_versions', 'documents', 'email_accounts', 'email_attachments', 'email_imports', 'entities',
             'entity_mentions', 'entity_types', 'favorites', 'graph_changes', 'graph_relations',

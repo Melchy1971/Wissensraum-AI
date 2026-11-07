@@ -1736,6 +1736,7 @@ class App(tk.Tk if tk is not None else object):
         # so the toplevel's own resize also refits the visible settings page.
         self.bind('<Configure>',lambda event:self.refit_settings_page() if event.widget is self else None,add='+')
         self.ai_settings_frame=self.add_scrollable_settings_page('KI-Anbieter')
+        self.budget_settings_frame=self.add_scrollable_settings_page('Budgets')
         self.database_settings_frame=self.add_scrollable_settings_page('Datenbank')
         self.mail_settings_frame=self.add_scrollable_settings_page('E-Mail-Konten')
         self.rules_settings_frame=self.add_scrollable_settings_page('Regeln')
@@ -1791,6 +1792,7 @@ class App(tk.Tk if tk is not None else object):
         self.build_database_settings()
         self.build_mail_settings()
         self.build_design_settings()
+        self.build_budget_settings()
         self.build_configuration_settings()
         self.rules_page=RulesPage(self,self.rules_settings_frame)
 
@@ -1852,6 +1854,55 @@ class App(tk.Tk if tk is not None else object):
         if result['restart_required']:
             text+=' Programm neu starten, damit die konfigurierte Datenquelle verwendet wird.'
         messagebox.showinfo('Konfiguration importieren',text,parent=self)
+
+    def build_budget_settings(self):
+        frame=self.budget_settings_frame
+        ttk.Label(frame,text='Monatsbudgets je KI-Anbieter',font=('Segoe UI',18,'bold')).pack(anchor='w')
+        ttk.Label(frame,text='Gezählt werden die Token, die der Anbieter je Antwort meldet, je Kalendermonat. Ab 80 % '
+                  'erscheint eine Warnung, bei 100 % werden weitere Anfragen an diesen Anbieter abgelehnt. 0 bedeutet '
+                  'ohne Grenze. Preise je 1 Million Token trägst du selbst ein, weil sie sich ändern; ohne Preise gilt '
+                  'nur die Tokengrenze.',wraplength=940).pack(anchor='w',pady=(6,12))
+        form=ttk.Frame(frame)
+        form.pack(fill='x')
+        self.budget_provider=tk.StringVar(value=next(iter(PROVIDERS)))
+        ttk.Label(form,text='KI-Anbieter').grid(row=0,column=0,sticky='w',padx=(0,20),pady=4)
+        box=ttk.Combobox(form,textvariable=self.budget_provider,values=list(PROVIDERS),state='readonly',width=18)
+        box.grid(row=0,column=1,sticky='w',pady=4)
+        box.bind('<<ComboboxSelected>>',lambda _:self.load_budget())
+        self.budget_values={}
+        for row,(field,title) in enumerate([('tokens','Token je Monat'),('eur','Euro je Monat'),
+                                             ('price_in','Euro je 1 Mio. Eingabe-Token'),
+                                             ('price_out','Euro je 1 Mio. Ausgabe-Token')],start=1):
+            ttk.Label(form,text=title).grid(row=row,column=0,sticky='w',padx=(0,20),pady=4)
+            self.budget_values[field]=tk.StringVar()
+            ttk.Entry(form,textvariable=self.budget_values[field],width=20).grid(row=row,column=1,sticky='w',pady=4)
+        ttk.Button(frame,text='Budget speichern',command=self.save_budget,style='Accent.TButton').pack(anchor='w',pady=(12,8))
+        self.budget_status=tk.StringVar()
+        ttk.Label(frame,textvariable=self.budget_status,wraplength=940).pack(anchor='w')
+        self.load_budget()
+
+    def load_budget(self):
+        import budgets
+        provider=self.budget_provider.get()
+        for field,value in budgets.limits(self.store,provider).items():
+            self.budget_values[field].set(str(value).replace('.',','))
+        self.budget_status.set('\n'.join(budgets.lines([budgets.status(self.store,provider)])))
+
+    def save_budget(self):
+        import budgets
+        try:
+            values={}
+            for field,var in self.budget_values.items():
+                text=var.get().strip()
+                text=text.replace('.','') if field=='tokens' else text  # 500.000 Token
+                values[field]=float(text.replace(',','.') or 0)
+            budgets.set_limits(self.store,self.budget_provider.get(),**values)
+        except ValueError as error:
+            messagebox.showerror('Budget nicht gespeichert',str(error) if 'Budget' in str(error) else
+                                 'Bitte nur Zahlen eintragen, zum Beispiel 500000 oder 12,50.',parent=self)
+            return
+        self.load_budget()
+        self.status.set('Budget gespeichert')
 
     def build_design_settings(self):
         frame=self.design_settings_frame
