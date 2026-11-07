@@ -71,6 +71,18 @@
 - Ausschluss auf V2 gemessen (06.11.2026, nur Suche ohne Antwortmodell, Messkopie danach gelöscht): 90 Fragen, alle Bestandsdokumente nach Migration `new`. Recall@10 63 von 66 ohne und mit Ausschluss, 0 von 90 Trefferlisten verschieden. Nach Markieren der 2 erwarteten Dokumente der Fragen e01 bis e11 (ohne e07) als veraltet fanden ohne Ausschluss alle 10 Fragen sie weiter, mit Ausschluss enthielt keine der 90 Trefferlisten sie.
 - Manuelle Prüfung der Dialoge Metadaten, Sammlungen, Beziehungen, Versionsvergleich und Export am Desktop: durch den Product Owner bestanden (06.11.2026).
 
+## Aktualisierung 07.11.2026 – Phase 9, Schritt 9.1 Betriebsübersicht 🟡
+
+**Plan Phase 9 (freigegeben vom Product Owner 06.11.2026, Beginn vor der Abnahme von Release 2.3 ausdrücklich freigegeben):** 9.1 Betriebsübersicht (Importfehler, Datenmenge, Vektorstand, KI-Nutzung) · 9.2 Token- und Kostenbudgets je Anbieter mit Sperre bei Überschreitung · 9.3 Aufbewahrungsregeln für KI-Verlauf und gelöschte Inhalte · 9.4 Integritätsprüfung, tägliche Sicherung (RPO 24 h) und Wiederherstellungsübung (RTO 2 h) · 9.5 Sicherheitsprüfungen in CI (Abhängigkeiten, Secrets, Code) mit Software-Stückliste und signierten Release-Artefakten · 9.6 Datenschutzexport und selektive Löschung. Jeder Schritt mit Tests für beide Backends, Matrix-Gate 7 von 7 und eigenem PR. Signatur über Sigstore in GitHub Actions (D-024).
+
+**Umfang 9.1:** Neues Modul `operations.py` mit `overview` (beide Backends über denselben Speicherzugriff) und `report`. Erfasst werden Dokumente nach Status und Quelle, Textumfang und Größe der Originale, fällige Wiedervorlagen, Abschnitte, Vektoren je Modell und Abschnitte ohne Vektor, Importaufträge und Einträge nach Status, Importfehler im Zeitraum nach Fehlercode, KI-Anfragen im Zeitraum nach Art, Modell, Antwortstatus und mit Graphkontext sowie Entitäten und Relationen nach Status. Zeitraum 1 bis 3.650 Tage, Standard 30. Ausgegeben werden nur Zahlen, Status und Fehlercodes, keine Titel, Texte, Fragen, Antworten, Pfade oder Fehlermeldungen. Oberfläche: Reiter „Betrieb“ mit Zeitraum, Aktualisieren und JSON-Export. CLI: `overview [--days N] [--json]`. Kein neues Schema. Suchqualität ist nicht Teil der Übersicht; sie wird weiter mit `tests/eval` auf dem eingefrorenen Bestand V2 gemessen, die Übersicht zeigt dafür den Antwortstatus der KI-Anfragen. Tokenverbrauch wird bisher nicht gespeichert und folgt mit 9.2.
+
+**Nachweise:** Gemeinsamer Vertrag `check_operations_contract` (SQLite und PostgreSQL): Zählungen je Bereich, Zeitraumfilter für Importfehler und KI-Anfragen, Begrenzung auf 3.650 Tage, kein Titel-, Text-, Fragen-, Pfad- oder Meldungsinhalt in Bericht und JSON. Dazu Test der deutschen Zahlenformatierung, der Wiedervorlage zum angegebenen Tag und Oberflächentest des Reiters mit JSON-Export. Linux Python 3.13: 645 Tests, 0 Fehler, 38 übersprungen (umgebungsbedingt, unter anderem PostgreSQL ohne Wegwerf-Cluster).
+
+**Gate:** Lokales Matrix-Gate und GitHub Actions stehen aus.
+
+**Status:** 9.1 🟡.
+
 ## Aktualisierung 06.11.2026 – Phase 8B, Schritt 8B.1 Datenmodell des Wissensgraphen ✅
 
 **Plan Phase 8B (freigegeben vom Product Owner 06.11.2026):** 8B.1 Datenmodell (konfigurierbare Entitäts- und Relationsarten, Pflichtbeleg mit Textstelle, Protokoll und Rücknahme, manuelles Anlegen) · 8B.2 KI-Vorschläge (bleiben ungeprüft bis zur Bestätigung, Zitat muss wörtlich im Abschnitt stehen) · 8B.3 Zusammenführen und Trennen von Entitäten · 8B.4 Graphansicht mit Filtern · 8B.5 Graphkontext als begrenzte RAG-Quelle mit V2-Messung. Jeder Schritt mit eigener Migration, Tests für beide Backends, Matrix-Gate 7 von 7 und eigenem PR. Speicherung in Tabellen von SQLite und PostgreSQL, kein separater Graphserver (D-023). KI-Vorschläge nur mit lokalem Ollama (D-023).
@@ -1065,7 +1077,9 @@ Frühere Zwischenstände: Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33
 
 **Gate Phase 8:** Dokumentversionen, Statuswechsel und Graphänderungen sind mit Originalquelle, Benutzerentscheidung und Rücknahmeweg nachweisbar.
 
-### Phase 9 – Release 2.4 Betrieb und Governance ⬜
+### Phase 9 – Release 2.4 Betrieb und Governance 🟡
+
+**Stand 07.11.2026:** Plan 9.1 bis 9.6 freigegeben (siehe Aktualisierung 07.11.2026), 9.1 Betriebsübersicht 🟡, 9.2 bis 9.6 ⬜.
 
 **Ziel:** Datenqualität, Kosten, Sicherheit und Wiederherstellbarkeit werden messbar gesteuert.
 
@@ -1331,6 +1345,7 @@ Ein Arbeitspaket ist abgeschlossen, wenn:
 | D-021 | Abnahme Release 2.1: Das Kriterium „mindestens 95 % der beantworteten Testfragen enthalten die erwartete Hauptquelle“ entfällt (gemessen 86 % auf dem Bestand V2). Chunk-Strategie je Dokumenttyp nur konfigurierbar, Standard 1.800/200 unverändert. Fundstellenanzeige ohne Reranking-Score, weil es keinen Reranker gibt (D-019). Release 2.1 freigegeben nach Gate 7 von 7 an `b0b41de` und 14 von 14 GitHub-Checks | Entschieden 05.11.2026 (Product Owner) |
 | D-022 | Abnahme Release 2.2 (Phase 8A Wissensorganisation): 8A.1 bis 8A.5 umgesetzt, Sammlungen und Favoriten im Metadatenverlauf, Ausschluss veralteter Dokumente auf V2 gemessen (Recall@10 unverändert 63 von 66), manuelle Prüfung bestanden. Release 2.2 freigegeben nach Gate 7 von 7 an `2aadc5c` und 14 von 14 GitHub-Checks, Tag `v2.2` | Entschieden 06.11.2026 (Product Owner) |
 | D-023 | Phase 8B: Wissensgraph in Tabellen von SQLite und PostgreSQL mit gemeinsamem Vertrag, kein separater Graphserver (Neo4j), damit der Offline-Kern ohne Zusatzdienst bleibt. KI-Vorschläge für Entitäten und Relationen nur mit lokalem Ollama | Entschieden 06.11.2026 (Product Owner) |
+| D-024 | Phase 9: Plan 9.1 bis 9.6 freigegeben, Beginn vor der Abnahme von Release 2.3 erlaubt. Release-Artefakte werden über Sigstore in GitHub Actions signiert (schlüssellos über die Identität des Workflows, kein eigener Signaturschlüssel im Repository oder auf dem Rechner) | Entschieden 06.11.2026 (Product Owner) |
 
 ## 14. Hauptrisiken
 

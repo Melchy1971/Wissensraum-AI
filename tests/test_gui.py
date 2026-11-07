@@ -1,6 +1,7 @@
 """Native UI regression; skipped on systems without a graphical display."""
 from pathlib import Path
 import io
+import json
 import os
 import tempfile
 import tkinter as tk
@@ -752,6 +753,22 @@ class InterfaceTests(unittest.TestCase):
         self.assertEqual(window.store.collections(),[])
         self.assertEqual(window.store.get(car)['title'],'Fahrzeug')
         dialog.destroy()
+
+    def test_operations_tab_shows_counts_and_exports_json_without_content(self):
+        window=self.window
+        self.assertIn('Betrieb',[window.tabs.tab(t,'text') for t in window.tabs.tabs()])
+        window.store.add('Geheimer Titel','Geheimer Inhalt')
+        window.operations_days.set('7')
+        window.show_operations()
+        text=window.operations.get('1.0','end')
+        self.assertIn('Dokumente: 1 (new 1)',text)
+        self.assertIn('KI-Anfragen der letzten 7 Tage: 0',text)
+        target=self.base/'betrieb.json'
+        with patch.object(app.filedialog,'asksaveasfilename',return_value=str(target)):
+            window.export_operations()
+        data=target.read_text(encoding='utf-8')
+        self.assertEqual(json.loads(data)['zeitraum_tage'],7)
+        self.assertNotIn('Geheim',data+text)
 
     def test_metadata_dialog_saves_changes_with_history(self):
         window=self.window

@@ -57,6 +57,7 @@ Ohne ausdrückliche Anweisung keine Arbeit aus einer späteren Phase beginnen, s
 | `evidence.py` | Bewertung der Quellenlage vor und Prüfung der Quellenverweise nach der KI-Antwort |
 | `graph_suggest.py` | KI-Vorschläge für den Wissensgraphen über das lokale Ollama, nur mit wörtlichem Beleg |
 | `graph_view.py` | Graphansicht mit Filtern und Ringlayout |
+| `operations.py` | Betriebsübersicht: nur Zahlen, Status und Fehlercodes, keine Inhalte |
 | `vector_sync.py` | Einbettung der Abschnitte im Hintergrund |
 | `configuration.py`, `configuration_authority.py` | Konfigurationstransfer ohne Zugangsdaten |
 | `diagnostics.py`, `local_logging.py` | Startdiagnose und strukturiertes Betriebsprotokoll |
