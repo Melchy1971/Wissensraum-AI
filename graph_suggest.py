@@ -64,7 +64,7 @@ def suggest(store, document_id, model=DEFAULT_MODEL, transport=None, progress=No
         try:
             answer = ai._request(ai_endpoint(), {'Content-Type': 'application/json'}, payload, OLLAMA_TIMEOUT)
         except ProviderError as error:
-            if error.kind == 'unreachable':  # no model at all: stop instead of failing every section
+            if error.kind in ('unreachable', 'budget'):  # no model or no budget: stop instead of failing every section
                 raise
             counts['fehler'] += 1  # one slow or cut-off section does not lose the others
             if progress:

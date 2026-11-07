@@ -240,6 +240,9 @@ SQLITE_HISTORICAL_MIGRATIONS = (
         "INSERT INTO entity_types(name,normalized) VALUES ('Person','person'), ('Organisation','organisation'), ('Prozess','prozess'), ('System','system'), ('Entscheidung','entscheidung')",
         "INSERT INTO relation_types(name,normalized) VALUES ('arbeitet für','arbeitet für'), ('verantwortet','verantwortet'), ('nutzt','nutzt'), ('entscheidet über','entscheidet über'), ('gehört zu','gehört zu')",
     )),
+    (17, (
+        "ALTER TABLE entity_mentions ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmed'",
+    )),
 )
 
 
@@ -397,7 +400,7 @@ class FakePostgres:
                        'import_item_errors', 'document_versions', 'email_attachments',
                        'tags', 'document_tags', 'rules', 'rule_runs', 'rule_run_changes',
                        'chunk_vectors', 'metadata_changes', 'collections', 'collection_documents', 'favorites', 'saved_searches',
-                       'document_relations', 'entity_types', 'relation_types', 'entities', 'entity_mentions', 'graph_relations', 'graph_changes'}
+                       'document_relations', 'entity_types', 'relation_types', 'entities', 'entity_mentions', 'graph_relations', 'graph_changes', 'ai_usage'}
         return tables
 
 
@@ -484,6 +487,8 @@ class SQLiteMigrationTests(unittest.TestCase):
                     self.assertEqual(db.execute('SELECT count(*) FROM entities').fetchone()[0], 0)
                     # Migration 17 adds the status of a mention (proposed or confirmed).
                     self.assertIn('status', [row[1] for row in db.execute('PRAGMA table_info(entity_mentions)')])
+                    # Migration 18 adds the token counter for budgets, empty after the upgrade.
+                    self.assertEqual(db.execute('SELECT count(*) FROM ai_usage').fetchone()[0], 0)
 
     def test_historical_fixtures_do_not_depend_on_runtime_migrations(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -787,7 +792,7 @@ class PostgresMigrationTests(unittest.TestCase):
                                                           'document_tags', 'rules', 'rule_runs',
                                                           'rule_run_changes', 'chunk_vectors',
                                                           'metadata_changes', 'collections', 'collection_documents', 'favorites', 'saved_searches',
-                                                          'document_relations', 'entity_types', 'relation_types', 'entities', 'entity_mentions', 'graph_relations', 'graph_changes')),
+                                                          'document_relations', 'entity_types', 'relation_types', 'entities', 'entity_mentions', 'graph_relations', 'graph_changes', 'ai_usage')),
         ]
         indexes = [
             {'table_name':'chunks','index_name':'chunks_document_id_idx','index_definition':'CREATE INDEX chunks_document_id_idx ON wissensraum.chunks USING btree (document_id)'},

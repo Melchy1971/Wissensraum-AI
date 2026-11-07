@@ -186,7 +186,7 @@ class PostgresStoreTests(unittest.TestCase):
         store = PostgresStore(self.profile, self.password)
         with store.connect() as db:
             self.assertEqual([row['version'] for row in db.execute(
-                'SELECT version FROM schema_migrations ORDER BY version')], list(range(1, 18)))
+                'SELECT version FROM schema_migrations ORDER BY version')], list(range(1, CURRENT_SCHEMA_VERSION + 1)))
             old = db.execute("""SELECT -ts_rank_cd(to_tsvector('simple',d.title || ' ' || d.category || ' ' || c.content),
                                 websearch_to_tsquery('simple','Wartung OR Haus')) AS rank
                                 FROM chunks c JOIN documents d ON d.id=c.document_id""").fetchone()['rank']
@@ -451,6 +451,10 @@ class PostgresStoreTests(unittest.TestCase):
         from test_operations import check_operations_contract
         check_operations_contract(self, PostgresStore(self.profile, self.password))
 
+    def test_budgets_on_real_postgresql(self):
+        from test_budgets import check_budget_contract
+        check_budget_contract(self, PostgresStore(self.profile, self.password))
+
     def test_graph_context_on_real_postgresql(self):
         from test_graph_context import check_graph_context_contract
         check_graph_context_contract(self, PostgresStore(self.profile, self.password))
@@ -677,7 +681,7 @@ class PostgresStoreTests(unittest.TestCase):
         reset = DatabaseSettings(Path.cwd(), vault, environ={}).reset_postgresql(
             self.profile, self.password, self.profile['database'])
         self.assertEqual(reset['tables'], [
-            'ai_runs', 'chunk_vectors', 'chunks', 'collection_documents', 'collections', 'document_relations',
+            'ai_runs', 'ai_usage', 'chunk_vectors', 'chunks', 'collection_documents', 'collections', 'document_relations',
             'document_tags',
             'document_versions', 'documents', 'email_accounts', 'email_attachments', 'email_imports', 'entities',
             'entity_mentions', 'entity_types', 'favorites', 'graph_changes', 'graph_relations',

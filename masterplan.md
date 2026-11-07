@@ -71,6 +71,18 @@
 - Ausschluss auf V2 gemessen (06.11.2026, nur Suche ohne Antwortmodell, Messkopie danach gelöscht): 90 Fragen, alle Bestandsdokumente nach Migration `new`. Recall@10 63 von 66 ohne und mit Ausschluss, 0 von 90 Trefferlisten verschieden. Nach Markieren der 2 erwarteten Dokumente der Fragen e01 bis e11 (ohne e07) als veraltet fanden ohne Ausschluss alle 10 Fragen sie weiter, mit Ausschluss enthielt keine der 90 Trefferlisten sie.
 - Manuelle Prüfung der Dialoge Metadaten, Sammlungen, Beziehungen, Versionsvergleich und Export am Desktop: durch den Product Owner bestanden (06.11.2026).
 
+## Aktualisierung 07.11.2026 – Phase 9, Schritt 9.2 Token- und Kostenbudgets je Anbieter 🟡
+
+**Umfang 9.2:** Schema 18 mit Tabelle `ai_usage` (Anbieter, Modell, Eingabe- und Ausgabe-Token, Zeitpunkt, kein Text), Migration für SQLite mit geprüfter Sicherung und für PostgreSQL unter Advisory Lock, Kataloge und `schema.sql` angepasst. Neues Modul `budgets.py`: Jede Antwort eines Anbieters wird mit den von ihm gemeldeten Tokenzahlen gezählt (OpenAI, Anthropic, Gemini einschließlich Denktoken, Ollama), auch abgeschnittene Antworten. Budget je Anbieter und Kalendermonat (UTC) in Token und optional in Euro mit selbst eingetragenen Preisen je 1 Million Token; 0 bedeutet ohne Grenze. Ab 80 % Warnung, ab 100 % lehnt `AI._request` jede weitere Anfrage an diesen Anbieter vor dem Senden ab (`ProviderError` der Art `budget`, ohne Wiederholung); die KI-Vorschläge für den Wissensgraphen enden dann sofort. Eine laufende Anfrage wird nicht abgebrochen, das Budget kann um eine Antwort überschritten werden. Einbettungen der semantischen Suche werden nicht gezählt. Oberfläche: Einstellungsseite „Budgets“, Monatsstand in der Betriebsübersicht. CLI: `budget [anbieter] [--tokens N] [--eur X] [--price-in X] [--price-out Y]`.
+
+**Annahmen (vom Product Owner zu bestätigen, jederzeit änderbar):** Zeitraum Kalendermonat in UTC, Warnschwelle 80 %, harte Sperre bei 100 % ohne Ausnahmeschalter, keine eingebauten Preise.
+
+**Nachweise:** Gemeinsamer Vertrag `check_budget_contract` (SQLite und PostgreSQL): Zählung, Monatsgrenze, Warnung, Sperre je Anbieter, Eurobudget über Preise, Prüfung ungültiger Werte, kein Inhalt in `ai_usage`. Dazu Auswertung der Tokenangaben aller Anbieter einschließlich fehlerhafter Werte, Sperre vor dem Senden ohne Wiederholung, Abbruch der Graphvorschläge, deutsche Ausgabe, CLI- und Oberflächentest. Migrations-, Diagnose- und Resettests auf Schema 18. Linux Python 3.13: 653 Tests, 0 Fehler, 39 übersprungen (umgebungsbedingt).
+
+**Gate:** Lokales Matrix-Gate und GitHub Actions stehen aus.
+
+**Status:** 9.2 🟡.
+
 ## Aktualisierung 07.11.2026 – Phase 9, Schritt 9.1 Betriebsübersicht 🟡
 
 **Plan Phase 9 (freigegeben vom Product Owner 06.11.2026, Beginn vor der Abnahme von Release 2.3 ausdrücklich freigegeben):** 9.1 Betriebsübersicht (Importfehler, Datenmenge, Vektorstand, KI-Nutzung) · 9.2 Token- und Kostenbudgets je Anbieter mit Sperre bei Überschreitung · 9.3 Aufbewahrungsregeln für KI-Verlauf und gelöschte Inhalte · 9.4 Integritätsprüfung, tägliche Sicherung (RPO 24 h) und Wiederherstellungsübung (RTO 2 h) · 9.5 Sicherheitsprüfungen in CI (Abhängigkeiten, Secrets, Code) mit Software-Stückliste und signierten Release-Artefakten · 9.6 Datenschutzexport und selektive Löschung. Jeder Schritt mit Tests für beide Backends, Matrix-Gate 7 von 7 und eigenem PR. Signatur über Sigstore in GitHub Actions (D-024).
@@ -1079,7 +1091,7 @@ Frühere Zwischenstände: Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33
 
 ### Phase 9 – Release 2.4 Betrieb und Governance 🟡
 
-**Stand 07.11.2026:** Plan 9.1 bis 9.6 freigegeben (siehe Aktualisierung 07.11.2026), 9.1 Betriebsübersicht 🟡, 9.2 bis 9.6 ⬜.
+**Stand 07.11.2026:** Plan 9.1 bis 9.6 freigegeben (siehe Aktualisierung 07.11.2026), 9.1 Betriebsübersicht 🟡, 9.2 Budgets je Anbieter 🟡 (Schema 18), 9.3 bis 9.6 ⬜.
 
 **Ziel:** Datenqualität, Kosten, Sicherheit und Wiederherstellbarkeit werden messbar gesteuert.
 

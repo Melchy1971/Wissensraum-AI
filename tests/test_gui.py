@@ -770,6 +770,22 @@ class InterfaceTests(unittest.TestCase):
         self.assertEqual(json.loads(data)['zeitraum_tage'],7)
         self.assertNotIn('Geheim',data+text)
 
+    def test_budget_page_saves_limits_and_rejects_text(self):
+        import budgets
+        window=self.window
+        self.assertIn('Budgets',[window.settings_sections.tab(t,'text') for t in window.settings_sections.tabs()])
+        window.budget_provider.set('anthropic'); window.load_budget()
+        window.budget_values['tokens'].set('500.000'); window.budget_values['eur'].set('12,50')
+        window.budget_values['price_in'].set('3'); window.budget_values['price_out'].set('')
+        window.save_budget()
+        self.assertEqual(budgets.limits(window.store,'anthropic'),{'tokens':500000,'eur':12.5,'price_in':3.0,'price_out':0.0})
+        self.assertIn('0 Token von 500.000',window.budget_status.get())
+        window.budget_values['tokens'].set('viel')
+        with patch.object(app.messagebox,'showerror') as error:
+            window.save_budget()
+        self.assertIn('nur Zahlen',error.call_args.args[1])
+        self.assertEqual(budgets.limits(window.store,'anthropic')['tokens'],500000)
+
     def test_metadata_dialog_saves_changes_with_history(self):
         window=self.window
         doc_id,_=window.store.add('Wartungsplan','Die Therme bekommt jährlich eine Wartung.',category='Haus')

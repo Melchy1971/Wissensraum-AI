@@ -58,6 +58,7 @@ Ohne ausdrückliche Anweisung keine Arbeit aus einer späteren Phase beginnen, s
 | `graph_suggest.py` | KI-Vorschläge für den Wissensgraphen über das lokale Ollama, nur mit wörtlichem Beleg |
 | `graph_view.py` | Graphansicht mit Filtern und Ringlayout |
 | `operations.py` | Betriebsübersicht: nur Zahlen, Status und Fehlercodes, keine Inhalte |
+| `budgets.py` | Tokenzählung je Antwort und Monatsbudgets je KI-Anbieter mit Sperre |
 | `vector_sync.py` | Einbettung der Abschnitte im Hintergrund |
 | `configuration.py`, `configuration_authority.py` | Konfigurationstransfer ohne Zugangsdaten |
 | `diagnostics.py`, `local_logging.py` | Startdiagnose und strukturiertes Betriebsprotokoll |
