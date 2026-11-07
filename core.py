@@ -1489,14 +1489,10 @@ class Store(DocumentMetadata, Organization, Relations, Graph, ChunkStrategies, V
                       'email_imports','sources','import_jobs','import_items','import_item_errors',
                       'document_versions','email_attachments'}),
         9: frozenset(schema_contract) - {'chunk_vectors'},
-        10: frozenset(schema_contract),
-        11: frozenset(schema_contract),  # 11 changes only PostgreSQL
-        12: frozenset(schema_contract),  # metadata_changes is not part of this contract
-        13: frozenset(schema_contract),  # nor are the tables of step 8A.3
-        14: frozenset(schema_contract),  # nor is the relation table of step 8A.4
-        15: frozenset(schema_contract),  # nor are the graph tables of step 8B.1
-        16: frozenset(schema_contract),
-        CURRENT_SCHEMA_VERSION: frozenset(schema_contract),
+        # From 10 on the contract covers the same tables: 11 changes only PostgreSQL, and the tables of
+        # 8A, 8B and 9.2 are not part of it. Every version up to the current one is listed, so raising
+        # the schema version cannot make databases of the previous version fail the start check.
+        **dict.fromkeys(range(10, CURRENT_SCHEMA_VERSION + 1), frozenset(schema_contract)),
     }
     primary_keys = {
         'documents': ('id',), 'chunks': ('id',), 'ai_runs': ('id',),
