@@ -786,6 +786,75 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn('nur Zahlen',error.call_args.args[1])
         self.assertEqual(budgets.limits(window.store,'anthropic')['tokens'],500000)
 
+    def test_retention_page_saves_rules_and_applies_only_after_confirmation(self):
+        import retention
+        window=self.window
+        self.assertIn('Aufbewahrung',[window.settings_sections.tab(t,'text') for t in window.settings_sections.tabs()])
+        window.store.log('question','Alt','Antwort',{},'gpt')
+        with window.store.connect() as db:
+            db.execute("UPDATE ai_runs SET created_at='2020-01-01 00:00:00'")
+        window.retention_days['ki_verlauf'].set('30')
+        window.save_retention()
+        self.assertEqual(retention.rules(window.store)['ki_verlauf'],30)
+        self.assertIn('ai_runs 1',window.retention_status.get())
+        with patch.object(app.messagebox,'askyesno',return_value=False):
+            window.apply_retention()
+        self.assertEqual(len(window.store.history()),1)
+        with patch.object(app.messagebox,'askyesno',return_value=True) as ask:
+            window.apply_retention()
+        self.assertIn('ai_runs 1',ask.call_args.args[1])
+        self.assertEqual(window.store.history(),[])
+        window.retention_days['ki_verlauf'].set('-5')
+        with patch.object(app.messagebox,'showerror') as error:
+            window.save_retention()
+        self.assertIn('ganze Tage',error.call_args.args[1])
+        self.assertEqual(retention.rules(window.store)['ki_verlauf'],30)
+
+    def test_operations_tab_backs_up_checks_and_drills(self):
+        import backups
+        window=self.window
+        window.backup_keep.set('3'); window.backup_auto.set(False)
+        window.save_backup_settings()
+        self.assertEqual((backups.settings(window.store)['behalten'],backups.settings(window.store)['auto']),(3,False))
+        with patch.object(app.filedialog,'askdirectory',return_value=str(self.base/'sicherungen')):
+            window.choose_backup_folder()
+        window.backup_now(); self.wait_until_idle(window)
+        self.assertEqual(len(backups.existing(self.base/'sicherungen')),1)
+        with patch.object(app.messagebox,'showinfo') as info:
+            window.check_integrity(); self.wait_until_idle(window)
+            self.assertIn('Keine Auffälligkeiten',info.call_args.args[1])
+            window.restore_drill(); self.wait_until_idle(window)
+            self.assertIn('Bestanden',info.call_args.args[1])
+        self.assertIn('Letzte Wiederherstellungsübung',window.operations.get('1.0','end'))
+        window.backup_keep.set('0')
+        with patch.object(app.messagebox,'showerror') as error:
+            window.save_backup_settings()
+        self.assertIn('Sicherungen behalten',error.call_args.args[1])
+
+    def test_privacy_page_exports_finds_and_erases_after_confirmation(self):
+        import zipfile
+        window=self.window
+        keep,_=window.store.add('Behalten','Nur Milch.')
+        gone,_=window.store.add('Vertrag Erika','Vertrag mit Erika Musterfrau.')
+        target=self.base/'export.zip'
+        with patch.object(app.filedialog,'asksaveasfilename',return_value=str(target)):
+            window.privacy_export(); self.wait_until_idle(window)
+        with zipfile.ZipFile(target) as archive:
+            self.assertEqual(len(json.loads(archive.read('daten/documents.json'))),2)
+        window.privacy_query.set('musterfrau'); window.privacy_find()
+        self.assertEqual(window.privacy_ids,[gone])
+        window.privacy_hits.selection_set(0)
+        with patch.object(app.messagebox,'askyesno',return_value=False):
+            window.privacy_erase()
+        self.assertIsNotNone(window.store.get(gone))
+        with patch.object(app.messagebox,'askyesno',return_value=True) as ask:
+            window.privacy_erase(); self.wait_until_idle(window)
+        self.assertIn('1 Dokumente',ask.call_args.args[1])
+        with self.assertRaises(ValueError):
+            window.store.get(gone)
+        self.assertEqual(window.store.get(keep)['title'],'Behalten')
+        self.assertIn('1 Dokumente gelöscht',window.privacy_status.get())
+
     def test_metadata_dialog_saves_changes_with_history(self):
         window=self.window
         doc_id,_=window.store.add('Wartungsplan','Die Therme bekommt jährlich eine Wartung.',category='Haus')

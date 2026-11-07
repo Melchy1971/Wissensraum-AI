@@ -86,6 +86,25 @@ def main(argv=None):
     budget.add_argument('--eur',type=float,help='Kosten in Euro je Kalendermonat, braucht Preise')
     budget.add_argument('--price-in',type=float,help='Euro je 1 Million Eingabe-Token')
     budget.add_argument('--price-out',type=float,help='Euro je 1 Million Ausgabe-Token')
+    commands.add_parser('integrity',help='Datenbank prüfen: Struktur, Schema und Dokument-Prüfsummen')
+    daily = commands.add_parser('backup-daily',help='Geprüfte Sicherung in den Sicherungsordner, wenn die letzte '
+                                'älter als 24 Stunden ist (für die Aufgabenplanung)')
+    daily.add_argument('--force',action='store_true',help='auch wenn eine aktuelle Sicherung vorhanden ist')
+    commands.add_parser('restore-drill',help='Neueste Sicherung probeweise wiederherstellen und prüfen')
+    backup_settings = commands.add_parser('backup-settings',help='Sicherungsordner, Anzahl und Automatik')
+    backup_settings.add_argument('--folder'); backup_settings.add_argument('--keep',type=int)
+    backup_settings.add_argument('--auto',choices=('on','off'))
+    commands.add_parser('privacy-export',help='Alle gespeicherten Daten als ZIP (Tabellen als JSON, Originale als '
+                        'Dateien)').add_argument('target',type=Path)
+    commands.add_parser('privacy-find',help='Dokumente mit einem Text in Titel, Dateiname oder Inhalt und die Folgen '
+                        'einer Löschung').add_argument('text')
+    erase = commands.add_parser('privacy-erase',help='Dokumente samt allem Abgeleiteten endgültig löschen')
+    erase.add_argument('ids',type=int,nargs='+'); erase.add_argument('--confirm',action='store_true')
+    keep = commands.add_parser('retention',help='Aufbewahrungsregeln: ohne Angabe Vorschau, mit --apply --confirm anwenden')
+    keep.add_argument('category',nargs='?',choices=('ki_verlauf','ki_nutzung','importfehler','graph_geloescht'))
+    keep.add_argument('--days',type=int,help='Tage aufbewahren (0 = unbegrenzt)')
+    keep.add_argument('--apply',action='store_true',help='Regeln jetzt anwenden (entfernt endgültig)')
+    keep.add_argument('--confirm',action='store_true',help='Bestätigung für --apply')
     listing = commands.add_parser('list')
     listing.add_argument('--all-versions',action='store_true',help='auch ältere Versionen anzeigen')
     listing.add_argument('--tag',help='nur Dokumente mit diesem Tag')
@@ -460,6 +479,55 @@ def main(argv=None):
                     budgets.set_limits(store,args.provider,tokens=args.tokens,eur=args.eur,
                                        price_in=args.price_in,price_out=args.price_out)
                 result = budgets.status(store,args.provider)
+            elif args.command == 'integrity':
+                import backups
+                result = backups.integrity(store)
+                if not result['ok']:
+                    print(json.dumps(result,ensure_ascii=False,indent=2))
+                    return 1
+            elif args.command == 'backup-daily':
+                import backups
+                result = backups.create(store) if args.force or backups.due(store) else {'datei':None,'grund':'aktuell'}
+            elif args.command == 'restore-drill':
+                import backups
+                result = backups.drill(store)
+                if not result['ok']:
+                    print(json.dumps(result,ensure_ascii=False,indent=2))
+                    return 1
+            elif args.command == 'backup-settings':
+                import backups
+                result = backups.set_settings(store,auto=None if args.auto is None else args.auto=='on',
+                                              folder=args.folder,keep=args.keep)
+            elif args.command == 'privacy-export':
+                import privacy
+                result = privacy.export(store,args.target)
+            elif args.command == 'privacy-find':
+                import privacy
+                found = privacy.find(store,args.text)
+                result = {'dokumente':[{'id':d['id'],'title':d['title']} for d in found],
+                          'folgen':privacy.impact(store,[d['id'] for d in found])}
+            elif args.command == 'privacy-erase':
+                import privacy
+                if not args.confirm:
+                    print(json.dumps(privacy.impact(store,args.ids),ensure_ascii=False,indent=2))
+                    print('Zum endgültigen Löschen --confirm angeben.',file=sys.stderr)
+                    return 2
+                result = privacy.erase(store,args.ids)
+            elif args.command == 'retention':
+                import retention
+                if args.category is not None:
+                    if args.days is None:
+                        raise ValueError('Für eine Regel --days angeben (0 = unbegrenzt).')
+                    result = retention.set_rule(store,args.category,args.days)
+                elif args.apply and not args.confirm:
+                    print(retention.report(retention.preview(store)))
+                    print('Zum endgültigen Entfernen --apply --confirm angeben.',file=sys.stderr)
+                    return 2
+                else:
+                    counts = retention.apply(store) if args.apply else retention.preview(store)
+                    print(('Entfernt:\n' if args.apply else 'Vorschau:\n') + retention.report(counts))
+                    _log_event(logger,'command_completed',metadata=metadata)
+                    return 0
             elif args.command == 'status':
                 results = health_overview(store,Settings(store,BASE,vault),
                                           MailAccounts(store,vault,BASE),PROVIDERS)

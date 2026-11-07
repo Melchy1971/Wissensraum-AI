@@ -316,6 +316,22 @@ class App(tk.Tk if tk is not None else object):
         ttk.Spinbox(bar,from_=1,to=3650,width=6,textvariable=self.operations_days).pack(side='left',padx=(6,12))
         ttk.Button(bar,text='Übersicht aktualisieren',command=self.show_operations).pack(side='left')
         ttk.Button(bar,text='Als JSON exportieren',command=self.export_operations).pack(side='left',padx=(8,0))
+        safety = ttk.Frame(self.operations_tab)
+        safety.pack(fill='x',pady=(0,8))
+        for title,command in [('Integrität prüfen',self.check_integrity),('Jetzt sichern',self.backup_now),
+                              ('Wiederherstellungsübung',self.restore_drill)]:
+            ttk.Button(safety,text=title,command=command).pack(side='left',padx=(0,8))
+        if self.store.backend!='postgresql':
+            import backups
+            current=backups.settings(self.store)
+            self.backup_auto=tk.BooleanVar(value=current['auto'])
+            ttk.Checkbutton(safety,text='täglich automatisch sichern',variable=self.backup_auto,
+                            command=self.save_backup_settings).pack(side='left',padx=(8,8))
+            ttk.Label(safety,text='behalten').pack(side='left')
+            self.backup_keep=tk.StringVar(value=str(current['behalten']))
+            ttk.Spinbox(safety,from_=1,to=backups.MAX_KEEP,width=4,textvariable=self.backup_keep,
+                        command=self.save_backup_settings).pack(side='left',padx=(4,8))
+            ttk.Button(safety,text='Sicherungsordner …',command=self.choose_backup_folder).pack(side='left')
         ttk.Label(self.operations_tab,text='Nur Zahlen, Status und Fehlercodes; keine Titel, Texte, Fragen oder Pfade.'
                   ).pack(anchor='w',pady=(0,8))
         self.operations = ScrolledText(self.operations_tab,wrap='word',font=('Segoe UI',11),padx=14,pady=12)
@@ -329,6 +345,8 @@ class App(tk.Tk if tk is not None else object):
         self.refresh()
         self.show_history()
         self.after(100,self.poll)
+        if self.store.backend!='postgresql':
+            self.after(60_000,self.auto_backup)  # a minute after the start, then hourly
 
     def apply_theme(self,theme):
         """Apply the selected Telekom-oriented palette to existing and future widgets."""
@@ -1384,6 +1402,71 @@ class App(tk.Tk if tk is not None else object):
         import operations
         self.write(self.operations,operations.report(self.operations_overview()))
 
+    def check_integrity(self):
+        import backups
+        def done(result):
+            text='Keine Auffälligkeiten.' if result['ok'] else '\n'.join(result['probleme'])
+            show=messagebox.showinfo if result['ok'] else messagebox.showwarning
+            show('Integritätsprüfung',f'{result["dokumente"]} Dokumente geprüft. {text}',parent=self)
+        self.work(lambda:backups.integrity(self.store),done)
+
+    def backup_now(self):
+        import backups
+        def done(result):
+            self.status.set(f'Sicherung {result["datei"]} erstellt und geprüft')
+            self.show_operations()
+        self.work(lambda:backups.create(self.store),done)
+
+    def restore_drill(self):
+        import backups
+        def done(result):
+            seconds=f'{result["sekunden"]:.1f}'.replace('.',',')
+            text=(f'Sicherung {result["sicherung"]} in {seconds} Sekunden in eine Prüfkopie wiederhergestellt, '
+                  f'{result["dokumente"]} Dokumente. ')
+            if result['ok']:
+                messagebox.showinfo('Wiederherstellungsübung',text+'Bestanden.',parent=self)
+            else:
+                messagebox.showwarning('Wiederherstellungsübung',text+'Nicht bestanden: '
+                                       +('; '.join(result['probleme']) or 'länger als 2 Stunden'),parent=self)
+            self.show_operations()
+        self.work(lambda:backups.drill(self.store),done)
+
+    def save_backup_settings(self):
+        import backups
+        try:
+            backups.set_settings(self.store,auto=self.backup_auto.get(),keep=int(self.backup_keep.get()))
+        except ValueError:
+            messagebox.showerror('Sicherung',f'Zwischen 1 und {backups.MAX_KEEP} Sicherungen behalten.',parent=self)
+            return
+        self.status.set('Sicherungseinstellung gespeichert')
+
+    def choose_backup_folder(self):
+        import backups
+        target=filedialog.askdirectory(parent=self,title='Sicherungsordner wählen',
+                                       initialdir=str(backups.folder(self.store)))
+        if target:
+            backups.set_settings(self.store,folder=target)
+            self.status.set('Sicherungsordner gespeichert')
+
+    def auto_backup(self):
+        """Daily backup in its own thread, without blocking other work; checked again every hour."""
+        import backups
+        def run():
+            try:
+                result=backups.auto(self.store)
+                self.auto_backup_result=('Tägliche Sicherung '+result['datei']+' erstellt') if result else None
+            except Exception as error:  # shown in the status line; the next check tries again
+                self.auto_backup_result='Tägliche Sicherung fehlgeschlagen: '+str(error)
+        def show():
+            if self.auto_backup_thread.is_alive():
+                self.after(1000,show)
+            elif getattr(self,'auto_backup_result',None):
+                self.status.set(self.auto_backup_result)
+        self.auto_backup_thread=threading.Thread(target=run,daemon=True)
+        self.auto_backup_thread.start()
+        self.after(1000,show)
+        self.after(3_600_000,self.auto_backup)
+
     def export_operations(self):
         target = filedialog.asksaveasfilename(parent=self,title='Betriebsübersicht exportieren',defaultextension='.json',
                                               initialfile='betriebsuebersicht.json',filetypes=[('JSON','*.json')])
@@ -1737,6 +1820,8 @@ class App(tk.Tk if tk is not None else object):
         self.bind('<Configure>',lambda event:self.refit_settings_page() if event.widget is self else None,add='+')
         self.ai_settings_frame=self.add_scrollable_settings_page('KI-Anbieter')
         self.budget_settings_frame=self.add_scrollable_settings_page('Budgets')
+        self.retention_settings_frame=self.add_scrollable_settings_page('Aufbewahrung')
+        self.privacy_settings_frame=self.add_scrollable_settings_page('Datenschutz')
         self.database_settings_frame=self.add_scrollable_settings_page('Datenbank')
         self.mail_settings_frame=self.add_scrollable_settings_page('E-Mail-Konten')
         self.rules_settings_frame=self.add_scrollable_settings_page('Regeln')
@@ -1793,6 +1878,8 @@ class App(tk.Tk if tk is not None else object):
         self.build_mail_settings()
         self.build_design_settings()
         self.build_budget_settings()
+        self.build_retention_settings()
+        self.build_privacy_settings()
         self.build_configuration_settings()
         self.rules_page=RulesPage(self,self.rules_settings_frame)
 
@@ -1903,6 +1990,131 @@ class App(tk.Tk if tk is not None else object):
             return
         self.load_budget()
         self.status.set('Budget gespeichert')
+
+    def build_retention_settings(self):
+        import retention
+        frame=self.retention_settings_frame
+        ttk.Label(frame,text='Aufbewahrung',font=('Segoe UI',18,'bold')).pack(anchor='w')
+        ttk.Label(frame,text='Wie viele Tage Einträge aufbewahrt werden; 0 bedeutet unbegrenzt. Entfernt wird nur, wenn '
+                  'du „Jetzt anwenden“ bestätigst, und endgültig. Die Zählung für Budgets behält den laufenden Monat '
+                  'immer. Ältere Änderungen am Wissensgraphen lassen sich danach nicht mehr zurücknehmen.',
+                  wraplength=940).pack(anchor='w',pady=(6,12))
+        form=ttk.Frame(frame)
+        form.pack(fill='x')
+        self.retention_days={}
+        for row,(key,(title,_)) in enumerate(retention.CATEGORIES.items()):
+            ttk.Label(form,text=title).grid(row=row,column=0,sticky='w',padx=(0,20),pady=4)
+            self.retention_days[key]=tk.StringVar()
+            ttk.Spinbox(form,from_=0,to=retention.MAX_DAYS,width=8,textvariable=self.retention_days[key]
+                        ).grid(row=row,column=1,sticky='w',pady=4)
+        actions=ttk.Frame(frame)
+        actions.pack(anchor='w',pady=(12,8))
+        ttk.Button(actions,text='Regeln speichern',command=self.save_retention,style='Accent.TButton').pack(side='left')
+        ttk.Button(actions,text='Jetzt anwenden …',command=self.apply_retention).pack(side='left',padx=(8,0))
+        self.retention_status=tk.StringVar()
+        ttk.Label(frame,textvariable=self.retention_status,wraplength=940).pack(anchor='w')
+        self.load_retention()
+
+    def load_retention(self):
+        import retention
+        for key,days in retention.rules(self.store).items():
+            self.retention_days[key].set(str(days))
+        self.retention_status.set('Vorschau: '+retention.report(retention.preview(self.store)))
+
+    def save_retention(self):
+        import retention
+        try:
+            days={key:int(var.get().strip() or 0) for key,var in self.retention_days.items()}
+            if not all(0<=value<=retention.MAX_DAYS for value in days.values()):
+                raise ValueError
+        except ValueError:
+            messagebox.showerror('Regeln nicht gespeichert',f'Bitte ganze Tage zwischen 0 und {retention.MAX_DAYS} '
+                                 'eintragen.',parent=self)
+            return
+        for key,value in days.items():
+            retention.set_rule(self.store,key,value)
+        self.load_retention()
+        self.status.set('Aufbewahrungsregeln gespeichert')
+
+    def apply_retention(self):
+        import retention
+        counts=retention.preview(self.store)
+        if not any(n for tables in counts.values() for n in tables.values()):
+            messagebox.showinfo('Aufbewahrung','Nach den gespeicherten Regeln ist nichts zu entfernen.',parent=self)
+            return
+        if not messagebox.askyesno('Aufbewahrung anwenden','Diese Einträge werden endgültig entfernt:\n\n'
+                                   +retention.report(counts)+'\n\nFortfahren?',parent=self):
+            return
+        removed=retention.apply(self.store)
+        self.load_retention()
+        self.status.set('Entfernt: '+', '.join(f'{t} {n}' for tables in removed.values() for t,n in tables.items() if n))
+
+    def build_privacy_settings(self):
+        frame=self.privacy_settings_frame
+        ttk.Label(frame,text='Datenschutz',font=('Segoe UI',18,'bold')).pack(anchor='w')
+        ttk.Label(frame,text='Der Export enthält alles, was die Anwendung speichert: jede Tabelle als JSON und Originale '
+                  'als Dateien. Zugangsschlüssel liegen im Schlüsselspeicher des Betriebssystems und sind nicht enthalten.',
+                  wraplength=940).pack(anchor='w',pady=(6,8))
+        ttk.Button(frame,text='Alle Daten exportieren …',command=self.privacy_export).pack(anchor='w',pady=(0,16))
+        ttk.Label(frame,text='Selektive Löschung: Dokumente mit einem Text in Titel, Dateiname oder Inhalt suchen und '
+                  'endgültig löschen, samt Abschnitten, Versionen, Erwähnungen im Wissensgraphen, Entitäten ohne weitere '
+                  'Erwähnung und gespeicherten KI-Antworten, die diese Dokumente zitieren. Vorhandene Sicherungen '
+                  'enthalten die Daten weiter.',wraplength=940).pack(anchor='w',pady=(0,8))
+        row=ttk.Frame(frame)
+        row.pack(fill='x')
+        self.privacy_query=tk.StringVar()
+        ttk.Entry(row,textvariable=self.privacy_query,width=40).pack(side='left')
+        ttk.Button(row,text='Suchen',command=self.privacy_find).pack(side='left',padx=(8,0))
+        self.privacy_hits=tk.Listbox(frame,selectmode='extended',height=8,exportselection=False)
+        self.privacy_hits.pack(fill='x',pady=(8,8))
+        self.privacy_ids=[]
+        ttk.Button(frame,text='Markierte endgültig löschen …',command=self.privacy_erase).pack(anchor='w')
+        self.privacy_status=tk.StringVar()
+        ttk.Label(frame,textvariable=self.privacy_status,wraplength=940).pack(anchor='w',pady=(8,0))
+
+    def privacy_export(self):
+        import privacy
+        target=filedialog.asksaveasfilename(parent=self,title='Alle Daten exportieren',defaultextension='.zip',
+                                            initialfile='wissensraum-datenexport.zip',filetypes=[('ZIP','*.zip')])
+        if target:
+            self.work(lambda:privacy.export(self.store,target,overwrite=True),
+                      lambda result:self.status.set(f'Datenexport mit {sum(result["tabellen"].values())} Einträgen '
+                                                    f'und {result["dateien"]} Dateien erstellt'))
+
+    def privacy_find(self):
+        import privacy
+        try:
+            found=privacy.find(self.store,self.privacy_query.get())
+        except ValueError as error:
+            messagebox.showerror('Suche',str(error),parent=self)
+            return
+        self.privacy_ids=[row['id'] for row in found]
+        self.privacy_hits.delete(0,'end')
+        for row in found:
+            self.privacy_hits.insert('end',f'{row["id"]} · {row["title"]} · {row["category"]}')
+        self.privacy_status.set(f'{len(found)} Dokumente gefunden.')
+
+    def privacy_erase(self):
+        import privacy
+        ids=[self.privacy_ids[i] for i in self.privacy_hits.curselection()]
+        if not ids:
+            messagebox.showinfo('Löschen','Bitte zuerst Dokumente markieren.',parent=self)
+            return
+        effect=privacy.impact(self.store,ids)
+        if not messagebox.askyesno('Endgültig löschen',
+                                   f'{effect["dokumente"]} Dokumente, {effect["ki_verlauf"]} gespeicherte KI-Antworten, '
+                                   f'{effect["erwaehnungen"]} Erwähnungen und {effect["relationen"]} Relationen im '
+                                   'Wissensgraphen werden endgültig gelöscht. Vorhandene Sicherungen enthalten die Daten '
+                                   'weiter.\n\nFortfahren?',parent=self):
+            return
+        def done(counts):
+            if len(self.privacy_query.get().strip())>=2:
+                self.privacy_find()
+            note=(f' {counts["sicherungen_mit_daten"]} Sicherungen enthalten die Daten noch.'
+                  if counts.get('sicherungen_mit_daten') else '')
+            self.privacy_status.set(f'{counts["dokumente"]} Dokumente gelöscht.'+note)
+            self.refresh()
+        self.work(lambda:privacy.erase(self.store,ids),done)
 
     def build_design_settings(self):
         frame=self.design_settings_frame

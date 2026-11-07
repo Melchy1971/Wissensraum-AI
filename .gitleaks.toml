@@ -1,0 +1,16 @@
+# Secret scan (Release 2.4, step 9.5). Default rules plus a narrow list of the synthetic values
+# the tests use on purpose; a real key in a test file is still reported.
+title = "Wissensraum-AI"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Synthetische Testwerte, keine Zugangsdaten"
+regexTarget = "match"
+regexes = [
+  '''synthetic-[a-z]+-\d{10}''',
+  '''test-existing-1234567890''',
+  '''sk-GEHEIM-1234567890''',
+  '''Vertraulich-Zebra-4711''',
+]

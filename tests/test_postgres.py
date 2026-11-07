@@ -455,6 +455,23 @@ class PostgresStoreTests(unittest.TestCase):
         from test_budgets import check_budget_contract
         check_budget_contract(self, PostgresStore(self.profile, self.password))
 
+    def test_retention_on_real_postgresql(self):
+        from test_retention import check_retention_contract
+        check_retention_contract(self, PostgresStore(self.profile, self.password))
+
+    def test_integrity_on_real_postgresql(self):
+        import backups
+        from test_backups import check_integrity_contract
+        store = PostgresStore(self.profile, self.password)
+        check_integrity_contract(self, store)
+        with self.assertRaisesRegex(ValueError, 'pg_dump'):
+            backups.create(store)
+        self.assertEqual(backups.status(store), {'backend': 'postgresql'})
+
+    def test_privacy_on_real_postgresql(self):
+        from test_privacy import check_privacy_contract
+        check_privacy_contract(self, PostgresStore(self.profile, self.password))
+
     def test_graph_context_on_real_postgresql(self):
         from test_graph_context import check_graph_context_contract
         check_graph_context_contract(self, PostgresStore(self.profile, self.password))
