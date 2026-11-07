@@ -873,6 +873,8 @@ class App(tk.Tk if tk is not None else object):
                 messagebox.showinfo('KI-Vorschläge',f'{counts["entitaeten"]} Entitäten, {counts["erwaehnungen"]} '
                                     f'Erwähnungen und {counts["relationen"]} Relationen vorgeschlagen, '
                                     f'{counts["verworfen"]} ohne wörtlichen Beleg oder gültige Art verworfen. '
+                                    +(f'{counts["fehler"]} Abschnitte ohne Antwort des Modells (Zeitüberschreitung '
+                                      'oder Abbruch), erneut versuchen. ' if counts.get('fehler') else '')+
                                     'Vorschläge bleiben ungeprüft, bis du sie bestätigst.',parent=window)
             self.work(lambda:graph_suggest.suggest(self.store,doc_id),done)
         def mentions_by_id():
