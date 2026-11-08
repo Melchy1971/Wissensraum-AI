@@ -103,8 +103,12 @@ def _active_admins(store):
         return int(db.execute("SELECT count(*) AS n FROM accounts WHERE role='admin' AND disabled=0").fetchone()['n'])
 
 
-def grant(store, account_id, access, document_id=None, collection_id=None):
-    """Give ``access`` on exactly one document or collection; an existing grant there is replaced."""
+def grant(store, account_id, access, document_id=None, collection_id=None, end_sessions=True):
+    """Give ``access`` on exactly one document or collection; an existing grant there is replaced.
+
+    ``end_sessions=False`` only for the owner grant of a document the account has just created: that
+    adds nothing to what it could see before and must not sign it out.
+    """
     if access not in ACCESS:
         raise ValueError('Unbekannte Freigabe.')
     if (document_id is None) == (collection_id is None):
@@ -118,7 +122,8 @@ def grant(store, account_id, access, document_id=None, collection_id=None):
         # ponytail: one grant per account and target is kept by delete-then-insert in one
         # transaction; a partial unique index would enforce it in the database (upgrade path).
         db.execute(f'DELETE FROM grants WHERE account_id=? AND {column}=?', (account_id, target))
-        _end_sessions(db, account_id)
+        if end_sessions:
+            _end_sessions(db, account_id)
         return db.execute(f'INSERT INTO grants(account_id,{column},access) VALUES(?,?,?) RETURNING id',
                           (account_id, target, access)).fetchone()['id']
 
@@ -151,6 +156,16 @@ def visible_documents(acting, alias='d'):
     return (f'({alias}.id IN (SELECT g.document_id FROM grants g WHERE g.account_id=? AND g.document_id IS NOT NULL) '
             f'OR {alias}.id IN (SELECT cd.document_id FROM collection_documents cd JOIN grants g '
             f'ON g.collection_id=cd.collection_id WHERE g.account_id=?))', (acting['id'], acting['id']))
+
+
+def visible_collections(acting, alias='c'):
+    """SQL condition for collections ``acting`` may see: administrators all, others those granted to them."""
+    if acting['disabled']:
+        return '1=0', ()
+    if acting['role'] == 'admin':
+        return '1=1', ()
+    return (f'{alias}.id IN (SELECT g.collection_id FROM grants g WHERE g.account_id=? AND g.collection_id IS NOT NULL)',
+            (acting['id'],))
 
 
 def visible_document_ids(store, acting):

@@ -1,8 +1,10 @@
 """Web server for multi-user operation (Release 3.0, docs/sicherheit-3.0.md).
 
 Step 10.3: application core, sign-in over OpenID Connect with PKCE, server-side sessions, CSRF
-protection, security headers and a limit on failed sign-ins. Documents, search and questions follow
-in 10.4 and 10.7. The server works only with PostgreSQL; ``create_app`` takes any store so that the
+protection, security headers and a limit on failed sign-ins. Step 10.4: JSON endpoints under
+``/api`` that read only through ``store.as_viewer(account)``, so every list, search, vector search,
+graph, original, export and AI context is filtered in the database. Objects that are missing and
+objects the account may not see give the same 404. The web pages follow in 10.7. The server works only with PostgreSQL; ``create_app`` takes any store so that the
 contract tests can also run on SQLite.
 
 Start: ``python server.py`` with the environment described in ``settings_from_env``.
@@ -11,13 +13,15 @@ import collections
 import html
 import os
 import secrets
+import tempfile
 import threading
 import time
 import urllib.parse
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from pydantic import BaseModel, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 import accounts
@@ -85,7 +89,39 @@ def _page(title, body, status=200):
                         status_code=status)
 
 
-def create_app(store, provider, base_url, development=False, logger=None, clock=time.time):
+NOT_FOUND = 'Nicht gefunden.'
+
+
+class NewDocument(BaseModel):
+    title: str = Field(min_length=1, max_length=300)
+    content: str = Field(min_length=1, max_length=2_000_000)
+
+
+class DocumentChange(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=300)
+    category: str | None = Field(default=None, min_length=1, max_length=100)
+
+
+class Question(BaseModel):
+    question: str = Field(min_length=1, max_length=4000)
+
+
+class NewAccount(BaseModel):
+    tenant_id: str = Field(min_length=1, max_length=200)
+    object_id: str = Field(min_length=1, max_length=200)
+    role: str
+    display_name: str = Field(default='', max_length=200)
+
+
+class NewGrant(BaseModel):
+    account_id: int
+    access: str
+    document_id: int | None = None
+    collection_id: int | None = None
+
+
+def create_app(store, provider, base_url, development=False, logger=None, clock=time.time, ai=None):
+    """``ai`` builds the answering component for a store (``core.AI``); None: questions answer 503."""
     base = check_base_url(base_url, development)
     host = urllib.parse.urlsplit(base).hostname
     failed = RateLimit(*FAILED_SIGN_INS)
@@ -233,6 +269,151 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
         response.delete_cookie(SESSION_COOKIE, path='/', secure=True, httponly=True, samesite='lax')
         return response
 
+    # --- API (step 10.4) ------------------------------------------------------------------
+    def signed_in(request):
+        if request.state.account is None:
+            raise HTTPException(401, 'Nicht angemeldet.')
+        return request.state.account
+
+    def viewer(request):
+        return store.as_viewer(signed_in(request))
+
+    def require_role(request, *roles):
+        account = signed_in(request)
+        if account['role'] not in roles:
+            raise HTTPException(403, 'Keine Berechtigung.')
+        return account
+
+    def document(scoped, doc_id):
+        try:
+            return scoped.get(doc_id)
+        except ValueError:
+            raise HTTPException(404, NOT_FOUND) from None
+
+    @app.get('/api/documents')
+    def list_documents(request: Request, offset: int = 0, limit: int = 50):
+        rows = viewer(request).list()
+        offset, limit = max(0, offset), max(1, min(limit, 200))
+        return {'total': len(rows), 'documents': rows[offset:offset + limit]}
+
+    @app.get('/api/documents/{doc_id}')
+    def show_document(request: Request, doc_id: int):
+        scoped = viewer(request)
+        row = document(scoped, doc_id)
+        return {'id': row['id'], 'title': row['title'], 'category': row['category'], 'status': row['status'],
+                'created_at': str(row['created_at']), 'content': row['content'],
+                'original': row['original'] is not None, 'versions': scoped.versions(doc_id),
+                'relations': scoped.relations(doc_id), 'collections': scoped.document_collections(doc_id),
+                'graph': scoped.document_graph(doc_id),
+                'writable': accounts.can_write(store, request.state.account, doc_id)}
+
+    @app.get('/api/documents/{doc_id}/original')
+    def original(request: Request, doc_id: int):
+        row = document(viewer(request), doc_id)
+        if row['original'] is None:
+            raise HTTPException(404, NOT_FOUND)
+        name = (row['filename'] or 'original').replace('\\', '/').rsplit('/', 1)[-1]
+        name = ''.join(c if c.isalnum() or c in '._- ' else '_' for c in name).strip(' .')[:100] or 'original'
+        log('original_download', account_id=request.state.account['id'], document_id=doc_id)
+        return Response(bytes(row['original']), media_type='application/octet-stream',
+                        headers={'Content-Disposition': f"attachment; filename*=UTF-8''{urllib.parse.quote(name)}"})
+
+    @app.get('/api/search')
+    def search(request: Request, q: str = '', limit: int = 20):
+        from retrieval import Retriever, snippet
+        if not 0 < len(q) <= 500:
+            raise HTTPException(422, 'Suchbegriff mit 1 bis 500 Zeichen angeben.')
+        result = Retriever(viewer(request)).search(q, limit=max(1, min(limit, 50)))
+        return {'mode': result.mode, 'results': [
+            {'document_id': r['document_id'], 'title': r['title'], 'ordinal': r['ordinal'],
+             'snippet': snippet(r['content'], q)} for r in result.results]}
+
+    @app.get('/api/graph')
+    def graph(request: Request, focus: int | None = None):
+        try:
+            return viewer(request).graph_data(focus=focus)
+        except ValueError:
+            raise HTTPException(404, NOT_FOUND) from None
+
+    @app.get('/api/entities/{entity_id}')
+    def entity(request: Request, entity_id: int):
+        try:
+            return viewer(request).entity(entity_id)
+        except ValueError:
+            raise HTTPException(404, NOT_FOUND) from None
+
+    @app.get('/api/collections')
+    def collections(request: Request):
+        return viewer(request).collections()
+
+    @app.get('/api/collections/{collection_id}/export')
+    def export(request: Request, collection_id: int):
+        scoped = viewer(request)
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / 'sammlung.zip'
+            try:
+                scoped.export_collection(collection_id, target)
+            except ValueError:
+                raise HTTPException(404, NOT_FOUND) from None
+            data = target.read_bytes()
+        log('collection_export', account_id=request.state.account['id'], collection_id=collection_id)
+        return Response(data, media_type='application/zip',
+                        headers={'Content-Disposition': 'attachment; filename="sammlung.zip"'})
+
+    @app.post('/api/questions')
+    def question(request: Request, body: Question):
+        scoped = viewer(request)
+        if ai is None:
+            raise HTTPException(503, 'Für den Server ist kein KI-Anbieter eingerichtet.')
+        result = ai(scoped).ask(body.question)
+        log('ai_question', account_id=request.state.account['id'], status=result.status)
+        return {'answer': result.text, 'status': result.status, 'sources': [
+            {key: source.get(key) for key in ('document_id', 'title', 'ordinal')} for source in result.sources]}
+
+    @app.post('/api/documents', status_code=201)
+    def create_document(request: Request, body: NewDocument):
+        account = require_role(request, 'admin', 'editor')
+        try:
+            doc_id, created = store.add(body.title.strip(), body.content)
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from None
+        if not created:
+            # ponytail: answers whether this exact text already exists somewhere, without its id or
+            # title; guessing that needs the whole text. A per-account copy would remove even that.
+            raise HTTPException(409, 'Dieser Inhalt ist bereits vorhanden.')
+        accounts.grant(store, account['id'], 'owner', document_id=doc_id, end_sessions=False)
+        log('document_created', account_id=account['id'], document_id=doc_id)
+        return {'id': doc_id}
+
+    @app.patch('/api/documents/{doc_id}')
+    def change_document(request: Request, doc_id: int, body: DocumentChange):
+        account = require_role(request, 'admin', 'editor', 'reader')
+        document(viewer(request), doc_id)  # not visible: 404 before any role answer
+        if not accounts.can_write(store, account, doc_id):
+            raise HTTPException(403, 'Keine Berechtigung.')
+        changes = {key: value for key, value in (('title', body.title), ('category', body.category)) if value}
+        try:
+            store.update_metadata(doc_id, **changes)
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from None
+        return {'id': doc_id}
+
+    @app.post('/api/accounts', status_code=201)
+    def create_account(request: Request, body: NewAccount):
+        require_role(request, 'admin')
+        try:
+            return {'id': accounts.create_account(store, body.tenant_id, body.object_id, body.role, body.display_name)}
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from None
+
+    @app.post('/api/grants', status_code=201)
+    def create_grant(request: Request, body: NewGrant):
+        require_role(request, 'admin')
+        try:
+            return {'id': accounts.grant(store, body.account_id, body.access, body.document_id, body.collection_id)}
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from None
+
     return app
 
 
@@ -251,7 +432,9 @@ def settings_from_env(environ=None):
     ``WR_OIDC_CLIENT_SECRET`` or ``WR_OIDC_CLIENT_SECRET_FILE``, optional ``WR_OIDC_AUTHORITY``
     (default Microsoft Entra ID for the tenant), ``WR_DEVELOPMENT=1`` allows HTTP on localhost.
     Database: ``DB_HOST``, ``DB_PORT``, ``DB_DATABASE``, ``DB_USERNAME``, ``DB_SSLMODE`` and
-    ``DB_PASSWORD`` or ``DB_PASSWORD_FILE``; the backend is always PostgreSQL.
+    ``DB_PASSWORD`` or ``DB_PASSWORD_FILE``; the backend is always PostgreSQL. Questions to the AI:
+    ``WR_AI_PROVIDER`` (``openai``, ``anthropic``, ``gemini`` or ``ollama``), ``WR_AI_MODEL`` and
+    ``WR_AI_KEY`` or ``WR_AI_KEY_FILE``; without a provider questions answer 503.
     """
     environ = os.environ if environ is None else environ
     development = environ.get('WR_DEVELOPMENT') == '1'
@@ -266,9 +449,19 @@ def settings_from_env(environ=None):
         {'host': environ.get('DB_HOST', ''), 'port': environ.get('DB_PORT', '5432'),
          'database': environ.get('DB_DATABASE', ''), 'username': environ.get('DB_USERNAME', ''),
          'sslmode': environ.get('DB_SSLMODE', 'require')}, _secret(environ, 'DB_PASSWORD'))
+    ai, ai_key = None, _secret(environ, 'WR_AI_KEY')
+    ai_provider = environ.get('WR_AI_PROVIDER', '').strip()
+    if ai_provider:
+        from core import AI
+        from settings import PROVIDERS
+        if ai_provider not in PROVIDERS:
+            raise ValueError('WR_AI_PROVIDER ist unbekannt.')
+        model = environ.get('WR_AI_MODEL') or PROVIDERS[ai_provider]['models'][0]
+        AI(None, ai_key, model, provider=ai_provider)  # checks key and model before the server starts
+        ai = lambda scoped: AI(scoped, ai_key, model, provider=ai_provider)  # noqa: E731
     return {'base_url': base, 'development': development, 'database': database, 'db_password': password,
             'provider': Provider(authority, tenant, client_id, secret, base + '/auth/callback'),
-            'secrets': (secret, password)}
+            'ai': ai, 'secrets': tuple(value for value in (secret, password, ai_key) if value)}
 
 
 def main():  # pragma: no cover - starts the real server
@@ -278,7 +471,8 @@ def main():  # pragma: no cover - starts the real server
     settings = settings_from_env()
     store = PostgresStore(settings['database'], settings['db_password'])
     logger = create_operational_logger(Path(__file__).resolve().parent, 'server', known_secrets=settings['secrets'])
-    app = create_app(store, settings['provider'], settings['base_url'], settings['development'], logger)
+    app = create_app(store, settings['provider'], settings['base_url'], settings['development'], logger,
+                     ai=settings['ai'])
     uvicorn.run(app, host=os.environ.get('WR_HOST', '127.0.0.1'), port=int(os.environ.get('WR_PORT', '8000')),
                 ssl_certfile=os.environ.get('WR_TLS_CERT_FILE') or None,
                 ssl_keyfile=os.environ.get('WR_TLS_KEY_FILE') or None)

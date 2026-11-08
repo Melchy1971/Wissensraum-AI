@@ -1,6 +1,7 @@
 """Local SQL knowledge store and source-grounded AI operations. Python 3.11–3.13."""
 from __future__ import annotations
 
+import copy
 import datetime
 import hashlib
 import io
@@ -87,6 +88,34 @@ def parse_review_date(value):
         return datetime.date.fromisoformat(value).isoformat()
     except ValueError:
         raise ValueError('Wiedervorlage als Datum JJJJ-MM-TT angeben.') from None
+
+
+class Visibility:
+    """Rights of the multi-user server (step 10.4, docs/sicherheit-3.0.md).
+
+    ``viewer`` is the signed-in account; None (desktop application, command line) sees everything.
+    Every read of documents, sections, vectors, document relations, collections and the graph adds
+    ``_visible`` to its SQL before ordering and limits, never as a filter on the results.
+    """
+    viewer = None
+
+    def as_viewer(self, account):
+        """The same store, reading only what ``account`` may see."""
+        scoped = copy.copy(self)
+        scoped.viewer = account
+        return scoped
+
+    def _visible(self, alias='d'):
+        if self.viewer is None:
+            return '1=1', ()
+        from accounts import visible_documents
+        return visible_documents(self.viewer, alias)
+
+    def _visible_collections(self, alias='c'):
+        if self.viewer is None:
+            return '1=1', ()
+        from accounts import visible_collections
+        return visible_collections(self.viewer, alias)
 
 
 class DocumentMetadata:
@@ -201,10 +230,13 @@ class Organization:
     """
 
     def collections(self):
+        seen, documents = self._visible_collections(), self._visible()
         with self.connect() as db:
             return [dict(row) for row in db.execute(
-                'SELECT c.id,c.name,(SELECT count(*) FROM collection_documents cd WHERE cd.collection_id=c.id) '
-                'AS documents FROM collections c ORDER BY c.normalized,c.id')]
+                'SELECT c.id,c.name,(SELECT count(*) FROM collection_documents cd JOIN documents d '
+                f'ON d.id=cd.document_id WHERE cd.collection_id=c.id AND {documents[0]}) '
+                f'AS documents FROM collections c WHERE {seen[0]} ORDER BY c.normalized,c.id',
+                documents[1] + seen[1])]
 
     def create_collection(self, name):
         name, normalized = _name(name, 'Name der Sammlung')
@@ -261,10 +293,11 @@ class Organization:
             return removed
 
     def document_collections(self, doc_id):
+        seen = self._visible_collections()
         with self.connect() as db:
             return [dict(row) for row in db.execute(
                 'SELECT c.id,c.name FROM collections c JOIN collection_documents cd ON cd.collection_id=c.id '
-                'WHERE cd.document_id=? ORDER BY c.normalized,c.id', (doc_id,))]
+                f'WHERE cd.document_id=? AND {seen[0]} ORDER BY c.normalized,c.id', (doc_id, *seen[1]))]
 
     @staticmethod
     def _collection(db, collection_id):
@@ -333,10 +366,12 @@ class Organization:
         if target.exists() and not overwrite:
             raise ValueError('Die Zieldatei gibt es schon.')
         with self.connect() as db:
-            collection = db.execute('SELECT id,name FROM collections WHERE id=?', (collection_id,)).fetchone()
+            seen = self._visible_collections()
+            collection = db.execute(f'SELECT c.id,c.name FROM collections c WHERE c.id=? AND {seen[0]}',
+                                    (collection_id, *seen[1])).fetchone()
             if collection is None:
                 raise ValueError('Sammlung wurde nicht gefunden.')
-            rows = sorted(_list(db, True, collection=collection_id), key=lambda row: row['id'])
+            rows = sorted(_list(db, True, collection=collection_id, visible=self._visible()), key=lambda row: row['id'])
             ids = [row['id'] for row in rows]
             tags = rules.tags_by_document(db)
             documents = {row['id']: dict(row) for row in db.execute(
@@ -441,7 +476,8 @@ class Relations:
             rows = [dict(row) for row in db.execute(
                 'SELECT r.id,r.kind,r.note,r.source_id,r.target_id,s.title AS source_title,t.title AS target_title '
                 'FROM document_relations r JOIN documents s ON s.id=r.source_id JOIN documents t ON t.id=r.target_id '
-                'WHERE r.source_id=? OR r.target_id=? ORDER BY r.id', (doc_id, doc_id))]
+                f'WHERE (r.source_id=? OR r.target_id=?) AND {self._visible("s")[0]} AND {self._visible("t")[0]} '
+                'ORDER BY r.id', (doc_id, doc_id, *self._visible('s')[1], *self._visible('t')[1]))]
         result = []
         for row in rows:
             outgoing = row['source_id'] == doc_id
@@ -766,8 +802,21 @@ class Graph:
             self._log(db, 'confirm', kind, object_id, 'proposed', 'confirmed')
 
     # --- reading -------------------------------------------------------------------------
+    def _entity_visible(self):
+        """An entity is visible when one of its mentions or relations has evidence in a visible document."""
+        condition, params = self._visible()
+        if condition == '1=1':
+            return condition, ()
+        return ('(EXISTS (SELECT 1 FROM entity_mentions vm JOIN documents d ON d.id=vm.document_id '
+                f'WHERE vm.entity_id=e.id AND vm.deleted_at IS NULL AND {condition}) '
+                'OR EXISTS (SELECT 1 FROM graph_relations vr JOIN documents d ON d.id=vr.document_id '
+                f'WHERE (vr.source_id=e.id OR vr.target_id=e.id) AND vr.deleted_at IS NULL AND {condition}))',
+                params + params)
+
     def entities(self, type_id=None, query=None):
-        conditions, params = ['e.deleted_at IS NULL'], []
+        visible = self._entity_visible()
+        documents = self._visible()
+        conditions, params = ['e.deleted_at IS NULL', visible[0]], list(visible[1])
         if type_id is not None:
             conditions.append('e.type_id=?'); params.append(type_id)
         if query:
@@ -775,34 +824,39 @@ class Graph:
         with self.connect() as db:
             return [dict(row) for row in db.execute(
                 'SELECT e.id,e.name,e.status,e.type_id,t.name AS type,'
-                '(SELECT count(*) FROM entity_mentions m WHERE m.entity_id=e.id AND m.deleted_at IS NULL) AS mentions '
+                '(SELECT count(*) FROM entity_mentions m JOIN documents d ON d.id=m.document_id '
+                f'WHERE m.entity_id=e.id AND m.deleted_at IS NULL AND {documents[0]}) AS mentions '
                 'FROM entities e JOIN entity_types t ON t.id=e.type_id WHERE ' + ' AND '.join(conditions)
-                + ' ORDER BY e.normalized,e.id', tuple(params))]
+                + ' ORDER BY e.normalized,e.id', (*documents[1], *params))]
 
     def entity(self, entity_id):
         """An active entity with its active mentions and relations (both directions)."""
+        visible, documents = self._entity_visible(), self._visible()
         with self.connect() as db:
             row = db.execute('SELECT e.id,e.name,e.status,e.type_id,t.name AS type FROM entities e '
-                             'JOIN entity_types t ON t.id=e.type_id WHERE e.id=? AND e.deleted_at IS NULL',
-                             (entity_id,)).fetchone()
+                             f'JOIN entity_types t ON t.id=e.type_id WHERE e.id=? AND e.deleted_at IS NULL AND {visible[0]}',
+                             (entity_id, *visible[1])).fetchone()
             if row is None:
                 raise ValueError('Entität wurde nicht gefunden.')
             result = dict(row)
             result['mentions'] = [dict(m) for m in db.execute(
                 'SELECT m.id,m.document_id,d.title AS document,m.start_offset,m.end_offset,m.quote,m.status '
                 'FROM entity_mentions m JOIN documents d ON d.id=m.document_id '
-                'WHERE m.entity_id=? AND m.deleted_at IS NULL ORDER BY m.id', (entity_id,))]
+                f'WHERE m.entity_id=? AND m.deleted_at IS NULL AND {documents[0]} ORDER BY m.id',
+                (entity_id, *documents[1]))]
             result['relations'] = self._relations(db, 'r.source_id=? OR r.target_id=?', (entity_id, entity_id))
             return result
 
     def document_graph(self, document_id):
         """Mentions and relations whose evidence lies in this document."""
+        documents = self._visible()
         with self.connect() as db:
             mentions = [dict(m) for m in db.execute(
                 'SELECT m.id,m.entity_id,e.name AS entity,t.name AS type,m.start_offset,m.end_offset,m.quote,m.status '
                 'FROM entity_mentions m JOIN entities e ON e.id=m.entity_id JOIN entity_types t ON t.id=e.type_id '
-                'WHERE m.document_id=? AND m.deleted_at IS NULL AND e.deleted_at IS NULL ORDER BY m.start_offset,m.id',
-                (document_id,))]
+                'JOIN documents d ON d.id=m.document_id '
+                f'WHERE m.document_id=? AND m.deleted_at IS NULL AND e.deleted_at IS NULL AND {documents[0]} '
+                'ORDER BY m.start_offset,m.id', (document_id, *documents[1]))]
             return {'mentions': mentions, 'relations': self._relations(db, 'r.document_id=?', (document_id,))}
 
     def graph_data(self, entity_types=None, relation_types=None, include_proposed=False, query=None,
@@ -1002,8 +1056,9 @@ class Graph:
             db.execute(f'UPDATE {table} SET deleted_at=CURRENT_TIMESTAMP WHERE id=?', (object_id,))
             self._log(db, 'delete', kind, object_id, '', '')
 
-    @staticmethod
-    def _relations(db, condition, params):
+    def _relations(self, db, condition, params):
+        visible, extra = self._visible()
+        condition, params = f'({condition}) AND {visible}', (*params, *extra)
         return [dict(row) for row in db.execute(
             'SELECT r.id,r.status,r.source_id,s.name AS source,r.target_id,t.name AS target,r.type_id,'
             'y.name AS type,r.document_id,d.title AS document,r.start_offset,r.end_offset,r.quote '
@@ -1077,14 +1132,16 @@ CURRENT_VERSION_FILTER = ('NOT EXISTS (SELECT 1 FROM document_versions mine JOIN
 
 ADJACENT_SQL = ('SELECT c.id AS chunk_id,c.document_id,c.ordinal,c.content FROM chunks c '
                 'JOIN documents d ON d.id=c.document_id WHERE c.document_id=? AND c.ordinal BETWEEN ? AND ? AND '
-                + CURRENT_VERSION_FILTER + ' ORDER BY c.ordinal LIMIT 3')
+                + CURRENT_VERSION_FILTER)
 
 
 def _adjacent_chunks(store, document_id, ordinal, before, after):
     """At most three sections around ``ordinal`` of one current document, in reading order."""
     before, after = (max(0, min(int(value), 1)) for value in (before, after))
+    visible, params = store._visible()
     with store.connect() as db:
-        rows = db.execute(ADJACENT_SQL, (int(document_id), int(ordinal) - before, int(ordinal) + after)).fetchall()
+        rows = db.execute(f'{ADJACENT_SQL} AND {visible} ORDER BY c.ordinal LIMIT 3',
+                          (int(document_id), int(ordinal) - before, int(ordinal) + after, *params)).fetchall()
     return [dict(row) for row in rows]
 
 
@@ -1126,12 +1183,12 @@ def _match(db, content, source, versioned):
     return {'outcome':'new'}
 
 
-def _versions(db, doc_id):
+def _versions(db, doc_id, visible=('1=1', ())):
     return [dict(row) for row in db.execute(
         'SELECT d.id,d.title,d.category,d.created_at,v.version FROM document_versions v '
         'JOIN documents d ON d.id=v.document_id '
-        'WHERE v.lineage_id=(SELECT lineage_id FROM document_versions WHERE document_id=?) '
-        'ORDER BY v.version DESC', (doc_id,))]
+        f'WHERE v.lineage_id=(SELECT lineage_id FROM document_versions WHERE document_id=?) AND {visible[0]} '
+        'ORDER BY v.version DESC', (doc_id, *visible[1]))]
 
 
 # Function words dropped from a full-text query (decision D-018). With every word joined by OR they
@@ -1168,15 +1225,16 @@ COLLECTION_FILTER = 'd.id IN (SELECT cd.document_id FROM collection_documents cd
 FAVORITE_FILTER = 'd.id IN (SELECT f.document_id FROM favorites f)'
 
 
-def _list(db, all_versions, tag=None, collection=None, favorites=False):
+def _list(db, all_versions, tag=None, collection=None, favorites=False, visible=('1=1', ())):
     import rules
     conditions = (([] if all_versions else [CURRENT_VERSION_FILTER]) + ([TAG_FILTER] if tag else [])
-                  + ([COLLECTION_FILTER] if collection is not None else []) + ([FAVORITE_FILTER] if favorites else []))
+                  + ([COLLECTION_FILTER] if collection is not None else []) + ([FAVORITE_FILTER] if favorites else [])
+                  + [visible[0]])
     where = ' WHERE '+' AND '.join(conditions) if conditions else ''
     rows = [dict(row) for row in db.execute(
         'SELECT d.id,d.title,d.category,d.created_at,COALESCE(v.version,1) AS version FROM documents d '
         'LEFT JOIN document_versions v ON v.document_id=d.id'+where+' ORDER BY d.id DESC',
-        ((tag.casefold(),) if tag else ()) + ((int(collection),) if collection is not None else ()))]
+        ((tag.casefold(),) if tag else ()) + ((int(collection),) if collection is not None else ()) + tuple(visible[1]))]
     tags = rules.tags_by_document(db)
     for row in rows:
         row['tags'] = tags.get(row['id'], [])
@@ -1378,8 +1436,8 @@ class VectorIndex:
                 'SELECT d.id FROM documents d WHERE 1=1'
                 + ('' if all_versions else ' AND '+CURRENT_VERSION_FILTER)
                 + (' AND '+TAG_FILTER if tag else '')
-                + (' AND '+ACTIVE_FILTER if active_only else ''),
-                (tag.casefold(),) if tag else ())), dtype=numpy.int64)
+                + (' AND '+ACTIVE_FILTER if active_only else '') + ' AND ' + self._visible()[0],
+                ((tag.casefold(),) if tag else ()) + tuple(self._visible()[1]))), dtype=numpy.int64)
             rows = numpy.nonzero(numpy.isin(cached.documents, allowed))[0]
             if not rows.size:
                 return []
@@ -1400,7 +1458,7 @@ class VectorIndex:
         return [{**details[chunk_id], 'score': score} for chunk_id, score in chosen.items() if chunk_id in details]
 
 
-class Store(DocumentMetadata, Organization, Relations, Graph, ChunkStrategies, VectorIndex):
+class Store(Visibility, DocumentMetadata, Organization, Relations, Graph, ChunkStrategies, VectorIndex):
     backend = 'sqlite'
     # Declared type, PRAGMA not-null flag, normalized default, primary-key position.
     column_contract = {
@@ -1688,12 +1746,12 @@ class Store(DocumentMetadata, Organization, Relations, Graph, ChunkStrategies, V
 
     def list(self, all_versions=False, tag=None, collection=None, favorites=False):
         with self.connect() as db:
-            return _list(db, all_versions, tag, collection, favorites)
+            return _list(db, all_versions, tag, collection, favorites, self._visible())
 
     def versions(self, doc_id):
         """All versions of the document's lineage, newest first."""
         with self.connect() as db:
-            return _versions(db, doc_id)
+            return _versions(db, doc_id, self._visible())
 
     def match(self, content, source=None, versioned=False):
         with self.connect() as db:
@@ -1701,7 +1759,8 @@ class Store(DocumentMetadata, Organization, Relations, Graph, ChunkStrategies, V
 
     def get(self, doc_id):
         with self.connect() as db:
-            row = db.execute('SELECT * FROM documents WHERE id=?', (doc_id,)).fetchone()
+            visible, params = self._visible()
+            row = db.execute(f'SELECT * FROM documents d WHERE d.id=? AND {visible}', (doc_id, *params)).fetchone()
             if not row:
                 raise ValueError('Dokument wurde nicht gefunden.')
             return dict(row)
@@ -1725,9 +1784,10 @@ class Store(DocumentMetadata, Organization, Relations, Graph, ChunkStrategies, V
                   JOIN documents d ON d.id=c.document_id WHERE search_index MATCH ?'''
                   + ('' if all_versions else ' AND '+CURRENT_VERSION_FILTER)
                   + (' AND '+TAG_FILTER if tag else '')
-                  + (' AND '+ACTIVE_FILTER if active_only else '') + '''
+                  + (' AND '+ACTIVE_FILTER if active_only else '') + ' AND ' + self._visible()[0] + '''
                   ORDER BY rank,c.id LIMIT ?''',
-                  (fts, *((tag.casefold(),) if tag else ()), max(1, min(limit, CANDIDATE_LIMIT)))).fetchall()
+                  (fts, *((tag.casefold(),) if tag else ()), *self._visible()[1],
+                   max(1, min(limit, CANDIDATE_LIMIT)))).fetchall()
             return [dict(r) for r in rows]
 
     def adjacent_chunks(self, document_id, ordinal, before=1, after=1):
@@ -1767,7 +1827,7 @@ class _PostgresConnection:
             return cursor.executemany(self.sql(query),parameters)
 
 
-class PostgresStore(DocumentMetadata, Organization, Relations, Graph, ChunkStrategies, VectorIndex):
+class PostgresStore(Visibility, DocumentMetadata, Organization, Relations, Graph, ChunkStrategies, VectorIndex):
     """PostgreSQL implementation used after explicit activation in database settings."""
     backend = 'postgresql'
     # information_schema: data_type, udt_name, is_nullable, normalized default, is_identity.
@@ -2095,11 +2155,11 @@ class PostgresStore(DocumentMetadata, Organization, Relations, Graph, ChunkStrat
 
     def list(self,all_versions=False,tag=None,collection=None,favorites=False):
         with self.connect() as db:
-            return _list(db,all_versions,tag,collection,favorites)
+            return _list(db,all_versions,tag,collection,favorites,self._visible())
 
     def versions(self,doc_id):
         with self.connect() as db:
-            return _versions(db,doc_id)
+            return _versions(db,doc_id,self._visible())
 
     def match(self,content,source=None,versioned=False):
         with self.connect() as db:
@@ -2107,7 +2167,8 @@ class PostgresStore(DocumentMetadata, Organization, Relations, Graph, ChunkStrat
 
     def get(self,doc_id):
         with self.connect() as db:
-            row=db.execute('SELECT * FROM documents WHERE id=?',(doc_id,)).fetchone()
+            visible,params=self._visible()
+            row=db.execute(f'SELECT * FROM documents d WHERE d.id=? AND {visible}',(doc_id,*params)).fetchone()
         if not row:
             raise ValueError('Dokument wurde nicht gefunden.')
         document=dict(row)
@@ -2138,9 +2199,10 @@ class PostgresStore(DocumentMetadata, Organization, Relations, Graph, ChunkStrat
                   WHERE 1=1'''
                   + ('' if all_versions else ' AND '+CURRENT_VERSION_FILTER)
                   + (' AND '+TAG_FILTER if tag else '')
-                  + (' AND '+ACTIVE_FILTER if active_only else '') + '''
+                  + (' AND '+ACTIVE_FILTER if active_only else '') + ' AND ' + self._visible()[0] + '''
                   ORDER BY rank,c.id LIMIT ?''',(expression,
-                                                 *((tag.casefold(),) if tag else ()),max(1,min(limit,CANDIDATE_LIMIT)))).fetchall()
+                                                 *((tag.casefold(),) if tag else ()),*self._visible()[1],
+                                                 max(1,min(limit,CANDIDATE_LIMIT)))).fetchall()
         return [dict(row) for row in rows]
 
     def adjacent_chunks(self,document_id,ordinal,before=1,after=1):

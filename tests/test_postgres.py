@@ -480,6 +480,10 @@ class PostgresStoreTests(unittest.TestCase):
         from test_server import check_sessions_contract
         check_sessions_contract(self, PostgresStore(self.profile, self.password))
 
+    def test_rights_on_real_postgresql(self):
+        from test_rights import check_rights_contract
+        check_rights_contract(self, PostgresStore(self.profile, self.password))
+
     def test_graph_context_on_real_postgresql(self):
         from test_graph_context import check_graph_context_contract
         check_graph_context_contract(self, PostgresStore(self.profile, self.password))
