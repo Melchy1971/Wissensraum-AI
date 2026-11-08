@@ -711,7 +711,7 @@ class PostgresStoreTests(unittest.TestCase):
             'schema_migrations', 'settings', 'sources', 'tags'])
         with PostgresStore(self.profile, self.password).connect() as db:
             # A reset leaves no data; only the two graph type catalogues get their default entries again.
-            catalogues = {'entity_types': 5, 'relation_types': 5}
+            catalogues = {'entity_types': 5, 'relation_types': 5, 'organizations': 1}
             data_tables = [table for table in reset['tables'] if table != 'schema_migrations']
             self.assertEqual({table: db.execute('SELECT count(*) AS count FROM ' + table).fetchone()['count']
                               for table in data_tables},
