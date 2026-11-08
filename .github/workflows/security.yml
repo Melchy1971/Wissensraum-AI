@@ -29,8 +29,16 @@ jobs:
         with:
           fetch-depth: 0
       - name: gitleaks over the full history
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          curl -sSL -o gitleaks.tgz https://github.com/gitleaks/gitleaks/releases/download/v8.28.0/gitleaks_8.28.0_linux_x64.tar.gz
+          # Authenticated download with retries: an anonymous curl got error pages under the
+          # download limit and only the checksum caught it (08.11.2026).
+          for attempt in 1 2 3 4 5; do
+            gh release download v8.28.0 -R gitleaks/gitleaks -p gitleaks_8.28.0_linux_x64.tar.gz -O gitleaks.tgz --clobber && break
+            sleep $((attempt * 10))
+          done
+          ls -l gitleaks.tgz
           echo "a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb  gitleaks.tgz" | sha256sum -c
           tar -xzf gitleaks.tgz gitleaks
           ./gitleaks git --no-banner --redact -c .gitleaks.toml .
