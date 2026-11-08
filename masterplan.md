@@ -1205,7 +1205,9 @@ Frühere Zwischenstände: Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33
 
 Jeder Schritt mit eigenem PR, Matrix-Gate 7 von 7 und grüner CI.
 
-**Stand 08.11.2026:** 10.1 🟡 (Dokument erstellt, Freigabe offen), 10.2 bis 10.8 ⬜.
+**Stand 08.11.2026:** 10.1 ✅ (vom Product Owner freigegeben, PR #39), 10.2 🟡, 10.3 bis 10.8 ⬜.
+
+**10.2 Datenmodell Mehrbenutzer:** Schema 19 mit `organizations` (eine Zeile „Standard“), `accounts` (Mandanten- und Objekt-ID aus Entra ID eindeutig, Rolle, Sperre, Versionsnummer) und `grants` (Konto, genau ein Dokument oder eine Sammlung, Stufe `read`, `write` oder `owner`). Eigentum ist eine Freigabe der Stufe `owner`; an `documents` und `collections` ändert sich nichts, weil Fremdschlüssel bestehender Tabellen in den Schemakatalogen nicht nach Version gestaffelt sind. Ein Dokument ohne Freigabe sieht nur ein Administrator, der Bestand vor Schema 19 gehört damit dem ersten Administrator, ohne Daten umzuschreiben. Neues Modul `accounts.py` mit Konten, Rollen, Freigaben, `visible_documents` (SQL-Bedingung für die Abfrage selbst, vor Sortierung und Begrenzung) und `can_write`; der letzte aktive Administrator kann weder herabgestuft noch gesperrt werden; Änderungen an Konten prüfen die gelesene Versionsnummer. CLI `account-add` legt den ersten Administrator an, `account-list` zeigt die Konten. Die Desktop-Anwendung nutzt das Modul nicht. Nachweise: Vertrag `check_accounts_contract` für SQLite und PostgreSQL, Filter innerhalb einer Abfrage mit Sortierung und LIMIT, Desktop ohne Konten, CLI; Migrations-, Diagnose- und Resettests auf Schema 19. Linux Python 3.13: 681 Tests, 0 Fehler, 43 übersprungen. Gate steht aus.
 
 Ursprünglicher Mindestumfang:
 

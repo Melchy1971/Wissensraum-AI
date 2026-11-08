@@ -9,7 +9,7 @@ import uuid
 from contextlib import closing, contextmanager
 from pathlib import Path
 
-CURRENT_SCHEMA_VERSION = 18
+CURRENT_SCHEMA_VERSION = 19
 # Unversioned PostgreSQL schemas predate schema_migrations and match version 4.
 POSTGRES_LEGACY_SCHEMA_VERSION = 4
 # ponytail: source_type is validated in application code (core.SOURCE_TYPES), not by a
@@ -290,6 +290,28 @@ SQLITE_MIGRATIONS = (
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )""",
     )),
+    # Release 3.0, step 10.2: one organization, accounts with a role, grants per collection or
+    # document. Ownership is a grant of level 'owner'; a document without any grant is visible
+    # to administrators only, so the existing stock belongs to the first administrator.
+    (19, (
+        """CREATE TABLE IF NOT EXISTS organizations (
+            id INTEGER PRIMARY KEY, name TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE IF NOT EXISTS accounts (
+            id INTEGER PRIMARY KEY,
+            organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+            tenant_id TEXT NOT NULL, object_id TEXT NOT NULL, display_name TEXT NOT NULL DEFAULT '',
+            role TEXT NOT NULL, disabled INTEGER NOT NULL DEFAULT 0, version INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(tenant_id, object_id)
+        )""",
+        """CREATE TABLE IF NOT EXISTS grants (
+            id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+            document_id INTEGER REFERENCES documents(id) ON DELETE CASCADE,
+            collection_id INTEGER REFERENCES collections(id) ON DELETE CASCADE,
+            access TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+        "INSERT INTO organizations(name) VALUES ('Standard')",
+    )),
 )
 
 
@@ -547,6 +569,27 @@ POSTGRES_MIGRATIONS = (
             created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
         )""",
     )),
+    (19, (
+        """CREATE TABLE IF NOT EXISTS organizations (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, name TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE IF NOT EXISTS accounts (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            organization_id BIGINT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+            tenant_id TEXT NOT NULL, object_id TEXT NOT NULL, display_name TEXT NOT NULL DEFAULT '',
+            role TEXT NOT NULL, disabled INTEGER NOT NULL DEFAULT 0, version INTEGER NOT NULL DEFAULT 1,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(tenant_id, object_id)
+        )""",
+        """CREATE TABLE IF NOT EXISTS grants (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            account_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+            document_id BIGINT REFERENCES documents(id) ON DELETE CASCADE,
+            collection_id BIGINT REFERENCES collections(id) ON DELETE CASCADE,
+            access TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+        "INSERT INTO organizations(name) VALUES ('Standard')",
+    )),
 )
 
 # Columns added to an existing table by a later migration: (table, column) -> version.
@@ -575,7 +618,7 @@ SQLITE_TABLE_VERSIONS = {
     'collections': 14, 'collection_documents': 14, 'favorites': 14, 'saved_searches': 14,
     'document_relations': 15,
     'entity_types': 16, 'relation_types': 16, 'entities': 16, 'entity_mentions': 16, 'graph_relations': 16,
-    'graph_changes': 16, 'ai_usage': 18,
+    'graph_changes': 16, 'ai_usage': 18, 'organizations': 19, 'accounts': 19, 'grants': 19,
 }
 
 # Constant SQL list of all application tables, derived from the catalog so that
@@ -682,6 +725,14 @@ SQLITE_COLUMNS = {
     'ai_usage': (('id','INTEGER',0,None,1), ('provider','TEXT',1,None,0), ('model','TEXT',1,None,0),
                  ('input_tokens','INTEGER',1,None,0), ('output_tokens','INTEGER',1,None,0),
                  ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
+    'organizations': (('id','INTEGER',0,None,1), ('name','TEXT',1,None,0), ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
+    'accounts': (('id','INTEGER',0,None,1), ('organization_id','INTEGER',1,None,0), ('tenant_id','TEXT',1,None,0),
+                 ('object_id','TEXT',1,None,0), ('display_name','TEXT',1,"''",0), ('role','TEXT',1,None,0),
+                 ('disabled','INTEGER',1,'0',0), ('version','INTEGER',1,'1',0),
+                 ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
+    'grants': (('id','INTEGER',0,None,1), ('account_id','INTEGER',1,None,0), ('document_id','INTEGER',0,None,0),
+               ('collection_id','INTEGER',0,None,0), ('access','TEXT',1,None,0),
+               ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
 }
 
 SQLITE_UNIQUE_CONSTRAINTS = {
@@ -697,6 +748,7 @@ SQLITE_UNIQUE_CONSTRAINTS = {
     'document_relations': {('source_id','target_id','kind')},
     'entity_types': {('normalized',)}, 'relation_types': {('normalized',)}, 'entities': set(),
     'entity_mentions': set(), 'graph_relations': set(), 'graph_changes': set(), 'ai_usage': set(),
+    'organizations': set(), 'accounts': {('tenant_id', 'object_id')}, 'grants': set(),
 }
 
 SQLITE_FOREIGN_KEYS = {
@@ -741,7 +793,10 @@ SQLITE_FOREIGN_KEYS = {
                         ('target_id','entities','id','NO ACTION','CASCADE'),
                         ('type_id','relation_types','id','NO ACTION','NO ACTION'),
                         ('document_id','documents','id','NO ACTION','CASCADE')},
-    'graph_changes': set(), 'ai_usage': set(),
+    'graph_changes': set(), 'ai_usage': set(), 'organizations': set(),
+    'accounts': {('organization_id','organizations','id','NO ACTION','CASCADE')},
+    'grants': {('account_id','accounts','id','NO ACTION','CASCADE'), ('document_id','documents','id','NO ACTION','CASCADE'),
+               ('collection_id','collections','id','NO ACTION','CASCADE')},
 }
 
 POSTGRES_LEGACY_COLUMNS = {
@@ -933,6 +988,24 @@ POSTGRES_LEGACY_COLUMNS = {
     ('ai_usage','input_tokens','bigint','NO','NO',None,None),
     ('ai_usage','output_tokens','bigint','NO','NO',None,None),
     ('ai_usage','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('organizations','id','bigint','NO','YES',None,'ALWAYS'),
+    ('organizations','name','text','NO','NO',None,None),
+    ('organizations','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('accounts','id','bigint','NO','YES',None,'ALWAYS'),
+    ('accounts','organization_id','bigint','NO','NO',None,None),
+    ('accounts','tenant_id','text','NO','NO',None,None),
+    ('accounts','object_id','text','NO','NO',None,None),
+    ('accounts','display_name','text','NO','NO',"''::text",None),
+    ('accounts','role','text','NO','NO',None,None),
+    ('accounts','disabled','integer','NO','NO','0',None),
+    ('accounts','version','integer','NO','NO','1',None),
+    ('accounts','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('grants','id','bigint','NO','YES',None,'ALWAYS'),
+    ('grants','account_id','bigint','NO','NO',None,None),
+    ('grants','document_id','bigint','YES','NO',None,None),
+    ('grants','collection_id','bigint','YES','NO',None,None),
+    ('grants','access','text','NO','NO',None,None),
+    ('grants','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
 }
 
 POSTGRES_LEGACY_CONSTRAINTS = {
@@ -1006,6 +1079,14 @@ POSTGRES_LEGACY_CONSTRAINTS = {
     ('graph_relations', 'f', ('document_id',), 'documents', ('id',), 'c'),
     ('graph_changes', 'p', ('id',), None, (), ' '),
     ('ai_usage', 'p', ('id',), None, (), ' '),
+    ('organizations', 'p', ('id',), None, (), ' '),
+    ('accounts', 'p', ('id',), None, (), ' '),
+    ('accounts', 'f', ('organization_id',), 'organizations', ('id',), 'c'),
+    ('accounts', 'u', ('tenant_id', 'object_id'), None, (), ' '),
+    ('grants', 'p', ('id',), None, (), ' '),
+    ('grants', 'f', ('account_id',), 'accounts', ('id',), 'c'),
+    ('grants', 'f', ('document_id',), 'documents', ('id',), 'c'),
+    ('grants', 'f', ('collection_id',), 'collections', ('id',), 'c'),
 }
 
 

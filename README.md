@@ -88,6 +88,7 @@ Grenzen: 50 MB lokale Originaldatei und je E-Mail-Anhang, Dateiinhalt passend zu
 | `graph_relations` | Relationen zwischen zwei Entitäten, jede mit Pflichtbeleg (Dokument, Start, Ende, Zitat); wird mit dem Belegdokument gelöscht |
 | `graph_changes` | Protokoll jeder Änderung am Wissensgraphen mit Rücknahmezeitpunkt; Entitäten, Erwähnungen und Relationen werden nur als gelöscht markiert, damit jede Änderung zurückgenommen werden kann |
 | `ai_usage` | Tokenzahlen je Antwort eines KI-Anbieters (Anbieter, Modell, Eingabe, Ausgabe, Zeitpunkt), ohne Text; Grundlage der Monatsbudgets (Schema 18) |
+| `organizations`, `accounts`, `grants` | Nur für den Mehrbenutzer-Server von Release 3.0: Organisation, Konten mit Rolle (Administrator, Bearbeiter, Leser) und Freigaben je Dokument oder Sammlung. Die Desktop-Anwendung nutzt sie nicht (Schema 19) |
 
 `schema.sql` dokumentiert das SQLite-Schema. Die ausführbare Schema-Historie liegt in den geordneten, versionierten SQLite- und PostgreSQL-Migrationen in `migrations.py`. SQLite speichert die Version in `PRAGMA user_version`, PostgreSQL in `wissensraum.schema_migrations`. Beide Backends haben denselben fachlichen Speicherumfang, verwenden aber unterschiedliche Volltexttechnik. SQL-Werte werden parametrisiert gebunden. KI-Ausgaben werden niemals als SQL oder Programmcode ausgeführt.
 
