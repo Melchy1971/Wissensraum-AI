@@ -250,6 +250,25 @@ SQLITE_HISTORICAL_MIGRATIONS = (
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )""",
     )),
+    (19, (
+        """CREATE TABLE IF NOT EXISTS organizations (
+            id INTEGER PRIMARY KEY, name TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE IF NOT EXISTS accounts (
+            id INTEGER PRIMARY KEY,
+            organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+            tenant_id TEXT NOT NULL, object_id TEXT NOT NULL, display_name TEXT NOT NULL DEFAULT '',
+            role TEXT NOT NULL, disabled INTEGER NOT NULL DEFAULT 0, version INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(tenant_id, object_id)
+        )""",
+        """CREATE TABLE IF NOT EXISTS grants (
+            id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+            document_id INTEGER REFERENCES documents(id) ON DELETE CASCADE,
+            collection_id INTEGER REFERENCES collections(id) ON DELETE CASCADE,
+            access TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+        "INSERT INTO organizations(name) VALUES ('Standard')",
+    )),
 )
 
 
@@ -407,7 +426,7 @@ class FakePostgres:
                        'import_item_errors', 'document_versions', 'email_attachments',
                        'tags', 'document_tags', 'rules', 'rule_runs', 'rule_run_changes',
                        'chunk_vectors', 'metadata_changes', 'collections', 'collection_documents', 'favorites', 'saved_searches',
-                       'document_relations', 'entity_types', 'relation_types', 'entities', 'entity_mentions', 'graph_relations', 'graph_changes', 'ai_usage', 'organizations', 'accounts', 'grants'}
+                       'document_relations', 'entity_types', 'relation_types', 'entities', 'entity_mentions', 'graph_relations', 'graph_changes', 'ai_usage', 'organizations', 'accounts', 'grants', 'web_sessions', 'login_requests'}
         return tables
 
 
@@ -814,7 +833,7 @@ class PostgresMigrationTests(unittest.TestCase):
                                                           'document_tags', 'rules', 'rule_runs',
                                                           'rule_run_changes', 'chunk_vectors',
                                                           'metadata_changes', 'collections', 'collection_documents', 'favorites', 'saved_searches',
-                                                          'document_relations', 'entity_types', 'relation_types', 'entities', 'entity_mentions', 'graph_relations', 'graph_changes', 'ai_usage', 'organizations', 'accounts', 'grants')),
+                                                          'document_relations', 'entity_types', 'relation_types', 'entities', 'entity_mentions', 'graph_relations', 'graph_changes', 'ai_usage', 'organizations', 'accounts', 'grants', 'web_sessions', 'login_requests')),
         ]
         indexes = [
             {'table_name':'chunks','index_name':'chunks_document_id_idx','index_definition':'CREATE INDEX chunks_document_id_idx ON wissensraum.chunks USING btree (document_id)'},

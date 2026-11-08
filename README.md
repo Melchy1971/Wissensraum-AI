@@ -60,7 +60,7 @@ Ohne semantische Suche ist die Suche lexikalisch: Begriffe müssen im Dokument v
 
 Die KI erhält die acht bestbewerteten Abschnitte, keine vollständige Gesamtauswertung des Bestands. Ein relevanter Abschnitt kann außerhalb dieser Auswahl liegen. Quellenverweise werden auf gültige Nummern geprüft; das prüft nicht, ob die Aussage tatsächlich aus der Quelle folgt. Antworten ohne Quellenverweis werden nicht als Antwort angezeigt, siehe **Quellenabsicherung**. Aussagen müssen anhand der angezeigten Textstellen geprüft werden.
 
-Grenzen: 50 MB lokale Originaldatei und je E-Mail-Anhang, Dateiinhalt passend zur Endung, DOCX, XLSX und PPTX höchstens 10.000 Archiveinträge, 200 MB entpackt und Entpackverhältnis 100, XLSX höchstens 1 Million Zellen, PPTX höchstens 2.000 Folien, kennwortgeschützte Office-Dateien in Quarantäne als „verschlüsselt“, PDF höchstens 2.000 Seiten, 25 MB je abgerufener IMAP-Nachricht, 2 Millionen extrahierte Zeichen pro Dokument, 4.000 Zeichen pro Frage, 24.000 Zeichen für eine Zusammenfassung; mit OCR höchstens 200 Seiten, 2 Minuten je Seite und 60 Millionen Bildpunkte je Seite. Audio, Web-Crawling, Benutzerverwaltung, Rechtevergabe, Wissensgraph und Mehrbenutzerbetrieb sind nicht enthalten. PostgreSQL ist als aktivierbare Alternative zu SQLite enthalten, setzt aber einen separat betriebenen PostgreSQL-Server voraus. Ein Importlauf verarbeitet maximal 2.000 IMAP-, 1.000 Microsoft- oder 10.000 PST-Nachrichten. Importierte Dokumente sind unveränderlich. Eine geänderte Datei am selben Ort wird beim erneuten Import als neue Version gespeichert; die älteren Versionen bleiben erhalten. Beim Löschen eines Dokuments bleiben Quellenkopien im KI-Verlauf erhalten und können weiter sensible Inhalte enthalten.
+Grenzen: 50 MB lokale Originaldatei und je E-Mail-Anhang, Dateiinhalt passend zur Endung, DOCX, XLSX und PPTX höchstens 10.000 Archiveinträge, 200 MB entpackt und Entpackverhältnis 100, XLSX höchstens 1 Million Zellen, PPTX höchstens 2.000 Folien, kennwortgeschützte Office-Dateien in Quarantäne als „verschlüsselt“, PDF höchstens 2.000 Seiten, 25 MB je abgerufener IMAP-Nachricht, 2 Millionen extrahierte Zeichen pro Dokument, 4.000 Zeichen pro Frage, 24.000 Zeichen für eine Zusammenfassung; mit OCR höchstens 200 Seiten, 2 Minuten je Seite und 60 Millionen Bildpunkte je Seite. Audio und Web-Crawling sind nicht enthalten. Benutzerverwaltung, Rechtevergabe und Mehrbenutzerbetrieb gibt es nur im Webserver von Release 3.0, der sich im Aufbau befindet; die Desktop-Anwendung bleibt Einzelplatz. PostgreSQL ist als aktivierbare Alternative zu SQLite enthalten, setzt aber einen separat betriebenen PostgreSQL-Server voraus. Ein Importlauf verarbeitet maximal 2.000 IMAP-, 1.000 Microsoft- oder 10.000 PST-Nachrichten. Importierte Dokumente sind unveränderlich. Eine geänderte Datei am selben Ort wird beim erneuten Import als neue Version gespeichert; die älteren Versionen bleiben erhalten. Beim Löschen eines Dokuments bleiben Quellenkopien im KI-Verlauf erhalten und können weiter sensible Inhalte enthalten.
 
 ## Datenmodell
 
@@ -89,6 +89,7 @@ Grenzen: 50 MB lokale Originaldatei und je E-Mail-Anhang, Dateiinhalt passend zu
 | `graph_changes` | Protokoll jeder Änderung am Wissensgraphen mit Rücknahmezeitpunkt; Entitäten, Erwähnungen und Relationen werden nur als gelöscht markiert, damit jede Änderung zurückgenommen werden kann |
 | `ai_usage` | Tokenzahlen je Antwort eines KI-Anbieters (Anbieter, Modell, Eingabe, Ausgabe, Zeitpunkt), ohne Text; Grundlage der Monatsbudgets (Schema 18) |
 | `organizations`, `accounts`, `grants` | Nur für den Mehrbenutzer-Server von Release 3.0: Organisation, Konten mit Rolle (Administrator, Bearbeiter, Leser) und Freigaben je Dokument oder Sammlung. Die Desktop-Anwendung nutzt sie nicht (Schema 19) |
+| `web_sessions`, `login_requests` | Nur für den Server: Sitzungen (nur SHA-256 der Kennung, Konto, CSRF-Token, Zeiten in Unix-Sekunden) und offene Anmeldungen (SHA-256 von `state` und `nonce`, PKCE-Verifier, höchstens 10 Minuten). Nicht im Datenschutzexport (Schema 20) |
 
 `schema.sql` dokumentiert das SQLite-Schema. Die ausführbare Schema-Historie liegt in den geordneten, versionierten SQLite- und PostgreSQL-Migrationen in `migrations.py`. SQLite speichert die Version in `PRAGMA user_version`, PostgreSQL in `wissensraum.schema_migrations`. Beide Backends haben denselben fachlichen Speicherumfang, verwenden aber unterschiedliche Volltexttechnik. SQL-Werte werden parametrisiert gebunden. KI-Ausgaben werden niemals als SQL oder Programmcode ausgeführt.
 
@@ -178,6 +179,19 @@ Die Übung weist Sicherung, Wiederherstellung, Sicherheitsprüfung und Datenschu
 
 Ergebnis an Claude oder in den Masterplan: Zahlen und Zeiten aus 1, 3, 4 und 6 sowie Ja/Nein je Schritt.
 
+### Webserver: Kern und Anmeldung (Release 3.0, Schritt 10.3, in Arbeit)
+
+Der Mehrbenutzer-Server ist eine eigene FastAPI-Anwendung (`server.py`) und braucht PostgreSQL 18. Er zeigt bisher nur Anmeldung, Startseite und Abmelden; Dokumente, Suche und Fragen folgen mit 10.4 und 10.7. Verbindlich ist `docs/sicherheit-3.0.md`. Abhängigkeiten: `pip install -r requirements-server.txt` (die Desktop-Anwendung braucht sie nicht).
+
+- Anmeldung über OpenID Connect mit Authorization Code und PKCE (S256) bei Microsoft Entra ID. Geprüft werden Signatur über die JWKS des Mandanten (nur RS256), Aussteller, Publikum, `exp`, `iat`, `nbf` mit 2 Minuten Uhrabweichung, `nonce` und Mandant. Das Konto wird über `tid` und `oid` gefunden; eine Anmeldung legt nie ein Konto an. Den ersten Administrator legt `python cli.py account-add --tenant <Mandanten-ID> --object <Objekt-ID> --role admin` an.
+- `state` gilt einmal und 10 Minuten und ist über das Cookie `__Host-wr_login` an den Browser gebunden, der die Anmeldung begonnen hat. Ein weitergeleiteter Rückruf-Link meldet also niemanden an.
+- Sitzungen liegen in der Datenbank, gespeichert wird nur der SHA-256 der Kennung. Cookie `__Host-wr_session` mit `Secure`, `HttpOnly`, `SameSite=Lax`, `Path=/`. Ende nach 30 Minuten ohne Anfrage oder 8 Stunden nach Anmeldung. Jede Anmeldung erzeugt eine neue Kennung. Abmelden, Sperren sowie Rollen- und Freigabeänderungen beenden alle Sitzungen des Kontos.
+- Zustandsändernde Anfragen brauchen das CSRF-Token der Sitzung (Kopfzeile `X-CSRF-Token` oder Formularfeld `csrf_token`) und `Origin` bzw. `Referer` der konfigurierten Adresse. Fremde Hostnamen weist der Server ab (400).
+- Kopfzeilen: Content-Security-Policy ohne Inline-Skripte, `nosniff`, `Referrer-Policy: same-origin`, `X-Frame-Options: DENY`, `Cache-Control: no-store`, mit HTTPS `Strict-Transport-Security`.
+- Nach 10 fehlgeschlagenen Anmeldungen je Adresse in 15 Minuten antwortet der Server mit 429. Der Zähler liegt im Speicher des Prozesses; unterstützt ist ein Prozess.
+
+Konfiguration über Umgebungsvariablen: `WR_BASE_URL` (HTTPS, ohne Pfad; HTTP nur mit `WR_DEVELOPMENT=1` auf localhost), `WR_OIDC_TENANT_ID`, `WR_OIDC_CLIENT_ID`, `WR_OIDC_CLIENT_SECRET_FILE` (oder `WR_OIDC_CLIENT_SECRET`), optional `WR_OIDC_AUTHORITY`, Datenbank über `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_SSLMODE`, `DB_PASSWORD_FILE` (oder `DB_PASSWORD`), dazu `WR_HOST`, `WR_PORT`, `WR_TLS_CERT_FILE`, `WR_TLS_KEY_FILE`. In Entra ID wird `<WR_BASE_URL>/auth/callback` als Umleitungs-URI eingetragen. Start: `python server.py`. Docker und Unraid folgen mit 10.8.
+
 ### PostgreSQL-Sicherung und -Wiederherstellung
 
 Gesichert wird nur das Anwendungsschema `wissensraum`. Voraussetzung sind `pg_dump`, `pg_restore` und `psql` in mindestens der Hauptversion des Servers. Das Kennwort fragen die Werkzeuge interaktiv ab; es gehört nicht in die Befehlszeile. Für den VPS vorher `PGSSLMODE=verify-full` setzen (Windows: `set PGSSLMODE=verify-full`). Platzhalter in spitzen Klammern ersetzen.
@@ -264,9 +278,10 @@ Der Import akzeptiert nur Format `wissensraum-configuration`, Version `1` und di
 - Die Desktop-Oberfläche wird unter Linux mit virtuellem Bildschirm gestartet und automatisiert geprüft. Die Workflow-Datei erzeugt in GitHub Actions zusätzlich Vorschauen der Einstellungen und des Importbereichs; diese Vorschauen entfallen, solange Actions nicht läuft. Das Matrix-Gate kompiliert alle Python-Dateien und prüft den Inhalt von `start_windows.bat` automatisiert auf die unterstützte Versionslogik; die Batchdatei selbst wird in CI nicht ausgeführt oder kompiliert.
 - Matrix-Gate: GitHub Actions läuft seit 28.10.2026 mangels Budget nicht. `tests/local_ci.py` führt dieselben sieben Jobs lokal aus: Python 3.11, 3.12 und 3.13 auf Windows und Linux, einschließlich grafischer Oberflächentests, sowie die PostgreSQL-Verträge gegen einen Wegwerf-Cluster mit PostgreSQL 18. `python tests/local_ci.py run` führt die Jobs der eigenen Plattform aus (`--postgres --pg-bin <bin-Ordner>` zusätzlich den PostgreSQL-Job, nicht als root), `python tests/local_ci.py report` schreibt das Protokoll `local-ci-gate-<commit>.md`. Ergebnisse liegen in `.local-ci/` und werden nicht eingecheckt. Tests schreiben ihre Temp-Dateien nach `.local-ci/tmp/`; diesen Ordner vom Echtzeit-Virenscan ausnehmen.
 
-Tests ausführen:
+Tests ausführen (die Servertests brauchen `requirements-server.txt`):
 
 ```bash
+pip install -r requirements-server.txt
 python -m unittest discover -s tests -v
 ```
 

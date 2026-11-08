@@ -36,7 +36,7 @@ Stand 08.11.2026:
 - Phase 8A (Release 2.2 Wissensorganisation) ✅: Metadaten mit Verlauf, Dokumentstatus und Ausschluss aus KI-Antworten, Sammlungen, Favoriten, gespeicherte Suchen, Beziehungen, Fassungsvergleich, Sammlungsexport mit Quellenmanifest. Datenbankschema 15.
 - Phase 8B (Release 2.3 Wissensgraph) ✅, freigegeben 08.11.2026, nach dem Plan 8B.1 bis 8B.5 (Masterplan, D-023: Tabellen in SQLite/PostgreSQL, KI-Vorschläge nur lokales Ollama). 8B.1 Datenmodell (Schema 16) und 8B.2 KI-Vorschläge (Schema 17) umgesetzt. 8B.3 Zusammenführen und Trennen, 8B.4 Graphansicht und 8B.5 Graphkontext für Antworten ✅. Messung mit gefülltem Graphen am 08.11.2026: Graphkontext in Antworten verfehlt das Gate (False Accept 2 von 24), ohne Graphkontext hält es; deshalb standardmäßig aus, Release 2.3 ohne Graphkontext in Antworten (D-025).
 - Phase 9 (Release 2.4 Betrieb und Governance) ✅, freigegeben 08.11.2026 (D-027), nach Plan 9.1 bis 9.6 (D-024, Schema 18): Betriebsübersicht, Budgets je KI-Anbieter, Aufbewahrungsregeln, Integrität mit täglicher Sicherung und Wiederherstellungsübung, Sicherheitsprüfungen in CI mit Stückliste und Sigstore-Signatur, Datenschutzexport und selektive Löschung. Signatur-Probelauf am 08.11.2026 verifiziert, Betriebsübung mit echten Daten bestanden.
-- Phase 10 (Release 3.0 Mehrbenutzerbetrieb) gestartet 08.11.2026 (D-028), Plan 10.1 bis 10.8 im Masterplan. Rechte werden in der Datenbank vor Sortierung und Begrenzung gefiltert, nie nachträglich; KI-Kontext nur aus sichtbaren Abschnitten.
+- Phase 10 (Release 3.0 Mehrbenutzerbetrieb) gestartet 08.11.2026 (D-028), Plan 10.1 bis 10.8 im Masterplan. 10.1 und 10.2 ✅ (Schema 19), 10.3 Serverkern und Anmeldung in Arbeit (Schema 20). Rechte werden in der Datenbank vor Sortierung und Begrenzung gefiltert, nie nachträglich; KI-Kontext nur aus sichtbaren Abschnitten.
 
 Messwerte der Antwortqualität stammen aus dem eingefrorenen Bestand V2 (`data/eval-set-v2.freeze.json`). Eigene Fragen und Messkopien der Datenbank des Product Owners bleiben lokal (`data/` ist von Git ausgeschlossen). Messkopien nach der Messung löschen. Einzelfalldaten nur anonymisiert behalten (Frage-IDs, Ränge, Abschnittsnummern, Kategorien). Keine Fragetexte, Dokumenttexte oder privaten Dokumentnamen in Repository, Logs oder Berichte übernehmen, nur Frage-IDs. Für Messungen muss Ollama exklusiv laufen; andere Clients verfälschen die Antwortzeiten.
 
@@ -64,6 +64,7 @@ Ohne ausdrückliche Anweisung keine Arbeit aus einer späteren Phase beginnen, s
 | `backups.py` | Integritätsprüfung, tägliche geprüfte SQLite-Sicherung und Wiederherstellungsübung |
 | `privacy.py` | Datenschutzexport aller Tabellen und selektive Löschung von Dokumenten mit allem Abgeleiteten |
 | `accounts.py` | Konten, Rollen und Freigaben des Mehrbenutzer-Servers, Sichtbarkeitsfilter für Abfragen (Release 3.0) |
+| `sessions.py`, `oidc.py`, `server.py` | Server-Sitzungen und Anmeldeanfragen, OIDC-Anmeldung mit PKCE und Tokenprüfung, FastAPI-Server mit CSRF-Schutz und Sicherheits-Headern (Release 3.0, Abhängigkeiten in `requirements-server.txt`) |
 | `retention.py` | Aufbewahrungsregeln für KI-Verlauf, Nutzungszählung, Importfehler und gelöschte Graphobjekte |
 | `vector_sync.py` | Einbettung der Abschnitte im Hintergrund |
 | `configuration.py`, `configuration_authority.py` | Konfigurationstransfer ohne Zugangsdaten |

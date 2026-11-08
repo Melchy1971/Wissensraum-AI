@@ -60,9 +60,9 @@ class FakeResetConnection:
         if 'FROM information_schema.tables' in query:
             tables=['accounts','ai_runs','ai_usage','chunk_vectors','chunks','collection_documents','collections','document_relations','document_tags','document_versions','documents','email_accounts',
                     'email_attachments','email_imports','entities','entity_mentions','entity_types','favorites','grants','graph_changes',
-                    'graph_relations','import_item_errors','import_items','import_jobs',
+                    'graph_relations','import_item_errors','import_items','import_jobs','login_requests',
                     'metadata_changes','organizations','relation_types','rule_run_changes','rule_runs','rules','saved_searches','schema_migrations','settings','sources',
-                    'tags'] if self.schema == 'new' else []
+                    'tags','web_sessions'] if self.schema == 'new' else []
             rows=[(name,) for name in tables] if self.tuple_rows else [{'table_name':name} for name in tables]
             return type('Result',(),{'fetchall':lambda _:rows})()
         if 'SELECT MAX(version)' in query:
@@ -480,9 +480,9 @@ class DatabaseSettingsTests(unittest.TestCase):
                                            'document_relations','document_tags','document_versions','documents',
                                            'email_accounts','email_attachments','email_imports','entities',
                                            'entity_mentions','entity_types','favorites','grants','graph_changes',
-                                           'graph_relations','import_item_errors','import_items','import_jobs',
+                                           'graph_relations','import_item_errors','import_items','import_jobs','login_requests',
                                            'metadata_changes','organizations','relation_types','rule_run_changes',
-                                           'rule_runs','rules','saved_searches','schema_migrations','settings','sources','tags'])
+                                           'rule_runs','rules','saved_searches','schema_migrations','settings','sources','tags','web_sessions'])
         self.assertTrue(connection.closed)
 
     def test_failed_reset_rolls_back_and_preserves_previous_schema(self):

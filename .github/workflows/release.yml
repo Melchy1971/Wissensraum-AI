@@ -30,7 +30,7 @@ jobs:
           name="Wissensraum-AI-${GITHUB_REF_NAME//\//-}"
           git archive --format=zip --prefix="$name/" -o "$name.zip" HEAD
           python -m venv app-env
-          app-env/bin/python -m pip install -q -r requirements-ocr.txt
+          app-env/bin/python -m pip install -q -r requirements-ocr.txt -r requirements-server.txt
           python -m pip install cyclonedx-bom==8.0.1
           cyclonedx-py environment app-env/bin/python --output-format JSON -o sbom.cdx.json
           sha256sum "$name.zip" sbom.cdx.json > SHA256SUMS.txt

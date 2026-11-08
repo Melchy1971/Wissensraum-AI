@@ -9,7 +9,7 @@ import uuid
 from contextlib import closing, contextmanager
 from pathlib import Path
 
-CURRENT_SCHEMA_VERSION = 19
+CURRENT_SCHEMA_VERSION = 20
 # Unversioned PostgreSQL schemas predate schema_migrations and match version 4.
 POSTGRES_LEGACY_SCHEMA_VERSION = 4
 # ponytail: source_type is validated in application code (core.SOURCE_TYPES), not by a
@@ -312,6 +312,17 @@ SQLITE_MIGRATIONS = (
         )""",
         "INSERT INTO organizations(name) VALUES ('Standard')",
     )),
+    # Release 3.0, step 10.3: server-side web sessions and pending sign-ins. Only SHA-256 values
+    # of session ids, states and nonces are stored; times are Unix seconds (no time zone issues).
+    (20, (
+        """CREATE TABLE IF NOT EXISTS web_sessions (
+            id TEXT PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+            csrf_token TEXT NOT NULL, created_at INTEGER NOT NULL, last_seen INTEGER NOT NULL
+        )""",
+        """CREATE TABLE IF NOT EXISTS login_requests (
+            state TEXT PRIMARY KEY, nonce TEXT NOT NULL, verifier TEXT NOT NULL, created_at INTEGER NOT NULL
+        )""",
+    )),
 )
 
 
@@ -590,6 +601,15 @@ POSTGRES_MIGRATIONS = (
         )""",
         "INSERT INTO organizations(name) VALUES ('Standard')",
     )),
+    (20, (
+        """CREATE TABLE IF NOT EXISTS web_sessions (
+            id TEXT PRIMARY KEY, account_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+            csrf_token TEXT NOT NULL, created_at BIGINT NOT NULL, last_seen BIGINT NOT NULL
+        )""",
+        """CREATE TABLE IF NOT EXISTS login_requests (
+            state TEXT PRIMARY KEY, nonce TEXT NOT NULL, verifier TEXT NOT NULL, created_at BIGINT NOT NULL
+        )""",
+    )),
 )
 
 # Columns added to an existing table by a later migration: (table, column) -> version.
@@ -619,6 +639,7 @@ SQLITE_TABLE_VERSIONS = {
     'document_relations': 15,
     'entity_types': 16, 'relation_types': 16, 'entities': 16, 'entity_mentions': 16, 'graph_relations': 16,
     'graph_changes': 16, 'ai_usage': 18, 'organizations': 19, 'accounts': 19, 'grants': 19,
+    'web_sessions': 20, 'login_requests': 20,
 }
 
 # Constant SQL list of all application tables, derived from the catalog so that
@@ -733,6 +754,10 @@ SQLITE_COLUMNS = {
     'grants': (('id','INTEGER',0,None,1), ('account_id','INTEGER',1,None,0), ('document_id','INTEGER',0,None,0),
                ('collection_id','INTEGER',0,None,0), ('access','TEXT',1,None,0),
                ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
+    'web_sessions': (('id','TEXT',0,None,1), ('account_id','INTEGER',1,None,0), ('csrf_token','TEXT',1,None,0),
+                     ('created_at','INTEGER',1,None,0), ('last_seen','INTEGER',1,None,0)),
+    'login_requests': (('state','TEXT',0,None,1), ('nonce','TEXT',1,None,0), ('verifier','TEXT',1,None,0),
+                       ('created_at','INTEGER',1,None,0)),
 }
 
 SQLITE_UNIQUE_CONSTRAINTS = {
@@ -749,6 +774,7 @@ SQLITE_UNIQUE_CONSTRAINTS = {
     'entity_types': {('normalized',)}, 'relation_types': {('normalized',)}, 'entities': set(),
     'entity_mentions': set(), 'graph_relations': set(), 'graph_changes': set(), 'ai_usage': set(),
     'organizations': set(), 'accounts': {('tenant_id', 'object_id')}, 'grants': set(),
+    'web_sessions': set(), 'login_requests': set(),
 }
 
 SQLITE_FOREIGN_KEYS = {
@@ -797,6 +823,7 @@ SQLITE_FOREIGN_KEYS = {
     'accounts': {('organization_id','organizations','id','NO ACTION','CASCADE')},
     'grants': {('account_id','accounts','id','NO ACTION','CASCADE'), ('document_id','documents','id','NO ACTION','CASCADE'),
                ('collection_id','collections','id','NO ACTION','CASCADE')},
+    'web_sessions': {('account_id','accounts','id','NO ACTION','CASCADE')}, 'login_requests': set(),
 }
 
 POSTGRES_LEGACY_COLUMNS = {
@@ -1006,6 +1033,15 @@ POSTGRES_LEGACY_COLUMNS = {
     ('grants','collection_id','bigint','YES','NO',None,None),
     ('grants','access','text','NO','NO',None,None),
     ('grants','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('web_sessions','id','text','NO','NO',None,None),
+    ('web_sessions','account_id','bigint','NO','NO',None,None),
+    ('web_sessions','csrf_token','text','NO','NO',None,None),
+    ('web_sessions','created_at','bigint','NO','NO',None,None),
+    ('web_sessions','last_seen','bigint','NO','NO',None,None),
+    ('login_requests','state','text','NO','NO',None,None),
+    ('login_requests','nonce','text','NO','NO',None,None),
+    ('login_requests','verifier','text','NO','NO',None,None),
+    ('login_requests','created_at','bigint','NO','NO',None,None),
 }
 
 POSTGRES_LEGACY_CONSTRAINTS = {
@@ -1087,6 +1123,9 @@ POSTGRES_LEGACY_CONSTRAINTS = {
     ('grants', 'f', ('account_id',), 'accounts', ('id',), 'c'),
     ('grants', 'f', ('document_id',), 'documents', ('id',), 'c'),
     ('grants', 'f', ('collection_id',), 'collections', ('id',), 'c'),
+    ('web_sessions', 'p', ('id',), None, (), ' '),
+    ('web_sessions', 'f', ('account_id',), 'accounts', ('id',), 'c'),
+    ('login_requests', 'p', ('state',), None, (), ' '),
 }
 
 

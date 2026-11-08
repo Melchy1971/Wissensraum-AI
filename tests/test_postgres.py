@@ -476,6 +476,10 @@ class PostgresStoreTests(unittest.TestCase):
         from test_accounts import check_accounts_contract
         check_accounts_contract(self, PostgresStore(self.profile, self.password))
 
+    def test_web_sessions_on_real_postgresql(self):
+        from test_server import check_sessions_contract
+        check_sessions_contract(self, PostgresStore(self.profile, self.password))
+
     def test_graph_context_on_real_postgresql(self):
         from test_graph_context import check_graph_context_contract
         check_graph_context_contract(self, PostgresStore(self.profile, self.password))
@@ -706,9 +710,9 @@ class PostgresStoreTests(unittest.TestCase):
             'document_tags',
             'document_versions', 'documents', 'email_accounts', 'email_attachments', 'email_imports', 'entities',
             'entity_mentions', 'entity_types', 'favorites', 'grants', 'graph_changes', 'graph_relations',
-            'import_item_errors', 'import_items', 'import_jobs', 'metadata_changes', 'organizations', 'relation_types', 'rule_run_changes',
+            'import_item_errors', 'import_items', 'import_jobs', 'login_requests', 'metadata_changes', 'organizations', 'relation_types', 'rule_run_changes',
             'rule_runs', 'rules', 'saved_searches',
-            'schema_migrations', 'settings', 'sources', 'tags'])
+            'schema_migrations', 'settings', 'sources', 'tags', 'web_sessions'])
         with PostgresStore(self.profile, self.password).connect() as db:
             # A reset leaves no data; only the two graph type catalogues get their default entries again.
             catalogues = {'entity_types': 5, 'relation_types': 5, 'organizations': 1}

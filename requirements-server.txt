@@ -1,0 +1,7 @@
+-r requirements.txt
+# Web server for Release 3.0 (D-028). Not needed for the desktop application.
+fastapi==0.162.0
+uvicorn==0.54.0
+PyJWT[crypto]==2.15.1
+# test client of the server tests
+httpx==0.28.1

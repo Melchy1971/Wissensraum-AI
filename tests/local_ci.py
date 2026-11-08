@@ -201,18 +201,20 @@ def venv_home(target):
 
 
 def venv_python(version, base):
-    """Fresh-enough virtual environment with requirements-ocr.txt for one Python version."""
+    """Fresh-enough virtual environment with the OCR and server requirements for one Python version."""
     target = STATE / 'venv' / f'{system_name()}-{version}'
     exe = target / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
     stamp = target / 'requirements.stamp'
-    wanted = (ROOT / 'requirements-ocr.txt').read_text() + (ROOT / 'requirements.txt').read_text()
+    wanted = ''.join((ROOT / name).read_text() for name in ('requirements-ocr.txt', 'requirements.txt',
+                                                             'requirements-server.txt'))
     if exe.exists() and venv_home(target) != os.path.normcase(str(Path(base).resolve().parent)):
         shutil.rmtree(target)  # built from another interpreter, e.g. uv's build before the py launcher
     if not exe.exists():
         subprocess.run([base, '-m', 'venv', str(target)], check=True)
     if not stamp.exists() or stamp.read_text() != wanted:
         subprocess.run([str(exe), '-m', 'pip', 'install', '-q', '--disable-pip-version-check',
-                        '-r', str(ROOT / 'requirements-ocr.txt')], check=True)
+                        '-r', str(ROOT / 'requirements-ocr.txt'), '-r', str(ROOT / 'requirements-server.txt')],
+                       check=True)
         stamp.write_text(wanted)
     return str(exe)
 
