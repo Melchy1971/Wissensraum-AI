@@ -834,7 +834,7 @@ Die Phasen werden in der angegebenen Reihenfolge getestet. Eine Phase wird erst 
 | 7 | Release 2.1 Hybrid-RAG | ✅ freigegeben 05.11.2026 (D-021) | nach Phase 6 |
 | 8 | Wissensorganisation und Wissensgraph | ✅ 8A (Release 2.2, D-022) und 8B (Release 2.3 freigegeben 08.11.2026, D-026; Graphkontext in Antworten standardmäßig aus, D-025) | nach Phase 7 |
 | 9 | Betrieb und Governance | ✅ Release 2.4 freigegeben 08.11.2026 (D-027), Schema 18 | nach Phase 8 |
-| 10 | Release 3.0 Sicherheitskern und Mehrbenutzerbetrieb | ⬜ | separates Architektur- und Sicherheits-Gate |
+| 10 | Release 3.0 Sicherheitskern und Mehrbenutzerbetrieb | 🟡 gestartet 08.11.2026 (D-028), 10.1 Bedrohungsmodell erstellt | separates Architektur- und Sicherheits-Gate |
 | 11 | Release 3.1 VPS-Webanwendung und eigene Domain | ⬜ | erst nach Phase 10; öffentliche Bereitstellung nur mit vollständigem Sicherheits- und Betriebs-Gate |
 
 ### Phase 0 – Installation, Start und Oberfläche ✅
@@ -1186,11 +1186,30 @@ Frühere Zwischenstände: Stand der lokalen Prüfung 24.10.2026, 15:27 bis 15:33
 
 **Gate:** Backup-Wiederherstellung, Sicherheitsprüfung und Datenschutzexport werden in einer vollständigen Betriebsübung nachgewiesen. Ablauf und erwartete Ergebnisse: README, Abschnitt „Betriebsübung für die Abnahme von Release 2.4“.
 
-### Phase 10 – Release 3.0 Mehrbenutzerbetrieb, nur nach eigener Freigabe ⬜
+### Phase 10 – Release 3.0 Mehrbenutzerbetrieb 🟡
+
+**Freigabe 08.11.2026 (D-028):** Der Product Owner hat Release 3.0 gestartet und entschieden: eigener Webserver nach D-012 (FastAPI, HTMX), zuerst im Heimnetz oder auf Unraid per Docker, öffentliche Erreichbarkeit erst mit 3.1; Server nur mit PostgreSQL 18, Desktop bleibt Einzelplatz; Anmeldung über OIDC mit Microsoft Entra ID (Code anbieterneutral, Tests gegen einen lokalen Test-Identitätsanbieter); eine Organisation je Installation; Rollen Administrator, Bearbeiter, Leser mit Freigaben je Sammlung und Dokument. Bedrohungsmodell und Sicherheitsarchitektur: `docs/sicherheit-3.0.md`.
+
+**Plan:**
+
+| Schritt | Umfang | Gate |
+|---|---|---|
+| 10.1 Bedrohungsmodell und Architektur | `docs/sicherheit-3.0.md`: Akteure, Werte, Sicherheitsarchitektur, STRIDE mit Nachweis je Bedrohung | Freigabe durch den Product Owner |
+| 10.2 Datenmodell Mehrbenutzer | Organisation, Konten, Rollen, Freigaben je Sammlung und Dokument, Eigentümer je Dokument (Schema 19, beide Backends; Desktop unverändert nutzbar) | Migration mit Sicherung, Vertragstests beider Backends, bestehende Daten gehören dem ersten Administrator |
+| 10.3 Serverkern und Anmeldung | FastAPI-Anwendung, OIDC mit PKCE, serverseitige Sitzungen, CSRF, Sicherheits-Header, Rate Limits | Negativtests S1 bis S3 und E2 grün |
+| 10.4 Rechteprüfung überall | Liste, Volltext, Vektoren, Graph, Originale, Export und KI-Kontext filtern in der Datenbank | Negativtests I1 bis I3 und E1 je Endpunkt und Rolle grün |
+| 10.5 Audit-Verlauf | Hash-verkettete Tabelle, nur Einfügen, Prüfbefehl | Negativtests T1 und R1 grün |
+| 10.6 Gleichzeitige Bearbeitung | Versionsnummern, 409 bei Konflikt | Test T2 grün |
+| 10.7 Weboberfläche | Anmeldung, Dokumente, Suche, Frage mit Quellen, Verwaltung von Konten und Freigaben | Ende-zu-Ende-Tests mit zwei Konten |
+| 10.8 Geheimnisse und Betrieb | Docker-Secrets, Docker Compose für Unraid, Patch- und Incident-Prozess | Secret-Scan ohne Fund, Probeinstallation, dokumentierter Ablauf |
+
+Jeder Schritt mit eigenem PR, Matrix-Gate 7 von 7 und grüner CI.
+
+**Stand 08.11.2026:** 10.1 🟡 (Dokument erstellt, Freigabe offen), 10.2 bis 10.8 ⬜.
+
+Ursprünglicher Mindestumfang:
 
 **Entscheidungstor:** Mehrbenutzerbetrieb verändert Bedrohungsmodell, Datenmodell und Betriebsverantwortung. Er wird nicht schrittweise in die Einzelplatzversion eingeschoben.
-
-Erforderlicher Mindestumfang:
 
 - zentrale Authentifizierung mit OIDC
 - Rollen und Berechtigungen auf Sammlung und Dokument
@@ -1433,6 +1452,7 @@ Ein Arbeitspaket ist abgeschlossen, wenn:
 | D-025 | Graphkontext in KI-Antworten standardmäßig aus; Release 2.3 wird ohne Graphkontext in Antworten abgenommen. Grund: Messung mit gefülltem Graphen (08.11.2026) verfehlt die Grenze für False Accept (2 von 24 statt höchstens 1) in zwei identischen Läufen, ohne Graphkontext hält das Gate. Einschalten bleibt über `cli.py ai-graph on` möglich, ist aber nicht abgenommen | Entschieden 08.11.2026 (Product Owner) |
 | D-026 | Release 2.3 (Phase 8B Wissensgraph) freigegeben, ohne Graphkontext in Antworten (D-025). Tag `v2.3` auf `main`, obwohl dort Phase 9 bereits enthalten ist; deren Funktionen gelten erst mit Release 2.4 als abgenommen, die Release-Notiz sagt das | Entschieden 08.11.2026 (Product Owner) |
 | D-027 | Release 2.4 (Phase 9 Betrieb und Governance) freigegeben nach Betriebsübung mit echten Daten; Die Annahmen aus 9.2 (Kalendermonat UTC, Warnung 80 %, Sperre 100 %, Preise vom Benutzer) und 9.4 (tägliche Sicherung an, Ordner `backups` neben der Datenbank, 7 Sicherungen) gelten mit der Freigabe als übernommen; einzeln kommentiert hat der Product Owner sie nicht. Tag `v2.4` | Entschieden 08.11.2026 (Product Owner) |
+| D-028 | Release 3.0 gestartet: Webserver nach D-012 zuerst im Heimnetz oder auf Unraid, Server nur mit PostgreSQL 18, Desktop bleibt Einzelplatz; OIDC mit Microsoft Entra ID; eine Organisation je Installation; Rollen Administrator, Bearbeiter, Leser mit Freigaben je Sammlung und Dokument. Plan 10.1 bis 10.8 | Entschieden 08.11.2026 (Product Owner) |
 
 ## 14. Hauptrisiken
 

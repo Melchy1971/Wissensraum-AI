@@ -10,7 +10,7 @@ Projektverantwortlicher ist Markus Dickscheit, Prozessdesigner und Product Owner
 
 Wissensraum-AI ist eine lokale, deutschsprachige Desktop-Anwendung für persönliches Wissensmanagement. Sie importiert Dokumente, Notizen, PST-Dateien und ausgewählte E-Mails, speichert Inhalte wahlweise in SQLite oder PostgreSQL und beantwortet Fragen auf Basis gefundener Quellen.
 
-Der Offline-Kern muss ohne KI-Anbieter funktionieren. Ein Webserver, Mehrbenutzerbetrieb, automatische Cloud-Synchronisation und ungefragte Datenübertragung gehören nicht zum aktuellen Produktumfang.
+Der Offline-Kern muss ohne KI-Anbieter funktionieren. Automatische Cloud-Synchronisation und ungefragte Datenübertragung gehören nicht zum Produktumfang. Seit D-028 (08.11.2026) entsteht mit Release 3.0 zusätzlich ein Webserver für Mehrbenutzerbetrieb (FastAPI, HTMX, nur PostgreSQL, zuerst im Heimnetz). Die Desktop-Anwendung bleibt Einzelplatz und unverändert nutzbar. Verbindlich für alles Serverseitige: `docs/sicherheit-3.0.md`.
 
 ## 3. Verbindliche Quellen und Priorität
 
@@ -36,7 +36,7 @@ Stand 08.11.2026:
 - Phase 8A (Release 2.2 Wissensorganisation) ✅: Metadaten mit Verlauf, Dokumentstatus und Ausschluss aus KI-Antworten, Sammlungen, Favoriten, gespeicherte Suchen, Beziehungen, Fassungsvergleich, Sammlungsexport mit Quellenmanifest. Datenbankschema 15.
 - Phase 8B (Release 2.3 Wissensgraph) ✅, freigegeben 08.11.2026, nach dem Plan 8B.1 bis 8B.5 (Masterplan, D-023: Tabellen in SQLite/PostgreSQL, KI-Vorschläge nur lokales Ollama). 8B.1 Datenmodell (Schema 16) und 8B.2 KI-Vorschläge (Schema 17) umgesetzt. 8B.3 Zusammenführen und Trennen, 8B.4 Graphansicht und 8B.5 Graphkontext für Antworten ✅. Messung mit gefülltem Graphen am 08.11.2026: Graphkontext in Antworten verfehlt das Gate (False Accept 2 von 24), ohne Graphkontext hält es; deshalb standardmäßig aus, Release 2.3 ohne Graphkontext in Antworten (D-025).
 - Phase 9 (Release 2.4 Betrieb und Governance) ✅, freigegeben 08.11.2026 (D-027), nach Plan 9.1 bis 9.6 (D-024, Schema 18): Betriebsübersicht, Budgets je KI-Anbieter, Aufbewahrungsregeln, Integrität mit täglicher Sicherung und Wiederherstellungsübung, Sicherheitsprüfungen in CI mit Stückliste und Sigstore-Signatur, Datenschutzexport und selektive Löschung. Signatur-Probelauf am 08.11.2026 verifiziert, Betriebsübung mit echten Daten bestanden.
-- Nächste Phase: 10 (Release 3.0 Mehrbenutzerbetrieb) ist ein eigenes Entscheidungstor. Ohne ausdrückliche Freigabe des Product Owners keinen Plan umsetzen.
+- Phase 10 (Release 3.0 Mehrbenutzerbetrieb) gestartet 08.11.2026 (D-028), Plan 10.1 bis 10.8 im Masterplan. Rechte werden in der Datenbank vor Sortierung und Begrenzung gefiltert, nie nachträglich; KI-Kontext nur aus sichtbaren Abschnitten.
 
 Messwerte der Antwortqualität stammen aus dem eingefrorenen Bestand V2 (`data/eval-set-v2.freeze.json`). Eigene Fragen und Messkopien der Datenbank des Product Owners bleiben lokal (`data/` ist von Git ausgeschlossen). Messkopien nach der Messung löschen. Einzelfalldaten nur anonymisiert behalten (Frage-IDs, Ränge, Abschnittsnummern, Kategorien). Keine Fragetexte, Dokumenttexte oder privaten Dokumentnamen in Repository, Logs oder Berichte übernehmen, nur Frage-IDs. Für Messungen muss Ollama exklusiv laufen; andere Clients verfälschen die Antwortzeiten.
 
