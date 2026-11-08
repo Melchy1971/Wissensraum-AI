@@ -100,6 +100,12 @@ def main(argv=None):
                         'einer Löschung').add_argument('text')
     erase = commands.add_parser('privacy-erase',help='Dokumente samt allem Abgeleiteten endgültig löschen')
     erase.add_argument('ids',type=int,nargs='+'); erase.add_argument('--confirm',action='store_true')
+    add_account = commands.add_parser('account-add',help='Konto für den Mehrbenutzer-Server anlegen (erster Administrator)')
+    add_account.add_argument('--tenant',required=True,help='Entra-ID-Mandanten-ID (tid)')
+    add_account.add_argument('--object',required=True,help='Entra-ID-Objekt-ID des Benutzers (oid)')
+    add_account.add_argument('--role',required=True,choices=('admin','editor','reader'))
+    add_account.add_argument('--name',default='',help='Anzeigename')
+    commands.add_parser('account-list',help='Konten des Mehrbenutzer-Servers')
     keep = commands.add_parser('retention',help='Aufbewahrungsregeln: ohne Angabe Vorschau, mit --apply --confirm anwenden')
     keep.add_argument('category',nargs='?',choices=('ki_verlauf','ki_nutzung','importfehler','graph_geloescht'))
     keep.add_argument('--days',type=int,help='Tage aufbewahren (0 = unbegrenzt)')
@@ -513,6 +519,12 @@ def main(argv=None):
                     print('Zum endgültigen Löschen --confirm angeben.',file=sys.stderr)
                     return 2
                 result = privacy.erase(store,args.ids)
+            elif args.command == 'account-add':
+                import accounts
+                result = accounts.account(store,accounts.create_account(store,args.tenant,args.object,args.role,args.name))
+            elif args.command == 'account-list':
+                import accounts
+                result = accounts.accounts(store)
             elif args.command == 'retention':
                 import retention
                 if args.category is not None:

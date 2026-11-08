@@ -472,6 +472,10 @@ class PostgresStoreTests(unittest.TestCase):
         from test_privacy import check_privacy_contract
         check_privacy_contract(self, PostgresStore(self.profile, self.password))
 
+    def test_accounts_on_real_postgresql(self):
+        from test_accounts import check_accounts_contract
+        check_accounts_contract(self, PostgresStore(self.profile, self.password))
+
     def test_graph_context_on_real_postgresql(self):
         from test_graph_context import check_graph_context_contract
         check_graph_context_contract(self, PostgresStore(self.profile, self.password))
@@ -698,16 +702,16 @@ class PostgresStoreTests(unittest.TestCase):
         reset = DatabaseSettings(Path.cwd(), vault, environ={}).reset_postgresql(
             self.profile, self.password, self.profile['database'])
         self.assertEqual(reset['tables'], [
-            'ai_runs', 'ai_usage', 'chunk_vectors', 'chunks', 'collection_documents', 'collections', 'document_relations',
+            'accounts', 'ai_runs', 'ai_usage', 'chunk_vectors', 'chunks', 'collection_documents', 'collections', 'document_relations',
             'document_tags',
             'document_versions', 'documents', 'email_accounts', 'email_attachments', 'email_imports', 'entities',
-            'entity_mentions', 'entity_types', 'favorites', 'graph_changes', 'graph_relations',
-            'import_item_errors', 'import_items', 'import_jobs', 'metadata_changes', 'relation_types', 'rule_run_changes',
+            'entity_mentions', 'entity_types', 'favorites', 'grants', 'graph_changes', 'graph_relations',
+            'import_item_errors', 'import_items', 'import_jobs', 'metadata_changes', 'organizations', 'relation_types', 'rule_run_changes',
             'rule_runs', 'rules', 'saved_searches',
             'schema_migrations', 'settings', 'sources', 'tags'])
         with PostgresStore(self.profile, self.password).connect() as db:
             # A reset leaves no data; only the two graph type catalogues get their default entries again.
-            catalogues = {'entity_types': 5, 'relation_types': 5}
+            catalogues = {'entity_types': 5, 'relation_types': 5, 'organizations': 1}
             data_tables = [table for table in reset['tables'] if table != 'schema_migrations']
             self.assertEqual({table: db.execute('SELECT count(*) AS count FROM ' + table).fetchone()['count']
                               for table in data_tables},

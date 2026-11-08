@@ -58,10 +58,10 @@ class FakeResetConnection:
         if query.startswith('DROP SCHEMA'):
             self.schema=None
         if 'FROM information_schema.tables' in query:
-            tables=['ai_runs','ai_usage','chunk_vectors','chunks','collection_documents','collections','document_relations','document_tags','document_versions','documents','email_accounts',
-                    'email_attachments','email_imports','entities','entity_mentions','entity_types','favorites','graph_changes',
+            tables=['accounts','ai_runs','ai_usage','chunk_vectors','chunks','collection_documents','collections','document_relations','document_tags','document_versions','documents','email_accounts',
+                    'email_attachments','email_imports','entities','entity_mentions','entity_types','favorites','grants','graph_changes',
                     'graph_relations','import_item_errors','import_items','import_jobs',
-                    'metadata_changes','relation_types','rule_run_changes','rule_runs','rules','saved_searches','schema_migrations','settings','sources',
+                    'metadata_changes','organizations','relation_types','rule_run_changes','rule_runs','rules','saved_searches','schema_migrations','settings','sources',
                     'tags'] if self.schema == 'new' else []
             rows=[(name,) for name in tables] if self.tuple_rows else [{'table_name':name} for name in tables]
             return type('Result',(),{'fetchall':lambda _:rows})()
@@ -476,12 +476,12 @@ class DatabaseSettingsTests(unittest.TestCase):
         self.assertEqual(sum('pg_advisory_xact_lock' in q for q in queries),1)
         self.assertLess(next(i for i,q in enumerate(queries) if q.startswith('SET LOCAL lock_timeout')),
                         next(i for i,q in enumerate(queries) if 'pg_advisory_xact_lock' in q))
-        self.assertEqual(result['tables'],['ai_runs','ai_usage','chunk_vectors','chunks','collection_documents','collections',
+        self.assertEqual(result['tables'],['accounts','ai_runs','ai_usage','chunk_vectors','chunks','collection_documents','collections',
                                            'document_relations','document_tags','document_versions','documents',
                                            'email_accounts','email_attachments','email_imports','entities',
-                                           'entity_mentions','entity_types','favorites','graph_changes',
+                                           'entity_mentions','entity_types','favorites','grants','graph_changes',
                                            'graph_relations','import_item_errors','import_items','import_jobs',
-                                           'metadata_changes','relation_types','rule_run_changes',
+                                           'metadata_changes','organizations','relation_types','rule_run_changes',
                                            'rule_runs','rules','saved_searches','schema_migrations','settings','sources','tags'])
         self.assertTrue(connection.closed)
 

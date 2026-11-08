@@ -243,6 +243,13 @@ SQLITE_HISTORICAL_MIGRATIONS = (
     (17, (
         "ALTER TABLE entity_mentions ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmed'",
     )),
+    (18, (
+        """CREATE TABLE IF NOT EXISTS ai_usage (
+            id INTEGER PRIMARY KEY, provider TEXT NOT NULL, model TEXT NOT NULL,
+            input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+    )),
 )
 
 
@@ -400,7 +407,7 @@ class FakePostgres:
                        'import_item_errors', 'document_versions', 'email_attachments',
                        'tags', 'document_tags', 'rules', 'rule_runs', 'rule_run_changes',
                        'chunk_vectors', 'metadata_changes', 'collections', 'collection_documents', 'favorites', 'saved_searches',
-                       'document_relations', 'entity_types', 'relation_types', 'entities', 'entity_mentions', 'graph_relations', 'graph_changes', 'ai_usage'}
+                       'document_relations', 'entity_types', 'relation_types', 'entities', 'entity_mentions', 'graph_relations', 'graph_changes', 'ai_usage', 'organizations', 'accounts', 'grants'}
         return tables
 
 
@@ -489,6 +496,9 @@ class SQLiteMigrationTests(unittest.TestCase):
                     self.assertIn('status', [row[1] for row in db.execute('PRAGMA table_info(entity_mentions)')])
                     # Migration 18 adds the token counter for budgets, empty after the upgrade.
                     self.assertEqual(db.execute('SELECT count(*) FROM ai_usage').fetchone()[0], 0)
+                    # Migration 19: one organization, no accounts or grants; the stock stays admin-only.
+                    self.assertEqual(db.execute('SELECT count(*) FROM organizations').fetchone()[0], 1)
+                    self.assertEqual(db.execute('SELECT count(*) FROM grants').fetchone()[0], 0)
 
     def test_start_check_accepts_every_older_version_as_needing_migration(self):
         # Release 2.4: schema 18 left 17 out of Store.version_tables; the start check then rejected
@@ -804,7 +814,7 @@ class PostgresMigrationTests(unittest.TestCase):
                                                           'document_tags', 'rules', 'rule_runs',
                                                           'rule_run_changes', 'chunk_vectors',
                                                           'metadata_changes', 'collections', 'collection_documents', 'favorites', 'saved_searches',
-                                                          'document_relations', 'entity_types', 'relation_types', 'entities', 'entity_mentions', 'graph_relations', 'graph_changes', 'ai_usage')),
+                                                          'document_relations', 'entity_types', 'relation_types', 'entities', 'entity_mentions', 'graph_relations', 'graph_changes', 'ai_usage', 'organizations', 'accounts', 'grants')),
         ]
         indexes = [
             {'table_name':'chunks','index_name':'chunks_document_id_idx','index_definition':'CREATE INDEX chunks_document_id_idx ON wissensraum.chunks USING btree (document_id)'},
