@@ -12,7 +12,7 @@
 
 **Ablage:** Einziger Masterplan ist diese Datei `masterplan.md`. Die frühere Kopie `docs/masterplan.md` wurde am 22.10.2026 entfernt.
 
-**Status:** Phasen- und Testplan · Release 1.9 freigegeben, Release 2.0 abgenommen 26.10.2026, Phasen 0 bis 6 ✅ · Release 2.0.1 (Soll-Umfang von Phase 6, D-013) abgenommen 26.10.2026, Phase 7 (Release 2.1) ✅, Release 2.1 freigegeben 05.11.2026 (D-021): 7.1 Evaluationsdatensatz ✅, 7.2a Vektorspeicher und Embedding-Adapter ✅, 7.2b Einbettung im Hintergrund ✅, 7.3 hybride Suche ✅, 7.4 Quellenabsicherung ✅ (eingefrorener Bestand V2 mit `qwen3:8b`: False Reject 3 von 66, False Accept 1 von 24 in zwei Läufen, synthetisch 9,3 % und 3,1 %), Chunk-Strategie je Dokumenttyp ✅ und Fundstellenanzeige ✅ (Gate 7 von 7 an `b0b41de`) · Phase 8A (Release 2.2 Wissensorganisation) ✅, Release 2.2 freigegeben 06.11.2026 (D-022, Tag `v2.2`): 8A.1 bis 8A.5 ✅, Schema 15, letztes Gate 7 von 7 an `2aadc5c` · Phase 8B (Release 2.3) 🟡, Abnahme offen · Phase 9 (Release 2.4) 🟡: 9.1 bis 9.6 umgesetzt und gemergt (07.11.2026), Schema 18, Abnahme offen
+**Status:** Phasen- und Testplan · Release 1.9 freigegeben, Release 2.0 abgenommen 26.10.2026, Phasen 0 bis 6 ✅ · Release 2.0.1 (Soll-Umfang von Phase 6, D-013) abgenommen 26.10.2026, Phase 7 (Release 2.1) ✅, Release 2.1 freigegeben 05.11.2026 (D-021): 7.1 Evaluationsdatensatz ✅, 7.2a Vektorspeicher und Embedding-Adapter ✅, 7.2b Einbettung im Hintergrund ✅, 7.3 hybride Suche ✅, 7.4 Quellenabsicherung ✅ (eingefrorener Bestand V2 mit `qwen3:8b`: False Reject 3 von 66, False Accept 1 von 24 in zwei Läufen, synthetisch 9,3 % und 3,1 %), Chunk-Strategie je Dokumenttyp ✅ und Fundstellenanzeige ✅ (Gate 7 von 7 an `b0b41de`) · Phase 8A (Release 2.2 Wissensorganisation) ✅, Release 2.2 freigegeben 06.11.2026 (D-022, Tag `v2.2`): 8A.1 bis 8A.5 ✅, Schema 15, letztes Gate 7 von 7 an `2aadc5c` · Phase 8B (Release 2.3) 🟡: 8B.1 bis 8B.5 umgesetzt, Graphkontext in Antworten mit gefülltem Graphen ❌ (False Accept 2 von 24), Entscheidung offen · Phase 9 (Release 2.4) 🟡: 9.1 bis 9.6 umgesetzt und gemergt (07.11.2026), Schema 18, Abnahme offen
 
 **Legende:** ✅ vollständig implementiert und gesamtes Gate nachweislich bestanden · 🟡 implementiert oder teilweise geprüft, aber noch nicht vollständig abgenommen · ❌ Gate fehlgeschlagen oder Freigabe blockiert · ⬜ geplant und noch nicht begonnen
 
@@ -70,6 +70,26 @@
 - Verlauf für Sammlungen und Favoriten ergänzen: umgesetzt (`2aadc5c`). Aufnahme in und Entfernen aus einer Sammlung, Umbenennen und Löschen einer Sammlung sowie Setzen und Entfernen eines Favoriten stehen im Metadatenverlauf jedes betroffenen Dokuments (Felder `collection` und `favorite`, nur tatsächliche Änderungen). Gemeinsamer Vertrag `check_organization_contract` prüft die Einträge auf beiden Backends. Lokales Matrix-Gate an `2aadc5c`: 7 von 7 (`local-ci-gate-2aadc5c.md`), Windows und Linux je 616 Tests, PostgreSQL 32; windows-3.11 im ersten Lauf mit 6 Fehlern nur beim Aufräumen (Virenscanner), im Wiederholungslauf grün mit 9 wiederholten Tests.
 - Ausschluss auf V2 gemessen (06.11.2026, nur Suche ohne Antwortmodell, Messkopie danach gelöscht): 90 Fragen, alle Bestandsdokumente nach Migration `new`. Recall@10 63 von 66 ohne und mit Ausschluss, 0 von 90 Trefferlisten verschieden. Nach Markieren der 2 erwarteten Dokumente der Fragen e01 bis e11 (ohne e07) als veraltet fanden ohne Ausschluss alle 10 Fragen sie weiter, mit Ausschluss enthielt keine der 90 Trefferlisten sie.
 - Manuelle Prüfung der Dialoge Metadaten, Sammlungen, Beziehungen, Versionsvergleich und Export am Desktop: durch den Product Owner bestanden (06.11.2026).
+
+## Aktualisierung 08.11.2026 – Phase 8B, Messung mit gefülltem Graphen ❌ für den Graphkontext
+
+**Aufbau:** Frische Kopie des eingefrorenen Messbestands (`data/messbestand-phase7.db`, SHA-256 beginnt mit `0385f8ee`), für alle 55 Dokumente KI-Vorschläge über das lokale `qwen3:8b` (Ollama exklusiv, GPU frei), danach alle Vorschläge bestätigt: 349 Abschnitte, 14 ohne verwertbare Antwort (Lauf ging mit dem Fix aus PR #23 weiter), 907 Entitäten, 1.224 Erwähnungen, 474 Relationen bestätigt, 1.035 Vorschläge mangels wörtlichem Beleg oder unbekannter Art verworfen, 98 Minuten. Dann V2 (90 eigene Fragen, davon 82 mit Quelle im Bestand: 58 beantwortbar, 24 Ausschluss) mit `qwen3:8b`, Graphkontext aus und an, je zwei Läufe. Messkopien danach gelöscht; behalten werden nur Zählungen, Kennzahlen und Frage-IDs (lokal, `data/graph-messung-2026-11-08/`).
+
+| Kennzahl | Graphkontext aus | Graphkontext an |
+|---|---:|---:|
+| False Reject (höchstens 5 von 58) | 3 (e04, e11, e53; Modell verweigert) | 4 (e09, e11, e41 Modell verweigert; e24 ohne Quellenkennung) |
+| False Accept (höchstens 1 von 24) | 1 (e12) | **2 (e12, e86)** |
+| Antwort mit gültiger Quelle | 56/56 | 56/56 |
+| Erwartete Hauptquelle zitiert | 47/55 | 48/54 |
+| Antwortzeit p50 / p95 (Lauf 1) | 22,8 s / 34,0 s | 21,7 s / 35,1 s |
+| Prompt-Token im Mittel | 4.799 | 4.816 |
+| Gleiche Einstufung Lauf 1 und 2 | 82/82 | 82/82 |
+
+**Befund:** Beide Läufe sind je Variante in allen 82 Fragen identisch; die Unterschiede zwischen aus und an kommen aus dem Graphkontext, nicht aus Streuung. Ohne Graphkontext hält das Gate wie bei Release 2.1. Mit Graphkontext verfehlt es die Grenze für False Accept (2 statt höchstens 1, Ausschlussfrage e86 wird beantwortet) und eine beantwortbare Frage (e24) endet ohne Quellenkennung; zwei Fragen (e04, e53) werden mit Graph beantwortet, zwei andere (e09, e41) verweigert. Der Graphkontext verschiebt also Antworten, verbessert die Quellenlage aber nicht messbar. Der Hauptquellen-Anteil von 95 % (im Skript als `passed: false`) ist mit D-021 entfallen und hier nicht maßgeblich.
+
+**Folge:** Der Graphkontext in Antworten ist nach dem Gate von 8B.5 nicht abnahmefähig (❌). Er ist ohne gespeicherte Einstellung derzeit eingeschaltet (`ai.graph_context`). Entscheidung des Product Owners offen: Graphkontext standardmäßig aus und Release 2.3 ohne Graphkontext in Antworten abnehmen, oder Ursache untersuchen (zum Beispiel Graphkontext nur für Relationen mit Bezug zu den gefundenen Abschnitten, kürzere Belege) und neu messen.
+
+**Messskripte (lokal, nicht im Repository):** Vor der Messung korrigiert, weil sie sonst nach Stunden nichts Verwertbares geliefert hätten: `--json` fehlte beim Aufruf von `evaluate.py`, die Kennzahlen je Frage wurden unter falschen Schlüsseln gesucht, und unter Windows schreibt `python -I` die Ausgabe in der Konsolen-Codepage; die Rohdaten wurden nachträglich als cp1252 gelesen, verloren ging nichts.
 
 ## Aktualisierung 07.11.2026 – Phase 9, Schritt 9.6 Datenschutzexport und selektive Löschung ✅
 
@@ -168,8 +188,8 @@
 **Status:** 8B.5 ✅. Alle Schritte 8B.1 bis 8B.5 sind umgesetzt und je mit Gate 7 von 7 und grüner GitHub-CI abgenommen. Phase 8B bleibt 🟡 bis zur Abnahme von Release 2.3 durch den Product Owner.
 
 **Offen für die Abnahme von Release 2.3:**
-- Manuelle Prüfung am Desktop: Dialog „Wissensgraph“ (Beleg aus Markierung, KI-Vorschläge, Bestätigen, Zusammenführen, Trennen, Änderungen mit Rücknahme) und „Graphansicht“.
-- Graphkontext mit gefülltem Graphen: Die V2-Messung belegt nur, dass Antworten ohne Graph unverändert bleiben. Eine Messung mit bestätigten Relationen braucht einen vom Product Owner geprüften Graphen in seinem Bestand.
+- Manuelle Prüfung am Desktop: Oberfläche vom Product Owner am 06.11.2026 als sichtbar bestätigt; Durchgang durch Dialog „Wissensgraph“ und „Graphansicht“ mit eigenen Daten steht aus.
+- Graphkontext mit gefülltem Graphen ❌ (Messung 08.11.2026, Entscheidung des Product Owners offen, siehe unten).
 - Zeitabhängige Tests: `test_sqlite_migrations_serialize_across_spawned_processes` (GitHub, 10 Sekunden), `test_import_lock_blocks_an_independent_process_and_releases_after_exit` (lokal windows-3.12) und ein Hänger in `test_matrix_for_50000_vectors_stays_below_200_mib` (lokal windows-3.12) traten je einmal auf; sie berühren den Graphen nicht. Die beiden prozessbasierten Tests warten seit 07.11.2026 bis zu 30 bzw. 60 Sekunden auf den Kindprozess (vorher 5 bzw. 10); ein bestandener Test endet weiter, sobald der Prozess fertig ist. Für den Hänger im Matrixtest gibt es keinen Befund, er bleibt beobachtet.
 
 
@@ -810,7 +830,7 @@ Die Phasen werden in der angegebenen Reihenfolge getestet. Eine Phase wird erst 
 | 5 | Release 1.9 Betriebsfähigkeit | ✅ | freigegeben 23.10.2026 |
 | 6 | Release 2.0 Importplattform | ✅ | freigegeben 23.10.2026, in vier Teilschritten (D-010); 6.1 ✅ (23.10.2026, CI [39925457254](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39925457254) auf `ca5bce6`), 6.2 ✅ (23.10.2026, CI [39932577799](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39932577799) auf `4cdb50e`), 6.3a ✅ (23.10.2026, CI [39942033441](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39942033441) auf `e36be53`), 6.3 ✅ (6.3b 23.10.2026, CI [39976859099](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/39976859099) auf `e4d1f95`), alle vier Teilschritte ✅ (6.4 24.10.2026, CI [40097227667](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40097227667) auf `d05ef87`); abgenommen 26.10.2026 durch den Product Owner mit eigenen Daten; Soll-Umfang folgt als Release 2.0.1 (D-013), S1 in Arbeit |
 | 7 | Release 2.1 Hybrid-RAG | ✅ freigegeben 05.11.2026 (D-021) | nach Phase 6 |
-| 8 | Wissensorganisation und Wissensgraph | 🟡 8A ✅ (Release 2.2 freigegeben 06.11.2026, D-022), 8B 🟡 8B.1 bis 8B.5 ✅, Abnahme 2.3 offen | nach Phase 7 |
+| 8 | Wissensorganisation und Wissensgraph | 🟡 8A ✅ (Release 2.2 freigegeben 06.11.2026, D-022), 8B 🟡 8B.1 bis 8B.5 ✅, Graphkontext mit gefülltem Graphen ❌ (08.11.2026), Abnahme 2.3 offen | nach Phase 7 |
 | 9 | Betrieb und Governance | ⬜ | nach Phase 8 |
 | 10 | Release 3.0 Sicherheitskern und Mehrbenutzerbetrieb | ⬜ | separates Architektur- und Sicherheits-Gate |
 | 11 | Release 3.1 VPS-Webanwendung und eigene Domain | ⬜ | erst nach Phase 10; öffentliche Bereitstellung nur mit vollständigem Sicherheits- und Betriebs-Gate |
