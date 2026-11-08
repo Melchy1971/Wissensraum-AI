@@ -867,7 +867,7 @@ class Graph:
         """Whether answers can use graph context: the setting is on and a confirmed relation exists."""
         with self.connect() as db:
             row = db.execute('SELECT value FROM settings WHERE name=?', (GRAPH_CONTEXT_SETTING,)).fetchone()
-            if row is not None and row['value'] == '0':
+            if row is None or row['value'] != '1':  # off unless switched on (measurement 08.11.2026, D-025)
                 return False
             return db.execute("SELECT 1 FROM graph_relations WHERE status='confirmed' AND deleted_at IS NULL "
                               'LIMIT 1').fetchone() is not None
@@ -875,7 +875,7 @@ class Graph:
     def graph_context_enabled(self):
         with self.connect() as db:
             row = db.execute('SELECT value FROM settings WHERE name=?', (GRAPH_CONTEXT_SETTING,)).fetchone()
-        return row is None or row['value'] != '0'
+        return row is not None and row['value'] == '1'  # off unless switched on (D-025)
 
     def set_graph_context(self, enabled):
         with self.connect() as db:
