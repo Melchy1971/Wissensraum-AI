@@ -13,4 +13,6 @@ regexes = [
   '''test-existing-1234567890''',
   '''sk-GEHEIM-1234567890''',
   '''Vertraulich-Zebra-4711''',
+  '''test-client-secret-nicht-echt-0000''',
+  '''db-test-kennwort''',
 ]

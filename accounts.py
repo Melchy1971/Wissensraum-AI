@@ -6,8 +6,13 @@ account read, write or owner access to one document or one collection; owner is 
 account gets. A document without any grant is visible to administrators only, so the stock that
 existed before schema 19 belongs to the first administrator. Disabled accounts see nothing.
 
+Changing an account's role, lock or grants ends all its web sessions (step 10.3), so the next
+request signs in again with the new rights.
+
 The desktop application does not use this module and keeps its single-user behaviour.
 """
+
+from sessions import end_all as _end_sessions
 
 ROLES = ('admin', 'editor', 'reader')
 ACCESS = ('read', 'write', 'owner')
@@ -86,6 +91,8 @@ def update_account(store, account_id, version, role=None, disabled=None, display
                              (new_role, new_disabled,
                               current['display_name'] if display_name is None else display_name.strip(),
                               account_id, version)).rowcount
+        if changed == 1:
+            _end_sessions(db, account_id)
     if changed != 1:
         raise Conflict('Das Konto wurde inzwischen geändert.')
     return account(store, account_id)
@@ -111,6 +118,7 @@ def grant(store, account_id, access, document_id=None, collection_id=None):
         # ponytail: one grant per account and target is kept by delete-then-insert in one
         # transaction; a partial unique index would enforce it in the database (upgrade path).
         db.execute(f'DELETE FROM grants WHERE account_id=? AND {column}=?', (account_id, target))
+        _end_sessions(db, account_id)
         return db.execute(f'INSERT INTO grants(account_id,{column},access) VALUES(?,?,?) RETURNING id',
                           (account_id, target, access)).fetchone()['id']
 
@@ -120,6 +128,7 @@ def revoke(store, account_id, document_id=None, collection_id=None):
         raise ValueError('Eine Freigabe gilt genau für ein Dokument oder eine Sammlung.')
     column, target = ('document_id', document_id) if document_id is not None else ('collection_id', collection_id)
     with store.connect() as db:
+        _end_sessions(db, account_id)
         return db.execute(f'DELETE FROM grants WHERE account_id=? AND {column}=?', (account_id, target)).rowcount
 
 
