@@ -179,9 +179,9 @@ Die Übung weist Sicherung, Wiederherstellung, Sicherheitsprüfung und Datenschu
 
 Ergebnis an Claude oder in den Masterplan: Zahlen und Zeiten aus 1, 3, 4 und 6 sowie Ja/Nein je Schritt.
 
-### Webserver: Kern und Anmeldung (Release 3.0, Schritt 10.3, in Arbeit)
+### Webserver (Release 3.0, in Arbeit)
 
-Der Mehrbenutzer-Server ist eine eigene FastAPI-Anwendung (`server.py`) und braucht PostgreSQL 18. Er zeigt bisher nur Anmeldung, Startseite und Abmelden; Dokumente, Suche und Fragen folgen mit 10.4 und 10.7. Verbindlich ist `docs/sicherheit-3.0.md`. Abhängigkeiten: `pip install -r requirements-server.txt` (die Desktop-Anwendung braucht sie nicht).
+Der Mehrbenutzer-Server ist eine eigene FastAPI-Anwendung (`server.py`) und braucht PostgreSQL 18. Er bietet Anmeldung, Startseite und Abmelden (10.3) sowie JSON-Schnittstellen unter `/api` (10.4); die Weboberfläche folgt mit 10.7. Verbindlich ist `docs/sicherheit-3.0.md`. Abhängigkeiten: `pip install -r requirements-server.txt` (die Desktop-Anwendung braucht sie nicht).
 
 - Anmeldung über OpenID Connect mit Authorization Code und PKCE (S256) bei Microsoft Entra ID. Geprüft werden Signatur über die JWKS des Mandanten (nur RS256), Aussteller, Publikum, `exp`, `iat`, `nbf` mit 2 Minuten Uhrabweichung, `nonce` und Mandant. Das Konto wird über `tid` und `oid` gefunden; eine Anmeldung legt nie ein Konto an. Den ersten Administrator legt `python cli.py account-add --tenant <Mandanten-ID> --object <Objekt-ID> --role admin` an.
 - `state` gilt einmal und 10 Minuten und ist über das Cookie `__Host-wr_login` an den Browser gebunden, der die Anmeldung begonnen hat. Ein weitergeleiteter Rückruf-Link meldet also niemanden an.
@@ -190,7 +190,23 @@ Der Mehrbenutzer-Server ist eine eigene FastAPI-Anwendung (`server.py`) und brau
 - Kopfzeilen: Content-Security-Policy ohne Inline-Skripte, `nosniff`, `Referrer-Policy: same-origin`, `X-Frame-Options: DENY`, `Cache-Control: no-store`, mit HTTPS `Strict-Transport-Security`.
 - Nach 10 fehlgeschlagenen Anmeldungen je Adresse in 15 Minuten antwortet der Server mit 429. Der Zähler liegt im Speicher des Prozesses; unterstützt ist ein Prozess.
 
-Konfiguration über Umgebungsvariablen: `WR_BASE_URL` (HTTPS, ohne Pfad; HTTP nur mit `WR_DEVELOPMENT=1` auf localhost), `WR_OIDC_TENANT_ID`, `WR_OIDC_CLIENT_ID`, `WR_OIDC_CLIENT_SECRET_FILE` (oder `WR_OIDC_CLIENT_SECRET`), optional `WR_OIDC_AUTHORITY`, Datenbank über `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_SSLMODE`, `DB_PASSWORD_FILE` (oder `DB_PASSWORD`), dazu `WR_HOST`, `WR_PORT`, `WR_TLS_CERT_FILE`, `WR_TLS_KEY_FILE`. In Entra ID wird `<WR_BASE_URL>/auth/callback` als Umleitungs-URI eingetragen. Start: `python server.py`. Docker und Unraid folgen mit 10.8.
+Rechte (10.4): Jede Lesefunktion des Servers läuft über `store.as_viewer(konto)`. Dann setzt der Speicher die Sichtbarkeitsbedingung direkt in das SQL von Liste, Abruf, Fassungen, Beziehungen, Volltext, Vektorsuche, Nachbarabschnitten, Sammlungen, Sammlungsexport und Wissensgraph, vor Sortierung und Begrenzung. Ein Dokument sieht, wer Administrator ist oder eine Freigabe auf das Dokument oder auf eine Sammlung mit dem Dokument hat. Sammlungen sieht, wer eine Freigabe auf sie hat. Entitäten erscheinen nur mit einem Beleg in einem sichtbaren Dokument, Belege aus anderen Dokumenten nie. KI-Antworten nutzen dieselbe Suche und bekommen deshalb nur sichtbare Abschnitte. Fremde und fehlende Kennungen geben dieselbe Antwort (404). Die Desktop-Anwendung und `cli.py` sehen weiter alles.
+
+| Endpunkt | Rolle | Wirkung |
+|---|---|---|
+| `GET /api/documents`, `GET /api/documents/{id}` | alle | Liste und Dokument mit Fassungen, Beziehungen, Sammlungen, Graph |
+| `GET /api/documents/{id}/original` | alle | Original als Download |
+| `GET /api/search?q=` | alle | hybride Suche |
+| `GET /api/graph`, `GET /api/entities/{id}` | alle | Wissensgraph |
+| `GET /api/collections`, `GET /api/collections/{id}/export` | alle | Sammlungen und Export mit Quellenmanifest |
+| `POST /api/questions` | alle | Frage an die KI (nur mit `WR_AI_PROVIDER`) |
+| `POST /api/documents` | Administrator, Bearbeiter | Notiz anlegen, das anlegende Konto erhält die Freigabe „owner“ |
+| `PATCH /api/documents/{id}` | mit Schreibrecht | Titel und Bereich ändern |
+| `POST /api/accounts`, `POST /api/grants` | Administrator | Konten und Freigaben anlegen |
+
+Zustandsändernde Aufrufe brauchen die Kopfzeile `X-CSRF-Token` und `Origin`. Der KI-Verlauf wird in 10.4 noch gemeinsam gespeichert und über den Server nicht angezeigt; die Trennung je Konto folgt mit der Weboberfläche (10.7).
+
+Konfiguration über Umgebungsvariablen: `WR_BASE_URL` (HTTPS, ohne Pfad; HTTP nur mit `WR_DEVELOPMENT=1` auf localhost), `WR_OIDC_TENANT_ID`, `WR_OIDC_CLIENT_ID`, `WR_OIDC_CLIENT_SECRET_FILE` (oder `WR_OIDC_CLIENT_SECRET`), optional `WR_OIDC_AUTHORITY`, Datenbank über `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_SSLMODE`, `DB_PASSWORD_FILE` (oder `DB_PASSWORD`), dazu `WR_HOST`, `WR_PORT`, `WR_TLS_CERT_FILE`, `WR_TLS_KEY_FILE`, für Fragen `WR_AI_PROVIDER` (`openai`, `anthropic`, `gemini`, `ollama`), `WR_AI_MODEL` und `WR_AI_KEY_FILE` (oder `WR_AI_KEY`). In Entra ID wird `<WR_BASE_URL>/auth/callback` als Umleitungs-URI eingetragen. Start: `python server.py`. Docker und Unraid folgen mit 10.8.
 
 ### PostgreSQL-Sicherung und -Wiederherstellung
 
