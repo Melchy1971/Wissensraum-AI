@@ -35,6 +35,9 @@ def check_graph_context_contract(case, store):
     """Only confirmed relations between confirmed entities with evidence in the given documents."""
     case.assertFalse(store.has_graph_context())  # nothing confirmed yet: answers stay exactly as before
     doc, other, works = build(store)
+    # off unless switched on: with a filled graph it failed the 8B.5 gate (measurement 08.11.2026, D-025)
+    case.assertEqual((store.graph_context_enabled(), store.has_graph_context()), (False, False))
+    store.set_graph_context(True)
     case.assertTrue(store.has_graph_context())
     context = store.graph_context([doc])
     case.assertEqual(context, [{'id': works, 'document_id': doc,
@@ -97,6 +100,10 @@ class GraphContextTests(unittest.TestCase):
 
     def test_answers_carry_the_graph_context_with_its_rule_and_log_it(self):
         doc, _, works = build(self.store)
+        _, instructions, payload = self.answer()  # default: off, the request is the one of Release 2.1
+        self.assertNotIn('graphkontext', payload)
+        self.assertFalse(instructions.endswith(AI.GRAPH_RULE))
+        self.store.set_graph_context(True)
         result, instructions, payload = self.answer()
         self.assertEqual(result.status, 'answered')
         self.assertTrue(instructions.endswith(AI.GRAPH_RULE))
@@ -124,7 +131,8 @@ class GraphContextTests(unittest.TestCase):
                     redirect_stdout(out), redirect_stderr(io.StringIO()):
                 self.assertEqual(cli.main(['--db', str(folder / 'wissen.db'), *argv]), 0)
             return json.loads(out.getvalue())
-        self.assertEqual(run('ai-graph'), {'graphkontext_in_ki_antworten': True})
+        self.assertEqual(run('ai-graph'), {'graphkontext_in_ki_antworten': False})  # default off (D-025)
+        self.assertEqual(run('ai-graph', 'on'), {'graphkontext_in_ki_antworten': True})
         self.assertEqual(run('ai-graph', 'off'), {'graphkontext_in_ki_antworten': False})
 
     def test_graph_context_is_capped(self):
@@ -137,6 +145,7 @@ class GraphContextTests(unittest.TestCase):
             system = self.store.create_entity(types['System'], f'System{n}', doc, f'System{n} ')
             self.store.relate_entities(person, system, rtypes['nutzt'], doc, f'Person{n} nutzt System{n}')
         self.assertEqual(len(self.store.graph_context([doc])), GRAPH_CONTEXT_RELATIONS)
+        self.store.set_graph_context(True)
         _, _, payload = self.answer('Welches System nutzt Person3 regelmäßig?')
         self.assertTrue(1 <= len(payload['graphkontext']) <= GRAPH_CONTEXT_RELATIONS)
 
