@@ -22,7 +22,8 @@ EVENTS = {
 }
 FIELDS = ('id', 'created_at', 'account_id', 'event', 'target', 'source', 'details', 'previous_hash')
 MAX_TEXT = 100
-_lock = threading.Lock()  # one chain head per process; PostgreSQL also locks the table
+AUDIT_LOCK = 0x57524155  # 'WRAU', one chain head per database
+_lock = threading.Lock()  # one chain head per process; PostgreSQL also takes AUDIT_LOCK
 
 
 def _clean_details(details):
@@ -53,7 +54,8 @@ def record(store, event, account_id=None, target='', source='', details=None, no
              'target': str(target)[:MAX_TEXT], 'source': str(source)[:MAX_TEXT], 'details': _clean_details(details)}
     with _lock, store.connect() as db:
         if store.backend == 'postgresql':
-            db.execute('LOCK TABLE audit_log IN SHARE ROW EXCLUSIVE MODE')
+            # An advisory lock needs no table right; the runtime role may only insert and read here.
+            db.execute('SELECT pg_advisory_xact_lock(?)', (AUDIT_LOCK,))
         last = db.execute('SELECT id,hash FROM audit_log ORDER BY id DESC LIMIT 1').fetchone()
         entry['id'] = last['id'] + 1 if last else 1
         entry['previous_hash'] = last['hash'] if last else GENESIS

@@ -6,7 +6,7 @@ Stand 08.11.2026, Schritt 10.1. Grundlage für 10.2 bis 10.8. Änderungen an die
 
 | Thema | Entscheidung |
 |---|---|
-| Betriebsform | Eigener Webserver (FastAPI, serverseitig gerendert mit HTMX, D-012), zuerst im Heimnetz oder auf dem Unraid-Server per Docker. Öffentliche Erreichbarkeit erst mit Release 3.1. |
+| Betriebsform | Eigener Webserver (FastAPI, serverseitig gerendert mit HTMX, D-012) per Docker auf dem IONOS-VPS unter `wissen.melchy.cloud`, erreichbar nur über WireGuard (D-029, 09.11.2026; ursprünglich Heimnetz oder Unraid). Öffentliche Erreichbarkeit erst mit Release 3.1. |
 | Desktop | Die Tkinter-Anwendung bleibt Einzelplatzversion mit SQLite oder PostgreSQL und ändert ihr Verhalten nicht. Ein Webserver und eine Desktopinstanz schreiben nie gleichzeitig in dieselbe Datenbank. |
 | Datenbank des Servers | Nur PostgreSQL 18. SQLite bleibt der Desktop vorbehalten. |
 | Anmeldung | OIDC mit Microsoft Entra ID, Authorization Code Flow mit PKCE, vertraulicher Client. Der Code bleibt anbieterneutral, Tests laufen gegen einen lokalen Test-Identitätsanbieter, nie gegen Microsoft. |
@@ -80,6 +80,7 @@ Dokumenttexte und Originale, Abschnitte und Vektoren (sie verraten Inhalte), KI-
 ### Geheimnisse (10.8)
 
 - Der Server liest Geheimnisse aus Docker-Secrets-Dateien oder Umgebungsvariablen, nie aus Repository, Datenbank oder Logs. Logs maskieren sie wie bisher.
+- Zwei Datenbankrollen (D-029): Die Eigentümerrolle migriert, die Laufzeitrolle des Servers hat kein DDL-Recht, liest die Migrationshistorie nur und darf den Audit-Verlauf nur lesen und ergänzen.
 - Das Entra-Client-Geheimnis hat ein Ablaufdatum, die Betriebsübersicht warnt 30 Tage vorher.
 
 ## 5. Bedrohungen und Gegenmaßnahmen (STRIDE)

@@ -1,0 +1,59 @@
+# Wissensraum-AI Server auf dem VPS (Release 3.0, Schritt 10.8, D-029).
+# Erreichbar nur aus dem WireGuard-Netz: Traefik terminiert HTTPS, die Middleware lässt nur VPN-Adressen zu.
+# Platzhalter in <...> vor dem ersten Start ersetzen, siehe deploy/BETRIEB.md.
+name: wissensraum
+
+services:
+  migrate:
+    image: wissensraum-server:3.0
+    build: ..
+    command: ["python", "server.py", "migrate"]
+    env_file: wissensraum.env
+    environment:
+      DB_MIGRATION_USERNAME: wissensraum_owner
+      DB_MIGRATION_PASSWORD_FILE: /run/secrets/db_owner
+    secrets: [db_owner, db_app]
+    networks: [datenbank]
+    restart: "no"
+
+  server:
+    image: wissensraum-server:3.0
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    env_file: wissensraum.env
+    secrets: [db_app, oidc_client_secret]
+    volumes:
+      - logs:/data/logs
+    networks: [datenbank, proxy]
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 1g
+    cpus: 2
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "5"}
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: <proxy-netz>
+      traefik.http.routers.wissensraum.rule: Host(`wissen.melchy.cloud`)
+      traefik.http.routers.wissensraum.entrypoints: <https-entrypoint>
+      traefik.http.routers.wissensraum.tls.certresolver: <certresolver>
+      traefik.http.routers.wissensraum.middlewares: wissensraum-vpn
+      traefik.http.middlewares.wissensraum-vpn.ipallowlist.sourcerange: 10.13.13.0/24
+      traefik.http.services.wissensraum.loadbalancer.server.port: "8000"
+
+secrets:
+  db_owner: {file: ./secrets/db_owner.txt}
+  db_app: {file: ./secrets/db_app.txt}
+  oidc_client_secret: {file: ./secrets/oidc_client_secret.txt}
+
+volumes:
+  logs:
+
+networks:
+  datenbank: {external: true, name: <netz-des-postgres-containers>}
+  proxy: {external: true, name: <proxy-netz>}

@@ -499,6 +499,16 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
         audited(request, 'graph_changed', admin['id'], f'entity:{entity_id}')
         return {'id': entity_id}
 
+    @app.get('/healthz')
+    def healthz():
+        """For the container health check: database reachable, nothing else revealed."""
+        try:
+            with store.connect() as db:
+                db.execute('SELECT 1').fetchone()
+        except Exception:
+            return JSONResponse({'status': 'unavailable'}, status_code=503)
+        return {'status': 'ok'}
+
     import web  # the pages of step 10.7, with the same helpers as the API
     web.register(app, SimpleNamespace(store=store, signed_in=signed_in, viewer=viewer, require_role=require_role,
                                       document=document, audited=audited, ai=ai))
@@ -522,7 +532,8 @@ def settings_from_env(environ=None):
     Database: ``DB_HOST``, ``DB_PORT``, ``DB_DATABASE``, ``DB_USERNAME``, ``DB_SSLMODE`` and
     ``DB_PASSWORD`` or ``DB_PASSWORD_FILE``; the backend is always PostgreSQL. Questions to the AI:
     ``WR_AI_PROVIDER`` (``openai``, ``anthropic``, ``gemini`` or ``ollama``), ``WR_AI_MODEL`` and
-    ``WR_AI_KEY`` or ``WR_AI_KEY_FILE``; without a provider questions answer 503.
+    ``WR_AI_KEY`` or ``WR_AI_KEY_FILE``; without a provider questions answer 503. ``WR_OLLAMA_URL``
+    (for example ``http://ollama:11434``) points ``ollama`` at another container.
     """
     environ = os.environ if environ is None else environ
     development = environ.get('WR_DEVELOPMENT') == '1'
@@ -532,11 +543,7 @@ def settings_from_env(environ=None):
     if not (tenant and client_id and secret):
         raise ValueError('WR_OIDC_TENANT_ID, WR_OIDC_CLIENT_ID und das Client-Geheimnis sind Pflicht.')
     authority = environ.get('WR_OIDC_AUTHORITY') or f'https://login.microsoftonline.com/{tenant}/v2.0'
-    from database import DatabaseSettings
-    database, password = DatabaseSettings.validate(
-        {'host': environ.get('DB_HOST', ''), 'port': environ.get('DB_PORT', '5432'),
-         'database': environ.get('DB_DATABASE', ''), 'username': environ.get('DB_USERNAME', ''),
-         'sslmode': environ.get('DB_SSLMODE', 'require')}, _secret(environ, 'DB_PASSWORD'))
+    database, password = database_from_env(environ)
     ai, ai_key = None, _secret(environ, 'WR_AI_KEY')
     ai_provider = environ.get('WR_AI_PROVIDER', '').strip()
     if ai_provider:
@@ -545,23 +552,117 @@ def settings_from_env(environ=None):
         if ai_provider not in PROVIDERS:
             raise ValueError('WR_AI_PROVIDER ist unbekannt.')
         model = environ.get('WR_AI_MODEL') or PROVIDERS[ai_provider]['models'][0]
+        endpoint = None
+        if ai_provider == 'ollama' and environ.get('WR_OLLAMA_URL'):
+            parts = urllib.parse.urlsplit(environ['WR_OLLAMA_URL'])
+            if parts.scheme not in ('http', 'https') or not parts.hostname or parts.path not in ('', '/'):
+                raise ValueError('WR_OLLAMA_URL braucht die Form http://host:port.')
+            endpoint = f'{parts.scheme}://{parts.netloc}/api/chat'
         AI(None, ai_key, model, provider=ai_provider)  # checks key and model before the server starts
-        ai = lambda scoped: AI(scoped, ai_key, model, provider=ai_provider)  # noqa: E731
+        ai = lambda scoped: AI(scoped, ai_key, model, provider=ai_provider, endpoint=endpoint)  # noqa: E731
     return {'base_url': base, 'development': development, 'database': database, 'db_password': password,
             'provider': Provider(authority, tenant, client_id, secret, base + '/auth/callback'),
             'ai': ai, 'secrets': tuple(value for value in (secret, password, ai_key) if value)}
 
 
-def main():  # pragma: no cover - starts the real server
-    import uvicorn
+def database_from_env(environ, prefix='DB'):
+    """PostgreSQL profile and password from ``<prefix>_HOST`` and so on; ``<prefix>_PASSWORD_FILE`` first."""
+    from database import DatabaseSettings
+    return DatabaseSettings.validate(
+        {'host': environ.get('DB_HOST', ''), 'port': environ.get('DB_PORT', '5432'),
+         'database': environ.get('DB_DATABASE', ''), 'username': environ.get(f'{prefix}_USERNAME', ''),
+         'sslmode': environ.get('DB_SSLMODE', 'require')}, _secret(environ, f'{prefix}_PASSWORD'))
+
+
+ROLE_NAME = r'[a-z_][a-z0-9_]{0,62}'
+
+
+def grant_runtime_role(store, role):
+    """Rights of the server's runtime role (step 10.8, docs/sicherheit-3.0.md, Audit-Verlauf).
+
+    Read and write on the application tables, no DDL, only SELECT on the migration history and only
+    SELECT and INSERT on the audit trail. Run by the owner role after every migration; idempotent.
+    """
+    import re
+    if not re.fullmatch(ROLE_NAME, role or ''):
+        raise ValueError('Ungültiger Rollenname für die Laufzeitrolle.')
+    with store.connect() as db:
+        for statement in (
+                'GRANT USAGE ON SCHEMA wissensraum TO {role}',
+                'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA wissensraum TO {role}',
+                'GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA wissensraum TO {role}',
+                'REVOKE INSERT, UPDATE, DELETE ON wissensraum.schema_migrations FROM {role}',
+                'REVOKE UPDATE, DELETE, TRUNCATE ON wissensraum.audit_log FROM {role}'):
+            # The role name is checked against ROLE_NAME above; identifiers cannot be bound as parameters.
+            db.execute(statement.format(role=role))  # nosec B608
+
+
+def migrate(environ=None):
+    """``python server.py migrate``: migrate with the owner role (``DB_MIGRATION_USERNAME`` and
+    ``DB_MIGRATION_PASSWORD_FILE``) and grant the runtime role ``DB_USERNAME`` its rights."""
     from core import PostgresStore
+    environ = os.environ if environ is None else environ
+    owner, password = database_from_env(environ, 'DB_MIGRATION')
+    runtime, _ = database_from_env(environ)
+    if owner['username'] == runtime['username']:
+        raise ValueError('Migration und Betrieb brauchen getrennte Datenbankrollen.')
+    store = PostgresStore(owner, password)
+    grant_runtime_role(store, runtime['username'])
+    return store
+
+
+def runtime_store(settings):
+    """The server's store: no migration, only the check that the schema is current."""
+    from core import PostgresStore
+    from migrations import check_postgres_current
+    store = PostgresStore(settings['database'], settings['db_password'], initialize=False)
+    with store.connect() as db:
+        check_postgres_current(db)
+    return store
+
+
+def add_account(store, argv):
+    """``python server.py account-add --tenant T --object O --role admin [--name N]`` in the container:
+    the first administrator (docs/sicherheit-3.0.md, no self-registration); recorded in the audit trail."""
+    import argparse
+    import json
+    parser = argparse.ArgumentParser(prog='server.py account-add')
+    parser.add_argument('--tenant', required=True)
+    parser.add_argument('--object', required=True)
+    parser.add_argument('--role', required=True, choices=accounts.ROLES)
+    parser.add_argument('--name', default='')
+    args = parser.parse_args(argv)
+    created = accounts.create_account(store, args.tenant, args.object, args.role, args.name)
+    audit.record(store, 'account_created', None, f'account:{created}', 'cli', {'role': args.role})
+    return json.dumps(accounts.account(store, created), ensure_ascii=False)
+
+
+def main(argv=None):  # pragma: no cover - starts the real server
+    import sys
+    import uvicorn
     from local_logging import create_operational_logger
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ['migrate']:
+        migrate()
+        print('Schema aktuell, Rechte der Laufzeitrolle gesetzt.')
+        return
     settings = settings_from_env()
-    store = PostgresStore(settings['database'], settings['db_password'])
-    logger = create_operational_logger(Path(__file__).resolve().parent, 'server', known_secrets=settings['secrets'])
+    store = runtime_store(settings)
+    if argv[:1] == ['account-add']:
+        print(add_account(store, argv[1:]))
+        return
+    if argv[:1] == ['audit-verify']:
+        import json
+        result = audit.verify(store)
+        print(json.dumps(result, ensure_ascii=False))
+        raise SystemExit(0 if result['ok'] else 1)
+    logger = create_operational_logger(Path(os.environ.get('WR_LOG_DIR') or Path(__file__).resolve().parent),
+                                       'server', known_secrets=settings['secrets'])
     app = create_app(store, settings['provider'], settings['base_url'], settings['development'], logger,
                      ai=settings['ai'])
+    # Behind Traefik the client address comes from X-Forwarded-For, trusted only from the proxy.
     uvicorn.run(app, host=os.environ.get('WR_HOST', '127.0.0.1'), port=int(os.environ.get('WR_PORT', '8000')),
+                proxy_headers=True, forwarded_allow_ips=os.environ.get('WR_FORWARDED_ALLOW_IPS', '127.0.0.1'),
                 ssl_certfile=os.environ.get('WR_TLS_CERT_FILE') or None,
                 ssl_keyfile=os.environ.get('WR_TLS_KEY_FILE') or None)
 

@@ -282,6 +282,30 @@ class AiConfigurationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'API-Schlüssel'):
             server.settings_from_env({**self.ENV, 'WR_AI_PROVIDER': 'openai'})
 
+    def test_ollama_in_another_container(self):
+        settings = server.settings_from_env({**self.ENV, 'WR_AI_PROVIDER': 'ollama', 'WR_AI_MODEL': 'qwen3:8b',
+                                             'WR_OLLAMA_URL': 'http://ollama:11434'})
+        self.assertEqual(settings['ai'](Store.__new__(Store)).endpoint, 'http://ollama:11434/api/chat')
+        for bad in ('ollama:11434', 'http://ollama:11434/api/chat', 'file:///etc/passwd'):
+            with self.subTest(bad), self.assertRaisesRegex(ValueError, 'WR_OLLAMA_URL'):
+                server.settings_from_env({**self.ENV, 'WR_AI_PROVIDER': 'ollama', 'WR_OLLAMA_URL': bad})
+        self.assertIsNone(server.settings_from_env({**self.ENV, 'WR_AI_PROVIDER': 'ollama'})['ai'](
+            Store.__new__(Store)).endpoint)  # the desktop address stays the default
+
+    def test_first_administrator_and_health(self):
+        import audit
+        with tempfile.TemporaryDirectory() as folder:
+            store = Store(Path(folder) / 'wissen.db')
+            created = json.loads(server.add_account(store, ['--tenant', TENANT, '--object', 'oid-1', '--role', 'admin',
+                                                            '--name', 'Admin']))
+            self.assertEqual((created['role'], created['display_name']), ('admin', 'Admin'))
+            self.assertEqual([(e['event'], e['source']) for e in audit.entries(store)], [('account_created', 'cli')])
+            with self.assertRaises(SystemExit):
+                server.add_account(store, ['--tenant', TENANT, '--object', 'oid-2', '--role', 'chef'])
+            provider = Provider(AUTHORITY, TENANT, CLIENT_ID, CLIENT_SECRET, BASE + '/auth/callback')
+            client = TestClient(server.create_app(store, provider, BASE), base_url=BASE)
+            self.assertEqual(client.get('/healthz').json(), {'status': 'ok'})
+
 
 if __name__ == '__main__':
     unittest.main()
