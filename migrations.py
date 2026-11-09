@@ -9,7 +9,7 @@ import uuid
 from contextlib import closing, contextmanager
 from pathlib import Path
 
-CURRENT_SCHEMA_VERSION = 22
+CURRENT_SCHEMA_VERSION = 23
 # Unversioned PostgreSQL schemas predate schema_migrations and match version 4.
 POSTGRES_LEGACY_SCHEMA_VERSION = 4
 # ponytail: source_type is validated in application code (core.SOURCE_TYPES), not by a
@@ -345,6 +345,8 @@ SQLITE_MIGRATIONS = (
     # Release 3.0, step 10.6: a revision per changeable object; a change names the revision it read.
     (22, tuple(f'ALTER TABLE {table} ADD COLUMN revision INTEGER NOT NULL DEFAULT 1'
                for table in ('documents', 'collections', 'entities', 'graph_relations', 'grants'))),
+    # Release 3.0, step 10.7: the AI history belongs to the asking account (None: desktop, command line).
+    (23, ('ALTER TABLE ai_runs ADD COLUMN account_id INTEGER',)),
 )
 
 
@@ -647,6 +649,8 @@ POSTGRES_MIGRATIONS = (
     )),
     (22, tuple(f'ALTER TABLE {table} ADD COLUMN revision INTEGER NOT NULL DEFAULT 1'
                for table in ('documents', 'collections', 'entities', 'graph_relations', 'grants'))),
+    # Release 3.0, step 10.7: the AI history belongs to the asking account (None: desktop, command line).
+    (23, ('ALTER TABLE ai_runs ADD COLUMN account_id INTEGER',)),
 )
 
 # Columns added to an existing table by a later migration: (table, column) -> version.
@@ -654,12 +658,14 @@ POSTGRES_COLUMN_VERSIONS = {('chunks', 'search_vector'): 11, ('documents', 'sear
                             ('documents', 'status'): 13, ('documents', 'owner'): 13,
                             ('documents', 'review_date'): 13, ('entity_mentions', 'status'): 17,
                             **{(table, 'revision'): 22 for table in ('documents', 'collections', 'entities',
-                                                                       'graph_relations', 'grants')}}
+                                                                       'graph_relations', 'grants')},
+                            ('ai_runs', 'account_id'): 23}
 # Columns added to an existing SQLite table by a later migration: (table, column) -> version.
 SQLITE_COLUMN_VERSIONS = {('documents', 'status'): 13, ('documents', 'owner'): 13, ('documents', 'review_date'): 13,
                           ('entity_mentions', 'status'): 17,
                           **{(table, 'revision'): 22 for table in ('documents', 'collections', 'entities',
-                                                                     'graph_relations', 'grants')}}
+                                                                     'graph_relations', 'grants')},
+                          ('ai_runs', 'account_id'): 23}
 # Generated columns and their expression as PostgreSQL reports it (whitespace-insensitive).
 POSTGRES_GENERATED_COLUMNS = {
     ('chunks', 'search_vector'): "to_tsvector('simple'::regconfig, content)",
@@ -699,7 +705,7 @@ SQLITE_COLUMNS = {
     'ai_runs': (('id','INTEGER',0,None,1), ('kind','TEXT',1,None,0),
                 ('question','TEXT',1,None,0), ('answer','TEXT',1,None,0),
                 ('sources_json','TEXT',1,None,0), ('model','TEXT',1,None,0),
-                ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
+                ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0), ('account_id','INTEGER',0,None,0)),
     'settings': (('name','TEXT',0,None,1), ('value','TEXT',1,None,0)),
     'email_accounts': (('id','TEXT',0,None,1), ('label','TEXT',1,None,0),
                        ('provider','TEXT',1,None,0), ('email','TEXT',1,None,0),
@@ -891,6 +897,7 @@ POSTGRES_LEGACY_COLUMNS = {
     ('ai_runs','sources_json','text','NO','NO',None,None),
     ('ai_runs','model','text','NO','NO',None,None),
     ('ai_runs','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('ai_runs','account_id','integer','YES','NO',None,None),
     ('settings','name','text','NO','NO',None,None),
     ('settings','value','text','NO','NO',None,None),
     ('email_accounts','id','text','NO','NO',None,None),

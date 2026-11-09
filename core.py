@@ -132,6 +132,13 @@ class Visibility:
         from accounts import visible_documents
         return visible_documents(self.viewer, alias)
 
+    def _asker(self):
+        return None if self.viewer is None else self.viewer['id']
+
+    def _own_runs(self):
+        """The AI history is separate per account (step 10.7); the desktop sees all of it."""
+        return ('1=1', ()) if self.viewer is None else ('account_id=?', (self.viewer['id'],))
+
     def _visible_collections(self, alias='c'):
         if self.viewer is None:
             return '1=1', ()
@@ -1513,7 +1520,7 @@ class Store(Visibility, DocumentMetadata, Organization, Relations, Graph, ChunkS
         'ai_runs': {
             'id':('INTEGER',0,None,1), 'kind':('TEXT',1,None,0), 'question':('TEXT',1,None,0),
             'answer':('TEXT',1,None,0), 'sources_json':('TEXT',1,None,0), 'model':('TEXT',1,None,0),
-            'created_at':('TEXT',1,'current_timestamp',0)},
+            'created_at':('TEXT',1,'current_timestamp',0), 'account_id':('INTEGER',0,None,0)},
         'settings': {'name':('TEXT',0,None,1), 'value':('TEXT',1,None,0)},
         'email_accounts': {
             'id':('TEXT',0,None,1), 'label':('TEXT',1,None,0), 'provider':('TEXT',1,None,0),
@@ -1833,12 +1840,13 @@ class Store(Visibility, DocumentMetadata, Organization, Relations, Graph, ChunkS
 
     def log(self, kind, question, answer, sources, model):
         with self.connect() as db:
-            db.execute('INSERT INTO ai_runs(kind,question,answer,sources_json,model) VALUES(?,?,?,?,?)',
-                       (kind, question, answer, json.dumps(sources, ensure_ascii=False), model))
+            db.execute('INSERT INTO ai_runs(kind,question,answer,sources_json,model,account_id) VALUES(?,?,?,?,?,?)',
+                       (kind, question, answer, json.dumps(sources, ensure_ascii=False), model, self._asker()))
 
     def history(self):
+        mine, params = self._own_runs()
         with self.connect() as db:
-            return [dict(r) for r in db.execute('SELECT * FROM ai_runs ORDER BY id DESC LIMIT 100')]
+            return [dict(r) for r in db.execute(f'SELECT * FROM ai_runs WHERE {mine} ORDER BY id DESC LIMIT 100', params)]
 
     def backup(self, target):
         target = Path(target)
@@ -1887,7 +1895,8 @@ class PostgresStore(Visibility, DocumentMetadata, Organization, Relations, Graph
             'id':('bigint','int8','NO',None,'YES'), 'kind':('text','text','NO',None,'NO'),
             'question':('text','text','NO',None,'NO'), 'answer':('text','text','NO',None,'NO'),
             'sources_json':('text','text','NO',None,'NO'), 'model':('text','text','NO',None,'NO'),
-            'created_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO')},
+            'created_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO'),
+            'account_id':('integer','int4','YES',None,'NO')},
         'settings': {'name':('text','text','NO',None,'NO'), 'value':('text','text','NO',None,'NO')},
         'email_accounts': {
             'id':('text','text','NO',None,'NO'), 'label':('text','text','NO',None,'NO'),
@@ -2248,12 +2257,13 @@ class PostgresStore(Visibility, DocumentMetadata, Organization, Relations, Graph
 
     def log(self,kind,question,answer,sources,model):
         with self.connect() as db:
-            db.execute('INSERT INTO ai_runs(kind,question,answer,sources_json,model) VALUES(?,?,?,?,?)',
-                       (kind,question,answer,json.dumps(sources,ensure_ascii=False),model))
+            db.execute('INSERT INTO ai_runs(kind,question,answer,sources_json,model,account_id) VALUES(?,?,?,?,?,?)',
+                       (kind,question,answer,json.dumps(sources,ensure_ascii=False),model,self._asker()))
 
     def history(self):
+        mine,params=self._own_runs()
         with self.connect() as db:
-            return [dict(row) for row in db.execute('SELECT * FROM ai_runs ORDER BY id DESC LIMIT 100')]
+            return [dict(row) for row in db.execute(f'SELECT * FROM ai_runs WHERE {mine} ORDER BY id DESC LIMIT 100',params)]
 
     def backup(self,target):
         raise ValueError('PostgreSQL-Sicherungen werden auf dem VPS mit pg_dump erstellt; die lokale SQLite-Sicherung ist hierfür nicht anwendbar.')

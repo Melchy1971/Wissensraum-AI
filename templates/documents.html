@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+<p>{{ total }} Dokumente</p>
+<table>
+<thead><tr><th>Titel</th><th>Bereich</th><th>Angelegt</th></tr></thead>
+<tbody>
+{% for row in documents %}
+<tr><td><a href="/dokument/{{ row.id }}">{{ row.title }}</a></td><td>{{ row.category }}</td><td>{{ row.created_at }}</td></tr>
+{% else %}
+<tr><td colspan="3">Keine Dokumente freigegeben.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+<p>{% if page > 1 %}<a href="/?seite={{ page - 1 }}">Zurück</a>{% endif %}
+{% if more %}<a href="/?seite={{ page + 1 }}">Weiter</a>{% endif %}</p>
+{% endblock %}

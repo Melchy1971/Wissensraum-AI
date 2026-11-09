@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+<form hx-post="/fragen" hx-target="#answer">
+<textarea name="question" maxlength="4000" required rows="3"></textarea>
+<button type="submit">Fragen</button>
+</form>
+<div id="answer"></div>
+<h2>Eigener Verlauf</h2>
+<ul>
+{% for run in history %}
+<li><strong>{{ run.question }}</strong><br>{{ run.answer }}</li>
+{% else %}
+<li>Noch keine Fragen.</li>
+{% endfor %}
+</ul>
+{% endblock %}

@@ -7,7 +7,7 @@ graph, original, export and AI context is filtered in the database. Objects that
 objects the account may not see give the same 404. Step 10.5: security events go to the hash-chained
 audit trail (``audit.py``) before the response leaves the server. Step 10.6: every change names the
 revision it read; a stale one answers 409 with the current state and changes nothing. The web pages
-follow in 10.7. The server works only with PostgreSQL; ``create_app`` takes any store so that the
+are in ``web.py`` (step 10.7). The server works only with PostgreSQL; ``create_app`` takes any store so that the
 contract tests can also run on SQLite.
 
 Start: ``python server.py`` with the environment described in ``settings_from_env``.
@@ -21,6 +21,7 @@ import threading
 import time
 import urllib.parse
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -222,17 +223,6 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
 
     # Added last, so it runs first: requests for another host name never reach the application.
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=[host])
-
-    @app.get('/')
-    def start(request: Request):
-        account = request.state.account
-        if account is None:
-            return _page('Wissensraum', '<p><a href="/login">Anmelden</a></p>')
-        csrf = html.escape(request.state.session['csrf_token'])
-        name = html.escape(account['display_name'] or account['object_id'])
-        return _page('Wissensraum', f'<p>Angemeldet als {name} ({html.escape(account["role"])}).</p>'
-                     f'<form method="post" action="/logout"><input type="hidden" name="{CSRF_FIELD}" value="{csrf}">'
-                     '<button type="submit">Abmelden</button></form>')
 
     @app.get('/login')
     def login(request: Request):
@@ -509,6 +499,9 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
         audited(request, 'graph_changed', admin['id'], f'entity:{entity_id}')
         return {'id': entity_id}
 
+    import web  # the pages of step 10.7, with the same helpers as the API
+    web.register(app, SimpleNamespace(store=store, signed_in=signed_in, viewer=viewer, require_role=require_role,
+                                      document=document, audited=audited, ai=ai))
     return app
 
 

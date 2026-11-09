@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<p>Bereich: {{ doc.category }} · Status: {{ doc.status }} · Revision {{ doc.revision }}
+{% if doc.original is not none %} · <a href="/api/documents/{{ doc.id }}/original">Original herunterladen</a>{% endif %}</p>
+{% if collections %}<p>Sammlungen: {% for c in collections %}{{ c.name }}{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+{% if writable %}
+<form id="metadata" hx-post="/dokument/{{ doc.id }}/metadaten" hx-target="#metadata" hx-swap="outerHTML">
+{% include "metadata_form.html" %}
+</form>
+{% endif %}
+<pre class="content">{{ doc.content }}</pre>
+{% endblock %}
