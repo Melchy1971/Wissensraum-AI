@@ -159,4 +159,9 @@ CREATE TABLE IF NOT EXISTS grants ( id INTEGER PRIMARY KEY, account_id INTEGER N
 INSERT INTO organizations(name) SELECT 'Standard' WHERE NOT EXISTS (SELECT 1 FROM organizations);
 CREATE TABLE IF NOT EXISTS web_sessions ( id TEXT PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, csrf_token TEXT NOT NULL, created_at INTEGER NOT NULL, last_seen INTEGER NOT NULL );
 CREATE TABLE IF NOT EXISTS login_requests ( state TEXT PRIMARY KEY, nonce TEXT NOT NULL, verifier TEXT NOT NULL, created_at INTEGER NOT NULL );
-PRAGMA user_version = 20;
+CREATE TABLE IF NOT EXISTS audit_log ( id INTEGER PRIMARY KEY, created_at INTEGER NOT NULL, account_id INTEGER, event TEXT NOT NULL, target TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT '', details TEXT NOT NULL DEFAULT '{}', previous_hash TEXT NOT NULL, hash TEXT NOT NULL );
+CREATE TRIGGER IF NOT EXISTS audit_log_no_update BEFORE UPDATE ON audit_log
+        BEGIN SELECT RAISE(ABORT, 'Der Audit-Verlauf ist unveränderlich.'); END;
+CREATE TRIGGER IF NOT EXISTS audit_log_no_delete BEFORE DELETE ON audit_log
+        BEGIN SELECT RAISE(ABORT, 'Der Audit-Verlauf ist unveränderlich.'); END;
+PRAGMA user_version = 21;

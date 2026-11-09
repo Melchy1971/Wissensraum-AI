@@ -484,6 +484,10 @@ class PostgresStoreTests(unittest.TestCase):
         from test_rights import check_rights_contract
         check_rights_contract(self, PostgresStore(self.profile, self.password))
 
+    def test_audit_on_real_postgresql(self):
+        from test_audit import check_audit_contract
+        check_audit_contract(self, PostgresStore(self.profile, self.password))
+
     def test_graph_context_on_real_postgresql(self):
         from test_graph_context import check_graph_context_contract
         check_graph_context_contract(self, PostgresStore(self.profile, self.password))
@@ -710,7 +714,7 @@ class PostgresStoreTests(unittest.TestCase):
         reset = DatabaseSettings(Path.cwd(), vault, environ={}).reset_postgresql(
             self.profile, self.password, self.profile['database'])
         self.assertEqual(reset['tables'], [
-            'accounts', 'ai_runs', 'ai_usage', 'chunk_vectors', 'chunks', 'collection_documents', 'collections', 'document_relations',
+            'accounts', 'ai_runs', 'ai_usage', 'audit_log', 'chunk_vectors', 'chunks', 'collection_documents', 'collections', 'document_relations',
             'document_tags',
             'document_versions', 'documents', 'email_accounts', 'email_attachments', 'email_imports', 'entities',
             'entity_mentions', 'entity_types', 'favorites', 'grants', 'graph_changes', 'graph_relations',

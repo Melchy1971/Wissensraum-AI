@@ -4,7 +4,8 @@ Step 10.3: application core, sign-in over OpenID Connect with PKCE, server-side 
 protection, security headers and a limit on failed sign-ins. Step 10.4: JSON endpoints under
 ``/api`` that read only through ``store.as_viewer(account)``, so every list, search, vector search,
 graph, original, export and AI context is filtered in the database. Objects that are missing and
-objects the account may not see give the same 404. The web pages follow in 10.7. The server works only with PostgreSQL; ``create_app`` takes any store so that the
+objects the account may not see give the same 404. Step 10.5: security events go to the hash-chained
+audit trail (``audit.py``) before the response leaves the server. The web pages follow in 10.7. The server works only with PostgreSQL; ``create_app`` takes any store so that the
 contract tests can also run on SQLite.
 
 Start: ``python server.py`` with the environment described in ``settings_from_env``.
@@ -25,6 +26,7 @@ from pydantic import BaseModel, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 import accounts
+import audit
 import sessions
 from oidc import Provider, SignInError
 
@@ -139,9 +141,14 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
     def client(request):
         return request.client.host if request.client else 'unbekannt'
 
+    def audited(request, event, account_id=None, target='', **details):
+        """Audit entry first (a failure stops the request), then the operational log."""
+        audit.record(store, event, account_id, target, client(request), details, clock())
+        log(event, 'WARNING' if event == 'sign_in_refused' else 'INFO', account_id=account_id, target=target, **details)
+
     def refuse(request, reason, status=401):
         failed.record(client(request))
-        log('sign_in_refused', 'WARNING', reason=reason)
+        audited(request, 'sign_in_refused', reason=reason)
         message = ('Für dieses Konto gibt es keinen Zugang. Bitte die Administration ansprechen.' if status == 403
                    else 'Die Anmeldung ist fehlgeschlagen. Bitte erneut anmelden.')
         response = _page('Anmeldung fehlgeschlagen', f'<p>{message}</p><p><a href="/">Zur Startseite</a></p>', status)
@@ -253,7 +260,7 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
         if previous:
             sessions.end(store, previous)
         session_id, _ = sessions.create(store, account['id'], clock())
-        log('sign_in', account_id=account['id'])
+        audited(request, 'sign_in', account['id'])
         response = RedirectResponse('/', status_code=303)
         response.set_cookie(SESSION_COOKIE, session_id, path='/', secure=True, httponly=True, samesite='lax')
         response.delete_cookie(LOGIN_COOKIE, path='/', secure=True, httponly=True, samesite='lax')
@@ -264,7 +271,7 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
         account = request.state.account
         with store.connect() as db:
             sessions.end_all(db, account['id'])
-        log('sign_out', account_id=account['id'])
+        audited(request, 'sign_out', account['id'])
         response = RedirectResponse('/', status_code=303)
         response.delete_cookie(SESSION_COOKIE, path='/', secure=True, httponly=True, samesite='lax')
         return response
@@ -314,7 +321,7 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
             raise HTTPException(404, NOT_FOUND)
         name = (row['filename'] or 'original').replace('\\', '/').rsplit('/', 1)[-1]
         name = ''.join(c if c.isalnum() or c in '._- ' else '_' for c in name).strip(' .')[:100] or 'original'
-        log('original_download', account_id=request.state.account['id'], document_id=doc_id)
+        audited(request, 'original_download', request.state.account['id'], f'document:{doc_id}')
         return Response(bytes(row['original']), media_type='application/octet-stream',
                         headers={'Content-Disposition': f"attachment; filename*=UTF-8''{urllib.parse.quote(name)}"})
 
@@ -352,11 +359,12 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
         with tempfile.TemporaryDirectory() as folder:
             target = Path(folder) / 'sammlung.zip'
             try:
-                scoped.export_collection(collection_id, target)
+                report = scoped.export_collection(collection_id, target)
             except ValueError:
                 raise HTTPException(404, NOT_FOUND) from None
             data = target.read_bytes()
-        log('collection_export', account_id=request.state.account['id'], collection_id=collection_id)
+        audited(request, 'collection_export', request.state.account['id'], f'collection:{collection_id}',
+                documents=[d['id'] for d in report['documents']])
         return Response(data, media_type='application/zip',
                         headers={'Content-Disposition': 'attachment; filename="sammlung.zip"'})
 
@@ -366,7 +374,8 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
         if ai is None:
             raise HTTPException(503, 'Für den Server ist kein KI-Anbieter eingerichtet.')
         result = ai(scoped).ask(body.question)
-        log('ai_question', account_id=request.state.account['id'], status=result.status)
+        audited(request, 'ai_question', request.state.account['id'], status=result.status,
+                sources=sorted({s['document_id'] for s in result.sources if s.get('document_id') is not None}))
         return {'answer': result.text, 'status': result.status, 'sources': [
             {key: source.get(key) for key in ('document_id', 'title', 'ordinal')} for source in result.sources]}
 
@@ -382,7 +391,7 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
             # title; guessing that needs the whole text. A per-account copy would remove even that.
             raise HTTPException(409, 'Dieser Inhalt ist bereits vorhanden.')
         accounts.grant(store, account['id'], 'owner', document_id=doc_id, end_sessions=False)
-        log('document_created', account_id=account['id'], document_id=doc_id)
+        audited(request, 'document_created', account['id'], f'document:{doc_id}')
         return {'id': doc_id}
 
     @app.patch('/api/documents/{doc_id}')
@@ -396,23 +405,29 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
             store.update_metadata(doc_id, **changes)
         except ValueError as error:
             raise HTTPException(422, str(error)) from None
+        audited(request, 'document_changed', account['id'], f'document:{doc_id}', fields=','.join(sorted(changes)))
         return {'id': doc_id}
 
     @app.post('/api/accounts', status_code=201)
     def create_account(request: Request, body: NewAccount):
-        require_role(request, 'admin')
+        admin = require_role(request, 'admin')
         try:
-            return {'id': accounts.create_account(store, body.tenant_id, body.object_id, body.role, body.display_name)}
+            created = accounts.create_account(store, body.tenant_id, body.object_id, body.role, body.display_name)
         except ValueError as error:
             raise HTTPException(422, str(error)) from None
+        audited(request, 'account_created', admin['id'], f'account:{created}', role=body.role)
+        return {'id': created}
 
     @app.post('/api/grants', status_code=201)
     def create_grant(request: Request, body: NewGrant):
-        require_role(request, 'admin')
+        admin = require_role(request, 'admin')
         try:
-            return {'id': accounts.grant(store, body.account_id, body.access, body.document_id, body.collection_id)}
+            created = accounts.grant(store, body.account_id, body.access, body.document_id, body.collection_id)
         except ValueError as error:
             raise HTTPException(422, str(error)) from None
+        target = f'document:{body.document_id}' if body.document_id is not None else f'collection:{body.collection_id}'
+        audited(request, 'grant_created', admin['id'], target, account=body.account_id, access=body.access)
+        return {'id': created}
 
     return app
 

@@ -89,6 +89,7 @@ Grenzen: 50 MB lokale Originaldatei und je E-Mail-Anhang, Dateiinhalt passend zu
 | `graph_changes` | Protokoll jeder Änderung am Wissensgraphen mit Rücknahmezeitpunkt; Entitäten, Erwähnungen und Relationen werden nur als gelöscht markiert, damit jede Änderung zurückgenommen werden kann |
 | `ai_usage` | Tokenzahlen je Antwort eines KI-Anbieters (Anbieter, Modell, Eingabe, Ausgabe, Zeitpunkt), ohne Text; Grundlage der Monatsbudgets (Schema 18) |
 | `organizations`, `accounts`, `grants` | Nur für den Mehrbenutzer-Server von Release 3.0: Organisation, Konten mit Rolle (Administrator, Bearbeiter, Leser) und Freigaben je Dokument oder Sammlung. Die Desktop-Anwendung nutzt sie nicht (Schema 19) |
+| `audit_log` | Audit-Verlauf des Servers: lückenlose Nummer, Zeit, Konto, Ereignis, Ziel (`document:12`), Quelladresse, Kennwerte und SHA-256-Kette. Trigger verbieten Ändern und Löschen (Schema 21) |
 | `web_sessions`, `login_requests` | Nur für den Server: Sitzungen (nur SHA-256 der Kennung, Konto, CSRF-Token, Zeiten in Unix-Sekunden) und offene Anmeldungen (SHA-256 von `state` und `nonce`, PKCE-Verifier, höchstens 10 Minuten). Nicht im Datenschutzexport (Schema 20) |
 
 `schema.sql` dokumentiert das SQLite-Schema. Die ausführbare Schema-Historie liegt in den geordneten, versionierten SQLite- und PostgreSQL-Migrationen in `migrations.py`. SQLite speichert die Version in `PRAGMA user_version`, PostgreSQL in `wissensraum.schema_migrations`. Beide Backends haben denselben fachlichen Speicherumfang, verwenden aber unterschiedliche Volltexttechnik. SQL-Werte werden parametrisiert gebunden. KI-Ausgaben werden niemals als SQL oder Programmcode ausgeführt.
@@ -203,6 +204,8 @@ Rechte (10.4): Jede Lesefunktion des Servers läuft über `store.as_viewer(konto
 | `POST /api/documents` | Administrator, Bearbeiter | Notiz anlegen, das anlegende Konto erhält die Freigabe „owner“ |
 | `PATCH /api/documents/{id}` | mit Schreibrecht | Titel und Bereich ändern |
 | `POST /api/accounts`, `POST /api/grants` | Administrator | Konten und Freigaben anlegen |
+
+Audit-Verlauf (10.5): Der Server schreibt Anmeldung, abgelehnte Anmeldung, Abmeldung, Original-Download, Sammlungsexport, KI-Frage, Anlegen und Ändern von Dokumenten sowie Anlegen von Konten und Freigaben in `audit_log`, bevor die Antwort den Server verlässt; `cli.py account-add` und `privacy-erase` schreiben ebenfalls einen Eintrag. Gespeichert werden nur Kennungen, Zeit, Konto, Quelladresse und Kennwerte, nie Dokumenttexte, Fragen oder Antworten. Jeder Eintrag trägt den SHA-256 des vorherigen. `python cli.py audit-verify` prüft die Kette und meldet die erste veränderte (`verändert`), fehlende (`fehlt`) oder falsch verkettete (`kette`) Stelle. Das Ergebnis enthält Anzahl und letzten Hash; wer beides notiert, erkennt mit `audit-verify --expect ANZAHL:HASH` später auch gelöschte neueste Einträge (`gekürzt`). `audit-list --limit 50` zeigt die neuesten Einträge. Trigger in SQLite und PostgreSQL verweigern Ändern und Löschen, in PostgreSQL auch TRUNCATE; die Schemaprüfung beim Start lehnt eine Datenbank ab, in der sie fehlen oder abgeschaltet sind.
 
 Zustandsändernde Aufrufe brauchen die Kopfzeile `X-CSRF-Token` und `Origin`. Der KI-Verlauf wird in 10.4 noch gemeinsam gespeichert und über den Server nicht angezeigt; die Trennung je Konto folgt mit der Weboberfläche (10.7).
 

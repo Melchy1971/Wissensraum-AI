@@ -9,7 +9,7 @@ import uuid
 from contextlib import closing, contextmanager
 from pathlib import Path
 
-CURRENT_SCHEMA_VERSION = 20
+CURRENT_SCHEMA_VERSION = 21
 # Unversioned PostgreSQL schemas predate schema_migrations and match version 4.
 POSTGRES_LEGACY_SCHEMA_VERSION = 4
 # ponytail: source_type is validated in application code (core.SOURCE_TYPES), not by a
@@ -17,6 +17,14 @@ POSTGRES_LEGACY_SCHEMA_VERSION = 4
 POSTGRES_MIGRATION_LOCK_ID = 87031904
 POSTGRES_LOCK_TIMEOUT_SECONDS = 20.0
 WINDOWS_SQLITE_MIGRATION_LOCK_OFFSET = 0x7FFFFFFFFFFFFFFE
+
+
+SQLITE_AUDIT_TRIGGERS = {
+    'audit_log_no_update': """CREATE TRIGGER IF NOT EXISTS audit_log_no_update BEFORE UPDATE ON audit_log
+        BEGIN SELECT RAISE(ABORT, 'Der Audit-Verlauf ist unveränderlich.'); END""",
+    'audit_log_no_delete': """CREATE TRIGGER IF NOT EXISTS audit_log_no_delete BEFORE DELETE ON audit_log
+        BEGIN SELECT RAISE(ABORT, 'Der Audit-Verlauf ist unveränderlich.'); END""",
+}
 
 
 SQLITE_MIGRATIONS = (
@@ -323,6 +331,17 @@ SQLITE_MIGRATIONS = (
             state TEXT PRIMARY KEY, nonce TEXT NOT NULL, verifier TEXT NOT NULL, created_at INTEGER NOT NULL
         )""",
     )),
+    # Release 3.0, step 10.5: append-only audit trail. Ids are gapless and assigned by audit.py; each
+    # entry carries the SHA-256 of the previous one. Triggers refuse every change and deletion.
+    (21, (
+        """CREATE TABLE IF NOT EXISTS audit_log (
+            id INTEGER PRIMARY KEY, created_at INTEGER NOT NULL, account_id INTEGER, event TEXT NOT NULL,
+            target TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT '', details TEXT NOT NULL DEFAULT '{}',
+            previous_hash TEXT NOT NULL, hash TEXT NOT NULL
+        )""",
+        SQLITE_AUDIT_TRIGGERS['audit_log_no_update'],
+        SQLITE_AUDIT_TRIGGERS['audit_log_no_delete'],
+    )),
 )
 
 
@@ -610,6 +629,19 @@ POSTGRES_MIGRATIONS = (
             state TEXT PRIMARY KEY, nonce TEXT NOT NULL, verifier TEXT NOT NULL, created_at BIGINT NOT NULL
         )""",
     )),
+    (21, (
+        """CREATE TABLE IF NOT EXISTS audit_log (
+            id BIGINT PRIMARY KEY, created_at BIGINT NOT NULL, account_id BIGINT, event TEXT NOT NULL,
+            target TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT '', details TEXT NOT NULL DEFAULT '{}',
+            previous_hash TEXT NOT NULL, hash TEXT NOT NULL
+        )""",
+        """CREATE OR REPLACE FUNCTION wissensraum.audit_log_immutable() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN RAISE EXCEPTION 'Der Audit-Verlauf ist unveränderlich.'; END $$""",
+        """CREATE TRIGGER audit_log_no_change BEFORE UPDATE OR DELETE ON audit_log
+            FOR EACH ROW EXECUTE FUNCTION wissensraum.audit_log_immutable()""",
+        """CREATE TRIGGER audit_log_no_truncate BEFORE TRUNCATE ON audit_log
+            FOR EACH STATEMENT EXECUTE FUNCTION wissensraum.audit_log_immutable()""",
+    )),
 )
 
 # Columns added to an existing table by a later migration: (table, column) -> version.
@@ -639,7 +671,7 @@ SQLITE_TABLE_VERSIONS = {
     'document_relations': 15,
     'entity_types': 16, 'relation_types': 16, 'entities': 16, 'entity_mentions': 16, 'graph_relations': 16,
     'graph_changes': 16, 'ai_usage': 18, 'organizations': 19, 'accounts': 19, 'grants': 19,
-    'web_sessions': 20, 'login_requests': 20,
+    'web_sessions': 20, 'login_requests': 20, 'audit_log': 21,
 }
 
 # Constant SQL list of all application tables, derived from the catalog so that
@@ -758,6 +790,9 @@ SQLITE_COLUMNS = {
                      ('created_at','INTEGER',1,None,0), ('last_seen','INTEGER',1,None,0)),
     'login_requests': (('state','TEXT',0,None,1), ('nonce','TEXT',1,None,0), ('verifier','TEXT',1,None,0),
                        ('created_at','INTEGER',1,None,0)),
+    'audit_log': (('id','INTEGER',0,None,1), ('created_at','INTEGER',1,None,0), ('account_id','INTEGER',0,None,0),
+                  ('event','TEXT',1,None,0), ('target','TEXT',1,"''",0), ('source','TEXT',1,"''",0),
+                  ('details','TEXT',1,"'{}'",0), ('previous_hash','TEXT',1,None,0), ('hash','TEXT',1,None,0)),
 }
 
 SQLITE_UNIQUE_CONSTRAINTS = {
@@ -774,7 +809,7 @@ SQLITE_UNIQUE_CONSTRAINTS = {
     'entity_types': {('normalized',)}, 'relation_types': {('normalized',)}, 'entities': set(),
     'entity_mentions': set(), 'graph_relations': set(), 'graph_changes': set(), 'ai_usage': set(),
     'organizations': set(), 'accounts': {('tenant_id', 'object_id')}, 'grants': set(),
-    'web_sessions': set(), 'login_requests': set(),
+    'web_sessions': set(), 'login_requests': set(), 'audit_log': set(),
 }
 
 SQLITE_FOREIGN_KEYS = {
@@ -824,6 +859,7 @@ SQLITE_FOREIGN_KEYS = {
     'grants': {('account_id','accounts','id','NO ACTION','CASCADE'), ('document_id','documents','id','NO ACTION','CASCADE'),
                ('collection_id','collections','id','NO ACTION','CASCADE')},
     'web_sessions': {('account_id','accounts','id','NO ACTION','CASCADE')}, 'login_requests': set(),
+    'audit_log': set(),
 }
 
 POSTGRES_LEGACY_COLUMNS = {
@@ -1042,6 +1078,15 @@ POSTGRES_LEGACY_COLUMNS = {
     ('login_requests','nonce','text','NO','NO',None,None),
     ('login_requests','verifier','text','NO','NO',None,None),
     ('login_requests','created_at','bigint','NO','NO',None,None),
+    ('audit_log','id','bigint','NO','NO',None,None),
+    ('audit_log','created_at','bigint','NO','NO',None,None),
+    ('audit_log','account_id','bigint','YES','NO',None,None),
+    ('audit_log','event','text','NO','NO',None,None),
+    ('audit_log','target','text','NO','NO',"''::text",None),
+    ('audit_log','source','text','NO','NO',"''::text",None),
+    ('audit_log','details','text','NO','NO',"'{}'::text",None),
+    ('audit_log','previous_hash','text','NO','NO',None,None),
+    ('audit_log','hash','text','NO','NO',None,None),
 }
 
 POSTGRES_LEGACY_CONSTRAINTS = {
@@ -1126,6 +1171,7 @@ POSTGRES_LEGACY_CONSTRAINTS = {
     ('web_sessions', 'p', ('id',), None, (), ' '),
     ('web_sessions', 'f', ('account_id',), 'accounts', ('id',), 'c'),
     ('login_requests', 'p', ('state',), None, (), ' '),
+    ('audit_log', 'p', ('id',), None, (), ' '),
 }
 
 
@@ -1281,6 +1327,11 @@ def validate_sqlite(db, version=CURRENT_SCHEMA_VERSION):
         raise ValueError('Volltext-Suchstrukturen sind unvollständig oder inkompatibel.')
     db.execute("INSERT INTO search_index(search_index,rank) VALUES('integrity-check',1)")
     db.execute('SELECT rowid FROM search_index LIMIT 1').fetchall()
+    if version >= 21:
+        triggers = {row[0]: _canonical_sql(row[1]) for row in db.execute(
+            "SELECT name,sql FROM sqlite_master WHERE type='trigger' AND tbl_name='audit_log'")}
+        if triggers != {name: _canonical_sql(sql) for name, sql in SQLITE_AUDIT_TRIGGERS.items()}:
+            raise ValueError('Der Schutz des Audit-Verlaufs fehlt oder wurde verändert.')
 
 
 def migrate_sqlite(path):
@@ -1475,6 +1526,13 @@ def _validate_postgres_schema(db, version, legacy=False):
             or not indexes_valid):
         prefix = 'Legacy-' if legacy else ''
         raise ValueError(f'{prefix}PostgreSQL-Schema ist unvollständig oder inkompatibel.')
+    if version >= 21:
+        triggers = {_value(row, 'tgname'): _value(row, 'enabled', 1) for row in db.execute(
+            """SELECT t.tgname, t.tgenabled AS enabled FROM pg_catalog.pg_trigger t
+            JOIN pg_catalog.pg_class c ON c.oid=t.tgrelid JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+            WHERE n.nspname='wissensraum' AND c.relname='audit_log' AND NOT t.tgisinternal""").fetchall()}
+        if triggers != {'audit_log_no_change': 'O', 'audit_log_no_truncate': 'O'}:
+            raise ValueError('Der Schutz des Audit-Verlaufs fehlt oder wurde verändert.')
 
 
 def _acquire_postgres_migration_lock(db, timeout_seconds=POSTGRES_LOCK_TIMEOUT_SECONDS):
