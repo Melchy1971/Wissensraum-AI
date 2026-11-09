@@ -278,6 +278,17 @@ SQLITE_HISTORICAL_MIGRATIONS = (
             state TEXT PRIMARY KEY, nonce TEXT NOT NULL, verifier TEXT NOT NULL, created_at INTEGER NOT NULL
         )""",
     )),
+    (21, (
+        """CREATE TABLE IF NOT EXISTS audit_log (
+            id INTEGER PRIMARY KEY, created_at INTEGER NOT NULL, account_id INTEGER, event TEXT NOT NULL,
+            target TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT '', details TEXT NOT NULL DEFAULT '{}',
+            previous_hash TEXT NOT NULL, hash TEXT NOT NULL
+        )""",
+        """CREATE TRIGGER IF NOT EXISTS audit_log_no_update BEFORE UPDATE ON audit_log
+        BEGIN SELECT RAISE(ABORT, 'Der Audit-Verlauf ist unveränderlich.'); END""",
+        """CREATE TRIGGER IF NOT EXISTS audit_log_no_delete BEFORE DELETE ON audit_log
+        BEGIN SELECT RAISE(ABORT, 'Der Audit-Verlauf ist unveränderlich.'); END""",
+    )),
 )
 
 
@@ -395,12 +406,14 @@ class FakePostgres:
                                  'generation_expression': POSTGRES_GENERATED_COLUMNS[(table, 'search_vector')]})
         for column, data_type, nullable, default in (('status', 'text', 'NO', "'new'::text"),
                                                      ('owner', 'text', 'NO', "''::text"),
-                                                     ('review_date', 'text', 'YES', None)):
+                                                     ('review_date', 'text', 'YES', None),
+                                                     ('revision', 'integer', 'NO', '1')):
             if normalized.startswith('ALTER TABLE ') and f' ADD COLUMN {column} ' in normalized:
                 table = normalized.split()[2]
                 self.columns.append({'table_name': table, 'column_name': column,
                                      'data_type': data_type, 'is_nullable': nullable, 'is_identity': 'NO',
-                                     'column_default': "'confirmed'::text" if table == 'entity_mentions' else default,
+                                     'column_default': "'confirmed'::text" if table == 'entity_mentions'
+                                     and column == 'status' else default,
                                      'identity_generation': None,
                                      'generation_expression': None})
         if normalized.startswith('DROP INDEX '):

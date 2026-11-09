@@ -22,7 +22,7 @@ def check_organization_contract(case, store):
     before = {doc_id: store.get(doc_id) for doc_id in (heating, car, trip)}
 
     house = store.create_collection('  Haus   und Hof ')
-    case.assertEqual(store.collections(), [{'id': house, 'name': 'Haus und Hof', 'documents': 0}])
+    case.assertEqual(store.collections(), [{'id': house, 'name': 'Haus und Hof', 'revision': 1, 'documents': 0}])
     for bad in ('', ' ', 'x' * 101):
         with case.assertRaises(ValueError):
             store.create_collection(bad)
@@ -173,7 +173,7 @@ class OrganizationTests(unittest.TestCase):
             return json.loads(out.getvalue())
         created = run('collection-create', 'Projekt')
         run('collection-add', str(created['id']), str(doc_id))
-        self.assertEqual(run('collections'), [{'id': created['id'], 'name': 'Projekt', 'documents': 1}])
+        self.assertEqual(run('collections'), [{'id': created['id'], 'name': 'Projekt', 'revision': 2, 'documents': 1}])  # adding raised it
         self.assertEqual([row['id'] for row in run('list', '--collection', str(created['id']))], [doc_id])
         run('favorite', str(doc_id))
         self.assertEqual([row['id'] for row in run('list', '--favorites')], [doc_id])
