@@ -90,6 +90,27 @@ def parse_review_date(value):
         raise ValueError('Wiedervorlage als Datum JJJJ-MM-TT angeben.') from None
 
 
+class Conflict(ValueError):
+    """The object changed since it was read (step 10.6): the caller shows the current state, nothing is
+    overwritten."""
+
+
+def _revise(db, table, object_id, revision, what):
+    """Raise the revision of one row in the caller's transaction.
+
+    ``revision`` is the one the caller read; the compare-and-set in one UPDATE also holds when two
+    transactions run at the same time. None (desktop, command line) takes the current revision.
+    """
+    row = db.execute(f'SELECT revision FROM {table} WHERE id=?', (object_id,)).fetchone()
+    if row is None:
+        raise ValueError(f'{what} wurde nicht gefunden.')
+    expected = row['revision'] if revision is None else int(revision)
+    if db.execute(f'UPDATE {table} SET revision=revision+1 WHERE id=? AND revision=?',
+                  (object_id, expected)).rowcount != 1:
+        raise Conflict(f'{what} wurde inzwischen geändert. Bitte den aktuellen Stand laden.')
+    return expected + 1
+
+
 class Visibility:
     """Rights of the multi-user server (step 10.4, docs/sicherheit-3.0.md).
 
@@ -126,8 +147,11 @@ class DocumentMetadata:
     """
 
     def update_metadata(self, doc_id, title=None, category=None, add_tags=None, remove_tags=None,
-                        status=None, owner=None, review_date=None):
-        """Change the given fields; ``review_date`` '' removes the date. Returns the logged changes."""
+                        status=None, owner=None, review_date=None, revision=None):
+        """Change the given fields; ``review_date`` '' removes the date. Returns the logged changes.
+
+        ``revision`` is the revision the caller read; a different current one raises ``Conflict``.
+        """
         import rules
         if status is not None and status not in DOCUMENT_STATUSES:
             raise ValueError('Status: ' + ', '.join(DOCUMENT_STATUSES) + '.')
@@ -152,6 +176,8 @@ class DocumentMetadata:
                              (doc_id,)).fetchone()
             if doc is None:
                 raise ValueError('Dokument wurde nicht gefunden.')
+            if revision is not None:
+                _revise(db, 'documents', doc_id, revision, 'Das Dokument')
             for field, value, setter in (('title', title, rules.set_title),
                                          ('category', category, rules.set_category)):
                 if value is not None and value != doc[field]:
@@ -171,6 +197,8 @@ class DocumentMetadata:
             changes += [('tag', '', name) for name in rules.add_tags(db, doc_id, add_tags)]
             for field, old, new in changes:
                 rules.log_change(db, doc_id, field, old, new, 'manual')
+            if changes and revision is None:
+                _revise(db, 'documents', doc_id, None, 'Das Dokument')
         return [{'field': field, 'old_value': old, 'new_value': new} for field, old, new in changes]
 
     def due_reviews(self, until=None):
@@ -233,7 +261,7 @@ class Organization:
         seen, documents = self._visible_collections(), self._visible()
         with self.connect() as db:
             return [dict(row) for row in db.execute(
-                'SELECT c.id,c.name,(SELECT count(*) FROM collection_documents cd JOIN documents d '
+                'SELECT c.id,c.name,c.revision,(SELECT count(*) FROM collection_documents cd JOIN documents d '
                 f'ON d.id=cd.document_id WHERE cd.collection_id=c.id AND {documents[0]}) '
                 f'AS documents FROM collections c WHERE {seen[0]} ORDER BY c.normalized,c.id',
                 documents[1] + seen[1])]
@@ -246,10 +274,11 @@ class Organization:
             return db.execute('INSERT INTO collections(name,normalized) VALUES(?,?) RETURNING id',
                               (name, normalized)).fetchone()['id']
 
-    def rename_collection(self, collection_id, name):
+    def rename_collection(self, collection_id, name, revision=None):
         name, normalized = _name(name, 'Name der Sammlung')
         with self.connect() as db:
             self._collection(db, collection_id)
+            _revise(db, 'collections', collection_id, revision, 'Die Sammlung')
             if db.execute('SELECT 1 FROM collections WHERE normalized=? AND id<>?',
                           (normalized, collection_id)).fetchone():
                 raise ValueError('Eine Sammlung mit diesem Namen gibt es schon.')
@@ -258,18 +287,20 @@ class Organization:
             if name != old:
                 self._log_members(db, collection_id, old, name)
 
-    def delete_collection(self, collection_id):
+    def delete_collection(self, collection_id, revision=None):
         with self.connect() as db:
             self._collection(db, collection_id)
+            _revise(db, 'collections', collection_id, revision, 'Die Sammlung')
             name = db.execute('SELECT name FROM collections WHERE id=?', (collection_id,)).fetchone()['name']
             self._log_members(db, collection_id, name, '')
             db.execute('DELETE FROM collections WHERE id=?', (collection_id,))
 
-    def add_to_collection(self, collection_id, document_ids):
+    def add_to_collection(self, collection_id, document_ids, revision=None):
         """Add documents; already contained ones are skipped. Returns the number added."""
         import rules
         with self.connect() as db:
             name = self._collection(db, collection_id)
+            _revise(db, 'collections', collection_id, revision, 'Die Sammlung')
             added = 0
             for doc_id in dict.fromkeys(int(doc_id) for doc_id in document_ids):
                 if not db.execute('SELECT 1 FROM documents WHERE id=?', (doc_id,)).fetchone():
@@ -280,10 +311,11 @@ class Organization:
                     added += 1
             return added
 
-    def remove_from_collection(self, collection_id, document_ids):
+    def remove_from_collection(self, collection_id, document_ids, revision=None):
         import rules
         with self.connect() as db:
             name = self._collection(db, collection_id)
+            _revise(db, 'collections', collection_id, revision, 'Die Sammlung')
             removed = 0
             for doc_id in dict.fromkeys(int(doc_id) for doc_id in document_ids):
                 if db.execute('DELETE FROM collection_documents WHERE collection_id=? AND document_id=? '
@@ -609,10 +641,11 @@ class Graph:
             self._active(db, 'entities', entity_id, 'Entität')
             return self._insert_mention(db, entity_id, document_id, self._evidence(db, document_id, quote, start))
 
-    def rename_entity(self, entity_id, name):
+    def rename_entity(self, entity_id, name, revision=None):
         name, normalized = self._entity_name(name)
         with self.connect() as db:
             row = self._active(db, 'entities', entity_id, 'Entität')
+            _revise(db, 'entities', entity_id, revision, 'Die Entität')
             if db.execute('SELECT 1 FROM entities WHERE type_id=? AND normalized=? AND id<>? AND deleted_at IS NULL',
                           (row['type_id'], normalized, entity_id)).fetchone():
                 raise ValueError('Diese Entität gibt es schon.')
@@ -641,14 +674,14 @@ class Graph:
             self._log(db, 'create', 'relation', relation_id, '', f'{source_id}->{target_id}')
             return relation_id
 
-    def delete_entity(self, entity_id):
-        self._soft_delete('entities', 'entity', entity_id, 'Entität')
+    def delete_entity(self, entity_id, revision=None):
+        self._soft_delete('entities', 'entity', entity_id, 'Entität', revision)
 
     def delete_mention(self, mention_id):
         self._soft_delete('entity_mentions', 'mention', mention_id, 'Erwähnung')
 
-    def delete_graph_relation(self, relation_id):
-        self._soft_delete('graph_relations', 'relation', relation_id, 'Relation')
+    def delete_graph_relation(self, relation_id, revision=None):
+        self._soft_delete('graph_relations', 'relation', relation_id, 'Relation', revision)
 
     def propose_entity(self, type_id, name, document_id, quote, start):
         """An AI suggestion: reuse an active entity of the same type and name or create a proposed one,
@@ -711,6 +744,7 @@ class Graph:
             for relation_id in moved['dropped']:
                 db.execute('UPDATE graph_relations SET deleted_at=CURRENT_TIMESTAMP WHERE id=?', (relation_id,))
             db.execute('UPDATE entities SET deleted_at=CURRENT_TIMESTAMP WHERE id=?', (merge_id,))
+            db.execute('UPDATE entities SET revision=revision+1 WHERE id IN (?,?)', (keep_id, merge_id))
             self._log(db, 'merge', 'entity', merge_id, merge['name'], json.dumps(moved))
 
     def split_entity(self, entity_id, name, mention_ids=(), relation_ids=()):
@@ -739,6 +773,7 @@ class Graph:
             self._move(db, 'entity_mentions', 'entity_id', mention_ids, new_id)
             self._move(db, 'graph_relations', 'source_id', sources, new_id)
             self._move(db, 'graph_relations', 'target_id', targets, new_id)
+            db.execute('UPDATE entities SET revision=revision+1 WHERE id=?', (entity_id,))
             self._log(db, 'split', 'entity', entity_id, '', json.dumps(
                 {'into': new_id, 'name': name, 'mentions': mention_ids, 'sources': sources, 'targets': targets}))
             return new_id
@@ -823,7 +858,7 @@ class Graph:
             conditions.append('e.normalized LIKE ?'); params.append('%' + ' '.join(query.split()).casefold() + '%')
         with self.connect() as db:
             return [dict(row) for row in db.execute(
-                'SELECT e.id,e.name,e.status,e.type_id,t.name AS type,'
+                'SELECT e.id,e.name,e.revision,e.status,e.type_id,t.name AS type,'
                 '(SELECT count(*) FROM entity_mentions m JOIN documents d ON d.id=m.document_id '
                 f'WHERE m.entity_id=e.id AND m.deleted_at IS NULL AND {documents[0]}) AS mentions '
                 'FROM entities e JOIN entity_types t ON t.id=e.type_id WHERE ' + ' AND '.join(conditions)
@@ -833,7 +868,7 @@ class Graph:
         """An active entity with its active mentions and relations (both directions)."""
         visible, documents = self._entity_visible(), self._visible()
         with self.connect() as db:
-            row = db.execute('SELECT e.id,e.name,e.status,e.type_id,t.name AS type FROM entities e '
+            row = db.execute('SELECT e.id,e.name,e.revision,e.status,e.type_id,t.name AS type FROM entities e '
                              f'JOIN entity_types t ON t.id=e.type_id WHERE e.id=? AND e.deleted_at IS NULL AND {visible[0]}',
                              (entity_id, *visible[1])).fetchone()
             if row is None:
@@ -1050,9 +1085,11 @@ class Graph:
             raise ValueError(f'{what} wurde nicht gefunden.')
         return row
 
-    def _soft_delete(self, table, kind, object_id, what):
+    def _soft_delete(self, table, kind, object_id, what, revision=None):
         with self.connect() as db:
             self._active(db, table, object_id, what)
+            if table != 'entity_mentions':
+                _revise(db, table, object_id, revision, what)
             db.execute(f'UPDATE {table} SET deleted_at=CURRENT_TIMESTAMP WHERE id=?', (object_id,))
             self._log(db, 'delete', kind, object_id, '', '')
 
@@ -1060,7 +1097,7 @@ class Graph:
         visible, extra = self._visible()
         condition, params = f'({condition}) AND {visible}', (*params, *extra)
         return [dict(row) for row in db.execute(
-            'SELECT r.id,r.status,r.source_id,s.name AS source,r.target_id,t.name AS target,r.type_id,'
+            'SELECT r.id,r.revision,r.status,r.source_id,s.name AS source,r.target_id,t.name AS target,r.type_id,'
             'y.name AS type,r.document_id,d.title AS document,r.start_offset,r.end_offset,r.quote '
             'FROM graph_relations r JOIN entities s ON s.id=r.source_id JOIN entities t ON t.id=r.target_id '
             'JOIN relation_types y ON y.id=r.type_id JOIN documents d ON d.id=r.document_id '
@@ -1232,7 +1269,7 @@ def _list(db, all_versions, tag=None, collection=None, favorites=False, visible=
                   + [visible[0]])
     where = ' WHERE '+' AND '.join(conditions) if conditions else ''
     rows = [dict(row) for row in db.execute(
-        'SELECT d.id,d.title,d.category,d.created_at,COALESCE(v.version,1) AS version FROM documents d '
+        'SELECT d.id,d.title,d.category,d.created_at,d.revision,COALESCE(v.version,1) AS version FROM documents d '
         'LEFT JOIN document_versions v ON v.document_id=d.id'+where+' ORDER BY d.id DESC',
         ((tag.casefold(),) if tag else ()) + ((int(collection),) if collection is not None else ()) + tuple(visible[1]))]
     tags = rules.tags_by_document(db)
@@ -1466,7 +1503,8 @@ class Store(Visibility, DocumentMetadata, Organization, Relations, Graph, ChunkS
             'id':('INTEGER',0,None,1), 'title':('TEXT',1,None,0), 'category':('TEXT',1,None,0),
             'filename':('TEXT',0,None,0), 'original':('BLOB',0,None,0), 'content':('TEXT',1,None,0),
             'sha256':('TEXT',1,None,0), 'created_at':('TEXT',1,'current_timestamp',0),
-            'status':('TEXT',1,"'new'",0), 'owner':('TEXT',1,"''",0), 'review_date':('TEXT',0,None,0)},
+            'status':('TEXT',1,"'new'",0), 'owner':('TEXT',1,"''",0), 'review_date':('TEXT',0,None,0),
+            'revision':('INTEGER',1,'1',0)},
         'chunks': {
             'id':('INTEGER',0,None,1), 'document_id':('INTEGER',1,None,0),
             'ordinal':('INTEGER',1,None,0), 'content':('TEXT',1,None,0)},
@@ -1839,7 +1877,7 @@ class PostgresStore(Visibility, DocumentMetadata, Organization, Relations, Graph
             'sha256':('text','text','NO',None,'NO'),
             'created_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO'),
             'status':('text','text','NO',"'new'",'NO'), 'owner':('text','text','NO',"''",'NO'),
-            'review_date':('text','text','YES',None,'NO'),
+            'review_date':('text','text','YES',None,'NO'), 'revision':('integer','int4','NO','1','NO'),
             'search_vector':('tsvector','tsvector','YES',None,'NO')},
         'chunks': {
             'id':('bigint','int8','NO',None,'YES'), 'document_id':('bigint','int8','NO',None,'NO'),

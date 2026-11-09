@@ -9,7 +9,7 @@ import uuid
 from contextlib import closing, contextmanager
 from pathlib import Path
 
-CURRENT_SCHEMA_VERSION = 21
+CURRENT_SCHEMA_VERSION = 22
 # Unversioned PostgreSQL schemas predate schema_migrations and match version 4.
 POSTGRES_LEGACY_SCHEMA_VERSION = 4
 # ponytail: source_type is validated in application code (core.SOURCE_TYPES), not by a
@@ -342,6 +342,9 @@ SQLITE_MIGRATIONS = (
         SQLITE_AUDIT_TRIGGERS['audit_log_no_update'],
         SQLITE_AUDIT_TRIGGERS['audit_log_no_delete'],
     )),
+    # Release 3.0, step 10.6: a revision per changeable object; a change names the revision it read.
+    (22, tuple(f'ALTER TABLE {table} ADD COLUMN revision INTEGER NOT NULL DEFAULT 1'
+               for table in ('documents', 'collections', 'entities', 'graph_relations', 'grants'))),
 )
 
 
@@ -642,15 +645,21 @@ POSTGRES_MIGRATIONS = (
         """CREATE TRIGGER audit_log_no_truncate BEFORE TRUNCATE ON audit_log
             FOR EACH STATEMENT EXECUTE FUNCTION wissensraum.audit_log_immutable()""",
     )),
+    (22, tuple(f'ALTER TABLE {table} ADD COLUMN revision INTEGER NOT NULL DEFAULT 1'
+               for table in ('documents', 'collections', 'entities', 'graph_relations', 'grants'))),
 )
 
 # Columns added to an existing table by a later migration: (table, column) -> version.
 POSTGRES_COLUMN_VERSIONS = {('chunks', 'search_vector'): 11, ('documents', 'search_vector'): 11,
                             ('documents', 'status'): 13, ('documents', 'owner'): 13,
-                            ('documents', 'review_date'): 13, ('entity_mentions', 'status'): 17}
+                            ('documents', 'review_date'): 13, ('entity_mentions', 'status'): 17,
+                            **{(table, 'revision'): 22 for table in ('documents', 'collections', 'entities',
+                                                                       'graph_relations', 'grants')}}
 # Columns added to an existing SQLite table by a later migration: (table, column) -> version.
 SQLITE_COLUMN_VERSIONS = {('documents', 'status'): 13, ('documents', 'owner'): 13, ('documents', 'review_date'): 13,
-                          ('entity_mentions', 'status'): 17}
+                          ('entity_mentions', 'status'): 17,
+                          **{(table, 'revision'): 22 for table in ('documents', 'collections', 'entities',
+                                                                     'graph_relations', 'grants')}}
 # Generated columns and their expression as PostgreSQL reports it (whitespace-insensitive).
 POSTGRES_GENERATED_COLUMNS = {
     ('chunks', 'search_vector'): "to_tsvector('simple'::regconfig, content)",
@@ -684,7 +693,7 @@ SQLITE_COLUMNS = {
                   ('original','BLOB',0,None,0), ('content','TEXT',1,None,0),
                   ('sha256','TEXT',1,None,0),
                   ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0), ('status','TEXT',1,"'new'",0),
-                  ('owner','TEXT',1,"''",0), ('review_date','TEXT',0,None,0)),
+                  ('owner','TEXT',1,"''",0), ('review_date','TEXT',0,None,0), ('revision','INTEGER',1,'1',0)),
     'chunks': (('id','INTEGER',0,None,1), ('document_id','INTEGER',1,None,0),
                ('ordinal','INTEGER',1,None,0), ('content','TEXT',1,None,0)),
     'ai_runs': (('id','INTEGER',0,None,1), ('kind','TEXT',1,None,0),
@@ -746,7 +755,7 @@ SQLITE_COLUMNS = {
                          ('new_value','TEXT',1,"''",0), ('origin','TEXT',1,None,0),
                          ('run_id','INTEGER',0,None,0), ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
     'collections': (('id','INTEGER',0,None,1), ('name','TEXT',1,None,0), ('normalized','TEXT',1,None,0),
-                    ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
+                    ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0), ('revision','INTEGER',1,'1',0)),
     'collection_documents': (('collection_id','INTEGER',1,None,1), ('document_id','INTEGER',1,None,2),
                              ('added_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
     'favorites': (('document_id','INTEGER',0,None,1), ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
@@ -762,7 +771,7 @@ SQLITE_COLUMNS = {
                        ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
     'entities': (('id','INTEGER',0,None,1), ('type_id','INTEGER',1,None,0), ('name','TEXT',1,None,0),
                  ('normalized','TEXT',1,None,0), ('status','TEXT',1,"'confirmed'",0),
-                 ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0), ('deleted_at','TEXT',0,None,0)),
+                 ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0), ('deleted_at','TEXT',0,None,0), ('revision','INTEGER',1,'1',0)),
     'entity_mentions': (('id','INTEGER',0,None,1), ('entity_id','INTEGER',1,None,0), ('document_id','INTEGER',1,None,0),
                         ('start_offset','INTEGER',1,None,0), ('end_offset','INTEGER',1,None,0),
                         ('quote','TEXT',1,None,0), ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0),
@@ -771,7 +780,7 @@ SQLITE_COLUMNS = {
                         ('type_id','INTEGER',1,None,0), ('document_id','INTEGER',1,None,0),
                         ('start_offset','INTEGER',1,None,0), ('end_offset','INTEGER',1,None,0),
                         ('quote','TEXT',1,None,0), ('status','TEXT',1,"'confirmed'",0),
-                        ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0), ('deleted_at','TEXT',0,None,0)),
+                        ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0), ('deleted_at','TEXT',0,None,0), ('revision','INTEGER',1,'1',0)),
     'graph_changes': (('id','INTEGER',0,None,1), ('action','TEXT',1,None,0), ('object_type','TEXT',1,None,0),
                       ('object_id','INTEGER',1,None,0), ('old_value','TEXT',1,"''",0), ('new_value','TEXT',1,"''",0),
                       ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0), ('reverted_at','TEXT',0,None,0)),
@@ -785,7 +794,7 @@ SQLITE_COLUMNS = {
                  ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
     'grants': (('id','INTEGER',0,None,1), ('account_id','INTEGER',1,None,0), ('document_id','INTEGER',0,None,0),
                ('collection_id','INTEGER',0,None,0), ('access','TEXT',1,None,0),
-               ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
+               ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0), ('revision','INTEGER',1,'1',0)),
     'web_sessions': (('id','TEXT',0,None,1), ('account_id','INTEGER',1,None,0), ('csrf_token','TEXT',1,None,0),
                      ('created_at','INTEGER',1,None,0), ('last_seen','INTEGER',1,None,0)),
     'login_requests': (('state','TEXT',0,None,1), ('nonce','TEXT',1,None,0), ('verifier','TEXT',1,None,0),
@@ -980,10 +989,12 @@ POSTGRES_LEGACY_COLUMNS = {
     ('documents','status','text','NO','NO',"'new'::text",None),
     ('documents','owner','text','NO','NO',"''::text",None),
     ('documents','review_date','text','YES','NO',None,None),
+    ('documents','revision','integer','NO','NO','1',None),
     ('collections','id','bigint','NO','YES',None,'ALWAYS'),
     ('collections','name','text','NO','NO',None,None),
     ('collections','normalized','text','NO','NO',None,None),
     ('collections','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('collections','revision','integer','NO','NO','1',None),
     ('collection_documents','collection_id','bigint','NO','NO',None,None),
     ('collection_documents','document_id','bigint','NO','NO',None,None),
     ('collection_documents','added_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
@@ -1017,6 +1028,7 @@ POSTGRES_LEGACY_COLUMNS = {
     ('entities','status','text','NO','NO',"'confirmed'::text",None),
     ('entities','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
     ('entities','deleted_at','timestamp with time zone','YES','NO',None,None),
+    ('entities','revision','integer','NO','NO','1',None),
     ('entity_mentions','id','bigint','NO','YES',None,'ALWAYS'),
     ('entity_mentions','entity_id','bigint','NO','NO',None,None),
     ('entity_mentions','document_id','bigint','NO','NO',None,None),
@@ -1037,6 +1049,7 @@ POSTGRES_LEGACY_COLUMNS = {
     ('graph_relations','status','text','NO','NO',"'confirmed'::text",None),
     ('graph_relations','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
     ('graph_relations','deleted_at','timestamp with time zone','YES','NO',None,None),
+    ('graph_relations','revision','integer','NO','NO','1',None),
     ('graph_changes','id','bigint','NO','YES',None,'ALWAYS'),
     ('graph_changes','action','text','NO','NO',None,None),
     ('graph_changes','object_type','text','NO','NO',None,None),
@@ -1069,6 +1082,7 @@ POSTGRES_LEGACY_COLUMNS = {
     ('grants','collection_id','bigint','YES','NO',None,None),
     ('grants','access','text','NO','NO',None,None),
     ('grants','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('grants','revision','integer','NO','NO','1',None),
     ('web_sessions','id','text','NO','NO',None,None),
     ('web_sessions','account_id','bigint','NO','NO',None,None),
     ('web_sessions','csrf_token','text','NO','NO',None,None),

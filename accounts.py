@@ -19,8 +19,7 @@ ACCESS = ('read', 'write', 'owner')
 MAX_NAME = 200
 
 
-class Conflict(ValueError):
-    """The record changed since it was read (step 10.6 builds on this)."""
+from core import Conflict, _revise  # noqa: E402  (one conflict type for every object, step 10.6)
 
 
 def _organization(db):
@@ -103,11 +102,12 @@ def _active_admins(store):
         return int(db.execute("SELECT count(*) AS n FROM accounts WHERE role='admin' AND disabled=0").fetchone()['n'])
 
 
-def grant(store, account_id, access, document_id=None, collection_id=None, end_sessions=True):
-    """Give ``access`` on exactly one document or collection; an existing grant there is replaced.
+def grant(store, account_id, access, document_id=None, collection_id=None, end_sessions=True, revision=None):
+    """Give ``access`` on exactly one document or collection; an existing grant there is changed.
 
     ``end_sessions=False`` only for the owner grant of a document the account has just created: that
-    adds nothing to what it could see before and must not sign it out.
+    adds nothing to what it could see before and must not sign it out. ``revision`` is the revision of
+    the grant the caller read, 0 when it saw none; anything else raises ``Conflict``.
     """
     if access not in ACCESS:
         raise ValueError('Unbekannte Freigabe.')
@@ -119,28 +119,41 @@ def grant(store, account_id, access, document_id=None, collection_id=None, end_s
         if db.execute(f'SELECT 1 FROM {table} WHERE id=?', (target,)).fetchone() is None:
             raise ValueError('Ziel der Freigabe nicht gefunden.')
         column = 'document_id' if document_id is not None else 'collection_id'
-        # ponytail: one grant per account and target is kept by delete-then-insert in one
-        # transaction; a partial unique index would enforce it in the database (upgrade path).
-        db.execute(f'DELETE FROM grants WHERE account_id=? AND {column}=?', (account_id, target))
+        # ponytail: one grant per account and target is kept by this code; a partial unique index
+        # would enforce it in the database (upgrade path).
+        existing = db.execute(f'SELECT id FROM grants WHERE account_id=? AND {column}=?',
+                              (account_id, target)).fetchone()
         if end_sessions:
             _end_sessions(db, account_id)
+        if existing is not None:  # revision 0 ("saw none") never matches an existing grant
+            _revise(db, 'grants', existing['id'], revision, 'Die Freigabe')
+            db.execute('UPDATE grants SET access=? WHERE id=?', (access, existing['id']))
+            return existing['id']
+        if revision not in (None, 0):
+            raise Conflict('Die Freigabe wurde inzwischen entfernt. Bitte den aktuellen Stand laden.')
         return db.execute(f'INSERT INTO grants(account_id,{column},access) VALUES(?,?,?) RETURNING id',
                           (account_id, target, access)).fetchone()['id']
 
 
-def revoke(store, account_id, document_id=None, collection_id=None):
+def revoke(store, account_id, document_id=None, collection_id=None, revision=None):
     if (document_id is None) == (collection_id is None):
         raise ValueError('Eine Freigabe gilt genau für ein Dokument oder eine Sammlung.')
     column, target = ('document_id', document_id) if document_id is not None else ('collection_id', collection_id)
     with store.connect() as db:
         _end_sessions(db, account_id)
-        return db.execute(f'DELETE FROM grants WHERE account_id=? AND {column}=?', (account_id, target)).rowcount
+        if revision is None:
+            return db.execute(f'DELETE FROM grants WHERE account_id=? AND {column}=?', (account_id, target)).rowcount
+        if db.execute(f'DELETE FROM grants WHERE account_id=? AND {column}=? AND revision=?',
+                      (account_id, target, int(revision))).rowcount != 1:
+            raise Conflict('Die Freigabe wurde inzwischen geändert. Bitte den aktuellen Stand laden.')
+        return 1
 
 
 def grants(store, account_id):
     with store.connect() as db:
         return [dict(row) for row in db.execute(
-            'SELECT id,document_id,collection_id,access FROM grants WHERE account_id=? ORDER BY id', (account_id,))]
+            'SELECT id,document_id,collection_id,access,revision FROM grants WHERE account_id=? ORDER BY id',
+            (account_id,))]
 
 
 def visible_documents(acting, alias='d'):
@@ -173,6 +186,17 @@ def visible_document_ids(store, acting):
     with store.connect() as db:
         return [row['id'] for row in db.execute(f'SELECT d.id FROM documents d WHERE {condition} ORDER BY d.id',
                                                 params)]
+
+
+def can_write_collection(store, acting, collection_id):
+    """Whether ``acting`` may change a collection: admin, or editor with write or owner access to it."""
+    if acting['disabled'] or acting['role'] == 'reader':
+        return False
+    if acting['role'] == 'admin':
+        return True
+    with store.connect() as db:
+        return db.execute("SELECT 1 FROM grants WHERE account_id=? AND collection_id=? AND access IN ('write','owner')",
+                          (acting['id'], collection_id)).fetchone() is not None
 
 
 def can_write(store, acting, document_id):

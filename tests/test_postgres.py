@@ -488,6 +488,10 @@ class PostgresStoreTests(unittest.TestCase):
         from test_audit import check_audit_contract
         check_audit_contract(self, PostgresStore(self.profile, self.password))
 
+    def test_revisions_on_real_postgresql(self):
+        from test_concurrency import check_revision_contract
+        check_revision_contract(self, PostgresStore(self.profile, self.password))
+
     def test_graph_context_on_real_postgresql(self):
         from test_graph_context import check_graph_context_contract
         check_graph_context_contract(self, PostgresStore(self.profile, self.password))

@@ -182,7 +182,7 @@ class AuditEndpointTests(unittest.TestCase):
         reader.get(f'/api/collections/{self.ids["shared_collection"]}/export')
         reader.post('/api/questions', json={'question': f'Was steht im Wartungsplan zu {SECRET}?'})
         created = editor.post('/api/documents', json={'title': 'Notiz', 'content': 'Lüftung prüfen.'}).json()['id']
-        editor.patch(f'/api/documents/{created}', json={'title': 'Notiz neu'})
+        editor.patch(f'/api/documents/{created}', json={'title': 'Notiz neu', 'revision': 1})
         new = admin.post('/api/accounts', json={'tenant_id': TENANT, 'object_id': 'oid-neu', 'role': 'reader'}).json()['id']
         admin.post('/api/grants', json={'account_id': new, 'access': 'read', 'document_id': created})
         reader.post('/logout', data={server.CSRF_FIELD: reader.headers[server.CSRF_HEADER]})

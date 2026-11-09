@@ -5,7 +5,9 @@ protection, security headers and a limit on failed sign-ins. Step 10.4: JSON end
 ``/api`` that read only through ``store.as_viewer(account)``, so every list, search, vector search,
 graph, original, export and AI context is filtered in the database. Objects that are missing and
 objects the account may not see give the same 404. Step 10.5: security events go to the hash-chained
-audit trail (``audit.py``) before the response leaves the server. The web pages follow in 10.7. The server works only with PostgreSQL; ``create_app`` takes any store so that the
+audit trail (``audit.py``) before the response leaves the server. Step 10.6: every change names the
+revision it read; a stale one answers 409 with the current state and changes nothing. The web pages
+follow in 10.7. The server works only with PostgreSQL; ``create_app`` takes any store so that the
 contract tests can also run on SQLite.
 
 Start: ``python server.py`` with the environment described in ``settings_from_env``.
@@ -21,12 +23,13 @@ import urllib.parse
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 import accounts
 import audit
+from core import Conflict
 import sessions
 from oidc import Provider, SignInError
 
@@ -100,8 +103,21 @@ class NewDocument(BaseModel):
 
 
 class DocumentChange(BaseModel):
+    revision: int
     title: str | None = Field(default=None, min_length=1, max_length=300)
     category: str | None = Field(default=None, min_length=1, max_length=100)
+
+
+class CollectionChange(BaseModel):
+    revision: int
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    add_documents: list[int] = Field(default=[], max_length=1000)
+    remove_documents: list[int] = Field(default=[], max_length=1000)
+
+
+class EntityChange(BaseModel):
+    revision: int
+    name: str = Field(min_length=1, max_length=200)
 
 
 class Question(BaseModel):
@@ -120,6 +136,7 @@ class NewGrant(BaseModel):
     access: str
     document_id: int | None = None
     collection_id: int | None = None
+    revision: int | None = None  # of the grant read; 0 when none was there
 
 
 def create_app(store, provider, base_url, development=False, logger=None, clock=time.time, ai=None):
@@ -307,7 +324,8 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
     def show_document(request: Request, doc_id: int):
         scoped = viewer(request)
         row = document(scoped, doc_id)
-        return {'id': row['id'], 'title': row['title'], 'category': row['category'], 'status': row['status'],
+        return {'id': row['id'], 'revision': row['revision'], 'title': row['title'], 'category': row['category'],
+                'status': row['status'],
                 'created_at': str(row['created_at']), 'content': row['content'],
                 'original': row['original'] is not None, 'versions': scoped.versions(doc_id),
                 'relations': scoped.relations(doc_id), 'collections': scoped.document_collections(doc_id),
@@ -402,7 +420,10 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
             raise HTTPException(403, 'Keine Berechtigung.')
         changes = {key: value for key, value in (('title', body.title), ('category', body.category)) if value}
         try:
-            store.update_metadata(doc_id, **changes)
+            store.update_metadata(doc_id, revision=body.revision, **changes)
+        except Conflict as error:
+            row = store.get(doc_id)
+            return conflict(error, {key: row[key] for key in ('id', 'title', 'category', 'revision')})
         except ValueError as error:
             raise HTTPException(422, str(error)) from None
         audited(request, 'document_changed', account['id'], f'document:{doc_id}', fields=','.join(sorted(changes)))
@@ -422,12 +443,71 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
     def create_grant(request: Request, body: NewGrant):
         admin = require_role(request, 'admin')
         try:
-            created = accounts.grant(store, body.account_id, body.access, body.document_id, body.collection_id)
+            created = accounts.grant(store, body.account_id, body.access, body.document_id, body.collection_id,
+                                     revision=body.revision)
+        except Conflict as error:
+            return conflict(error, [g for g in accounts.grants(store, body.account_id)
+                                    if (g['document_id'], g['collection_id']) == (body.document_id, body.collection_id)])
         except ValueError as error:
             raise HTTPException(422, str(error)) from None
         target = f'document:{body.document_id}' if body.document_id is not None else f'collection:{body.collection_id}'
         audited(request, 'grant_created', admin['id'], target, account=body.account_id, access=body.access)
         return {'id': created}
+
+    def conflict(error, current):
+        """409: nothing was changed; the caller gets the current state to decide again (T2)."""
+        return JSONResponse({'detail': str(error), 'current': current}, status_code=409)
+
+    def visible_collection(scoped, collection_id):
+        found = [c for c in scoped.collections() if c['id'] == collection_id]
+        if not found:
+            raise HTTPException(404, NOT_FOUND)
+        return found[0]
+
+    @app.patch('/api/collections/{collection_id}')
+    def change_collection(request: Request, collection_id: int, body: CollectionChange):
+        account = signed_in(request)
+        scoped = viewer(request)
+        visible_collection(scoped, collection_id)
+        if not accounts.can_write_collection(store, account, collection_id):
+            raise HTTPException(403, 'Keine Berechtigung.')
+        if [bool(body.name), bool(body.add_documents), bool(body.remove_documents)].count(True) != 1:
+            # one change per request, so it is applied whole or not at all
+            raise HTTPException(422, 'Genau eine Änderung angeben: name, add_documents oder remove_documents.')
+        for doc_id in body.add_documents + body.remove_documents:
+            document(scoped, doc_id)  # only documents the account sees
+        try:
+            if body.name:
+                store.rename_collection(collection_id, body.name, body.revision)
+            elif body.add_documents:
+                store.add_to_collection(collection_id, body.add_documents, body.revision)
+            else:
+                store.remove_from_collection(collection_id, body.remove_documents, body.revision)
+        except Conflict as error:
+            return conflict(error, visible_collection(scoped, collection_id))
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from None
+        audited(request, 'collection_changed', account['id'], f'collection:{collection_id}',
+                added=body.add_documents, removed=body.remove_documents, renamed=bool(body.name))
+        return visible_collection(scoped, collection_id)
+
+    @app.patch('/api/entities/{entity_id}')
+    def change_entity(request: Request, entity_id: int, body: EntityChange):
+        scoped = viewer(request)
+        try:
+            scoped.entity(entity_id)
+        except ValueError:
+            raise HTTPException(404, NOT_FOUND) from None
+        admin = require_role(request, 'admin')
+        try:
+            store.rename_entity(entity_id, body.name, body.revision)
+        except Conflict as error:
+            current = scoped.entity(entity_id)
+            return conflict(error, {key: current[key] for key in ('id', 'name', 'revision')})
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from None
+        audited(request, 'graph_changed', admin['id'], f'entity:{entity_id}')
+        return {'id': entity_id}
 
     return app
 

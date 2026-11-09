@@ -47,7 +47,7 @@ def make_v1_sqlite(path):
                       'sources', 'metadata_changes', 'collections', 'collection_documents', 'favorites', 'saved_searches', 'document_relations',
                       'graph_changes', 'graph_relations', 'entity_mentions', 'entities', 'entity_types', 'relation_types'):
             connection.execute(f'DROP TABLE {table}')
-        for column in ('status', 'owner', 'review_date'):
+        for column in ('status', 'owner', 'review_date', 'revision'):
             connection.execute(f'ALTER TABLE documents DROP COLUMN {column}')
         connection.execute('DROP TABLE email_imports')
         connection.execute('DROP TABLE email_accounts')
@@ -461,7 +461,7 @@ class DiagnosticTests(unittest.TestCase):
                                   'graph_changes', 'graph_relations', 'entity_mentions', 'entities', 'entity_types', 'relation_types',
                                   'ai_usage', 'audit_log', 'web_sessions', 'login_requests', 'grants', 'accounts', 'organizations'):
                         connection.execute(f'DROP TABLE {table}')
-                    for column in ('status', 'owner', 'review_date'):
+                    for column in ('status', 'owner', 'review_date', 'revision'):
                         connection.execute(f'ALTER TABLE documents DROP COLUMN {column}')
                     connection.execute('DROP TABLE chunk_vectors')
                     if version < 9:

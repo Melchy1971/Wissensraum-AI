@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS documents (
  id INTEGER PRIMARY KEY, title TEXT NOT NULL, category TEXT NOT NULL,
  filename TEXT, original BLOB, content TEXT NOT NULL,
  sha256 TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
- status TEXT NOT NULL DEFAULT 'new', owner TEXT NOT NULL DEFAULT '', review_date TEXT
+ status TEXT NOT NULL DEFAULT 'new', owner TEXT NOT NULL DEFAULT '', review_date TEXT, revision INTEGER NOT NULL DEFAULT 1
 );
 CREATE TABLE IF NOT EXISTS chunks (
  id INTEGER PRIMARY KEY, document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
@@ -119,7 +119,7 @@ CREATE TABLE IF NOT EXISTS metadata_changes (
 );
 CREATE TABLE IF NOT EXISTS collections (
  id INTEGER PRIMARY KEY, name TEXT NOT NULL, normalized TEXT NOT NULL UNIQUE,
- created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+ created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, revision INTEGER NOT NULL DEFAULT 1
 );
 CREATE TABLE IF NOT EXISTS collection_documents (
  collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
@@ -146,16 +146,16 @@ CREATE TABLE IF NOT EXISTS document_relations (
 );
 CREATE TABLE IF NOT EXISTS entity_types ( id INTEGER PRIMARY KEY, name TEXT NOT NULL, normalized TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP );
 CREATE TABLE IF NOT EXISTS relation_types ( id INTEGER PRIMARY KEY, name TEXT NOT NULL, normalized TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP );
-CREATE TABLE IF NOT EXISTS entities ( id INTEGER PRIMARY KEY, type_id INTEGER NOT NULL REFERENCES entity_types(id), name TEXT NOT NULL, normalized TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'confirmed', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, deleted_at TEXT );
+CREATE TABLE IF NOT EXISTS entities ( id INTEGER PRIMARY KEY, type_id INTEGER NOT NULL REFERENCES entity_types(id), name TEXT NOT NULL, normalized TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'confirmed', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, deleted_at TEXT, revision INTEGER NOT NULL DEFAULT 1 );
 CREATE TABLE IF NOT EXISTS entity_mentions ( id INTEGER PRIMARY KEY, entity_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE, document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE, start_offset INTEGER NOT NULL, end_offset INTEGER NOT NULL, quote TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, deleted_at TEXT, status TEXT NOT NULL DEFAULT 'confirmed' );
-CREATE TABLE IF NOT EXISTS graph_relations ( id INTEGER PRIMARY KEY, source_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE, target_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE, type_id INTEGER NOT NULL REFERENCES relation_types(id), document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE, start_offset INTEGER NOT NULL, end_offset INTEGER NOT NULL, quote TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'confirmed', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, deleted_at TEXT );
+CREATE TABLE IF NOT EXISTS graph_relations ( id INTEGER PRIMARY KEY, source_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE, target_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE, type_id INTEGER NOT NULL REFERENCES relation_types(id), document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE, start_offset INTEGER NOT NULL, end_offset INTEGER NOT NULL, quote TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'confirmed', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, deleted_at TEXT, revision INTEGER NOT NULL DEFAULT 1 );
 CREATE TABLE IF NOT EXISTS graph_changes ( id INTEGER PRIMARY KEY, action TEXT NOT NULL, object_type TEXT NOT NULL, object_id INTEGER NOT NULL, old_value TEXT NOT NULL DEFAULT '', new_value TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, reverted_at TEXT );
 INSERT INTO entity_types(name,normalized) VALUES ('Person','person'), ('Organisation','organisation'), ('Prozess','prozess'), ('System','system'), ('Entscheidung','entscheidung');
 INSERT INTO relation_types(name,normalized) VALUES ('arbeitet für','arbeitet für'), ('verantwortet','verantwortet'), ('nutzt','nutzt'), ('entscheidet über','entscheidet über'), ('gehört zu','gehört zu');
 CREATE TABLE IF NOT EXISTS ai_usage ( id INTEGER PRIMARY KEY, provider TEXT NOT NULL, model TEXT NOT NULL, input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP );
 CREATE TABLE IF NOT EXISTS organizations ( id INTEGER PRIMARY KEY, name TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP );
 CREATE TABLE IF NOT EXISTS accounts ( id INTEGER PRIMARY KEY, organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, tenant_id TEXT NOT NULL, object_id TEXT NOT NULL, display_name TEXT NOT NULL DEFAULT '', role TEXT NOT NULL, disabled INTEGER NOT NULL DEFAULT 0, version INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(tenant_id, object_id) );
-CREATE TABLE IF NOT EXISTS grants ( id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, document_id INTEGER REFERENCES documents(id) ON DELETE CASCADE, collection_id INTEGER REFERENCES collections(id) ON DELETE CASCADE, access TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP );
+CREATE TABLE IF NOT EXISTS grants ( id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, document_id INTEGER REFERENCES documents(id) ON DELETE CASCADE, collection_id INTEGER REFERENCES collections(id) ON DELETE CASCADE, access TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, revision INTEGER NOT NULL DEFAULT 1 );
 INSERT INTO organizations(name) SELECT 'Standard' WHERE NOT EXISTS (SELECT 1 FROM organizations);
 CREATE TABLE IF NOT EXISTS web_sessions ( id TEXT PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, csrf_token TEXT NOT NULL, created_at INTEGER NOT NULL, last_seen INTEGER NOT NULL );
 CREATE TABLE IF NOT EXISTS login_requests ( state TEXT PRIMARY KEY, nonce TEXT NOT NULL, verifier TEXT NOT NULL, created_at INTEGER NOT NULL );
@@ -164,4 +164,4 @@ CREATE TRIGGER IF NOT EXISTS audit_log_no_update BEFORE UPDATE ON audit_log
         BEGIN SELECT RAISE(ABORT, 'Der Audit-Verlauf ist unveränderlich.'); END;
 CREATE TRIGGER IF NOT EXISTS audit_log_no_delete BEFORE DELETE ON audit_log
         BEGIN SELECT RAISE(ABORT, 'Der Audit-Verlauf ist unveränderlich.'); END;
-PRAGMA user_version = 21;
+PRAGMA user_version = 22;
