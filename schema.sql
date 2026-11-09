@@ -29,7 +29,7 @@ END;
 CREATE TABLE IF NOT EXISTS ai_runs (
  id INTEGER PRIMARY KEY, kind TEXT NOT NULL, question TEXT NOT NULL, answer TEXT NOT NULL,
  sources_json TEXT NOT NULL, model TEXT NOT NULL,
- created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+ created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, account_id INTEGER
 );
 CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS email_accounts (
@@ -164,4 +164,4 @@ CREATE TRIGGER IF NOT EXISTS audit_log_no_update BEFORE UPDATE ON audit_log
         BEGIN SELECT RAISE(ABORT, 'Der Audit-Verlauf ist unveränderlich.'); END;
 CREATE TRIGGER IF NOT EXISTS audit_log_no_delete BEFORE DELETE ON audit_log
         BEGIN SELECT RAISE(ABORT, 'Der Audit-Verlauf ist unveränderlich.'); END;
-PRAGMA user_version = 22;
+PRAGMA user_version = 23;

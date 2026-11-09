@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<ul>
+{% for c in collections %}
+<li>{{ c.name }} ({{ c.documents }} Dokumente) · <a href="/api/collections/{{ c.id }}/export">Export</a></li>
+{% else %}
+<li>Keine Sammlungen freigegeben.</li>
+{% endfor %}
+</ul>
+{% endblock %}

@@ -49,6 +49,7 @@ def make_v1_sqlite(path):
             connection.execute(f'DROP TABLE {table}')
         for column in ('status', 'owner', 'review_date', 'revision'):
             connection.execute(f'ALTER TABLE documents DROP COLUMN {column}')
+        connection.execute('ALTER TABLE ai_runs DROP COLUMN account_id')
         connection.execute('DROP TABLE email_imports')
         connection.execute('DROP TABLE email_accounts')
         connection.execute('DROP TABLE settings')
@@ -463,6 +464,7 @@ class DiagnosticTests(unittest.TestCase):
                         connection.execute(f'DROP TABLE {table}')
                     for column in ('status', 'owner', 'review_date', 'revision'):
                         connection.execute(f'ALTER TABLE documents DROP COLUMN {column}')
+                    connection.execute('ALTER TABLE ai_runs DROP COLUMN account_id')
                     connection.execute('DROP TABLE chunk_vectors')
                     if version < 9:
                         for table in ('rule_run_changes', 'rule_runs', 'rules', 'document_tags', 'tags'):

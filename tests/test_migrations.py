@@ -289,6 +289,8 @@ SQLITE_HISTORICAL_MIGRATIONS = (
         """CREATE TRIGGER IF NOT EXISTS audit_log_no_delete BEFORE DELETE ON audit_log
         BEGIN SELECT RAISE(ABORT, 'Der Audit-Verlauf ist unveränderlich.'); END""",
     )),
+    (22, tuple(f'ALTER TABLE {table} ADD COLUMN revision INTEGER NOT NULL DEFAULT 1'
+               for table in ('documents', 'collections', 'entities', 'graph_relations', 'grants'))),
 )
 
 
@@ -407,7 +409,8 @@ class FakePostgres:
         for column, data_type, nullable, default in (('status', 'text', 'NO', "'new'::text"),
                                                      ('owner', 'text', 'NO', "''::text"),
                                                      ('review_date', 'text', 'YES', None),
-                                                     ('revision', 'integer', 'NO', '1')):
+                                                     ('revision', 'integer', 'NO', '1'),
+                                                     ('account_id', 'integer', 'YES', None)):
             if normalized.startswith('ALTER TABLE ') and f' ADD COLUMN {column} ' in normalized:
                 table = normalized.split()[2]
                 self.columns.append({'table_name': table, 'column_name': column,

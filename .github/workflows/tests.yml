@@ -23,7 +23,7 @@ jobs:
       # OCR packages everywhere; the Tesseract program only on Linux. Windows thus checks
       # the supported state "packages installed, program missing" (OCR tests skip there).
       - run: python -m pip install -r requirements-ocr.txt -r requirements-server.txt
-      - run: python -m compileall -q app.py core.py cli.py database.py design.py settings.py importer.py migrations.py configuration.py configuration_authority.py diagnostics.py local_logging.py import_jobs.py mail_structure.py mail_cleanup.py ocr.py accounts.py sessions.py oidc.py server.py
+      - run: python -m compileall -q app.py core.py cli.py database.py design.py settings.py importer.py migrations.py configuration.py configuration_authority.py diagnostics.py local_logging.py import_jobs.py mail_structure.py mail_cleanup.py ocr.py accounts.py sessions.py oidc.py server.py audit.py web.py
       - name: Tests on Windows
         if: runner.os == 'Windows'
         run: python -m unittest discover -s tests -v

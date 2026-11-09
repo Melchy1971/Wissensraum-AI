@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<form method="get" action="/suche"><input type="search" name="q" value="{{ q }}" maxlength="500" required> <button type="submit">Suchen</button></form>
+{% if q %}
+<ol>
+{% for hit in results %}
+<li><a href="/dokument/{{ hit.document_id }}">{{ hit.title }}</a> (Abschnitt {{ hit.ordinal }})<br><small>{{ hit.snippet }}</small></li>
+{% else %}
+<li>Keine Treffer.</li>
+{% endfor %}
+</ol>
+{% endif %}
+{% endblock %}

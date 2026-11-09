@@ -1,0 +1,5 @@
+<input type="hidden" name="revision" value="{{ doc.revision }}">
+<label>Titel <input name="title" value="{{ doc.title }}" maxlength="300" required></label>
+<label>Bereich <input name="category" value="{{ doc.category }}" maxlength="100" required></label>
+<button type="submit">Speichern</button>
+{% if notice %}<p class="notice">{{ notice }}</p>{% endif %}
