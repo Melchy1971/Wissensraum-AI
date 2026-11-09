@@ -106,6 +106,9 @@ def main(argv=None):
     add_account.add_argument('--role',required=True,choices=('admin','editor','reader'))
     add_account.add_argument('--name',default='',help='Anzeigename')
     commands.add_parser('account-list',help='Konten des Mehrbenutzer-Servers')
+    audit_verify = commands.add_parser('audit-verify',help='Hash-Kette des Audit-Verlaufs prüfen')
+    audit_verify.add_argument('--expect',metavar='ANZAHL:HASH',help='Stand einer früheren Prüfung, erkennt Kürzung')
+    commands.add_parser('audit-list',help='Neueste Einträge des Audit-Verlaufs').add_argument('--limit',type=int,default=50)
     keep = commands.add_parser('retention',help='Aufbewahrungsregeln: ohne Angabe Vorschau, mit --apply --confirm anwenden')
     keep.add_argument('category',nargs='?',choices=('ki_verlauf','ki_nutzung','importfehler','graph_geloescht'))
     keep.add_argument('--days',type=int,help='Tage aufbewahren (0 = unbegrenzt)')
@@ -519,9 +522,26 @@ def main(argv=None):
                     print('Zum endgültigen Löschen --confirm angeben.',file=sys.stderr)
                     return 2
                 result = privacy.erase(store,args.ids)
+                import audit
+                audit.record(store,'privacy_erase',None,'documents','cli',{'documents':args.ids})
             elif args.command == 'account-add':
-                import accounts
+                import accounts, audit
                 result = accounts.account(store,accounts.create_account(store,args.tenant,args.object,args.role,args.name))
+                audit.record(store,'account_created',None,f"account:{result['id']}",'cli',{'role':args.role})
+            elif args.command == 'audit-verify':
+                import audit
+                expected = None
+                if args.expect:
+                    count, _, head = args.expect.partition(':')
+                    if not count.isdigit() or len(head) != 64:
+                        raise ValueError('--expect erwartet ANZAHL:HASH aus einer früheren Prüfung.')
+                    expected = (int(count), head)
+                result = audit.verify(store,expected)
+                print(json.dumps(result,ensure_ascii=False,indent=2))
+                return 0 if result['ok'] else 1
+            elif args.command == 'audit-list':
+                import audit
+                result = audit.entries(store,args.limit)
             elif args.command == 'account-list':
                 import accounts
                 result = accounts.accounts(store)

@@ -269,6 +269,15 @@ SQLITE_HISTORICAL_MIGRATIONS = (
         )""",
         "INSERT INTO organizations(name) VALUES ('Standard')",
     )),
+    (20, (
+        """CREATE TABLE IF NOT EXISTS web_sessions (
+            id TEXT PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+            csrf_token TEXT NOT NULL, created_at INTEGER NOT NULL, last_seen INTEGER NOT NULL
+        )""",
+        """CREATE TABLE IF NOT EXISTS login_requests (
+            state TEXT PRIMARY KEY, nonce TEXT NOT NULL, verifier TEXT NOT NULL, created_at INTEGER NOT NULL
+        )""",
+    )),
 )
 
 
@@ -411,6 +420,11 @@ class FakePostgres:
             return FakeResult(rows=[row for row in self.constraints if row['table_name'] in visible])
         if 'FROM pg_catalog.pg_indexes' in normalized:
             return FakeResult(rows=self.indexes)
+        if normalized.startswith('CREATE TRIGGER '):
+            self.triggers = getattr(self, 'triggers', set()) | {normalized.split()[2]}
+        if 'FROM pg_catalog.pg_trigger' in normalized:
+            return FakeResult(rows=[{'tgname': name, 'enabled': 'O'} for name in sorted(getattr(self, 'triggers', set()))
+                                    if 'audit_log' in self.visible_tables()])
         if normalized.startswith('INSERT INTO wissensraum.schema_migrations'):
             self.version = parameters[0]
             self.history.append(parameters[0])
@@ -426,7 +440,7 @@ class FakePostgres:
                        'import_item_errors', 'document_versions', 'email_attachments',
                        'tags', 'document_tags', 'rules', 'rule_runs', 'rule_run_changes',
                        'chunk_vectors', 'metadata_changes', 'collections', 'collection_documents', 'favorites', 'saved_searches',
-                       'document_relations', 'entity_types', 'relation_types', 'entities', 'entity_mentions', 'graph_relations', 'graph_changes', 'ai_usage', 'organizations', 'accounts', 'grants', 'web_sessions', 'login_requests'}
+                       'document_relations', 'entity_types', 'relation_types', 'entities', 'entity_mentions', 'graph_relations', 'graph_changes', 'ai_usage', 'organizations', 'accounts', 'grants', 'web_sessions', 'login_requests', 'audit_log'}
         return tables
 
 
@@ -833,7 +847,7 @@ class PostgresMigrationTests(unittest.TestCase):
                                                           'document_tags', 'rules', 'rule_runs',
                                                           'rule_run_changes', 'chunk_vectors',
                                                           'metadata_changes', 'collections', 'collection_documents', 'favorites', 'saved_searches',
-                                                          'document_relations', 'entity_types', 'relation_types', 'entities', 'entity_mentions', 'graph_relations', 'graph_changes', 'ai_usage', 'organizations', 'accounts', 'grants', 'web_sessions', 'login_requests')),
+                                                          'document_relations', 'entity_types', 'relation_types', 'entities', 'entity_mentions', 'graph_relations', 'graph_changes', 'ai_usage', 'organizations', 'accounts', 'grants', 'web_sessions', 'login_requests', 'audit_log')),
         ]
         indexes = [
             {'table_name':'chunks','index_name':'chunks_document_id_idx','index_definition':'CREATE INDEX chunks_document_id_idx ON wissensraum.chunks USING btree (document_id)'},

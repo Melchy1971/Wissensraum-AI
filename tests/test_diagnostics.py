@@ -459,7 +459,7 @@ class DiagnosticTests(unittest.TestCase):
                 with store.connect() as connection:
                     for table in ('metadata_changes', 'collections', 'collection_documents', 'favorites', 'saved_searches', 'document_relations',
                                   'graph_changes', 'graph_relations', 'entity_mentions', 'entities', 'entity_types', 'relation_types',
-                                  'ai_usage', 'web_sessions', 'login_requests', 'grants', 'accounts', 'organizations'):
+                                  'ai_usage', 'audit_log', 'web_sessions', 'login_requests', 'grants', 'accounts', 'organizations'):
                         connection.execute(f'DROP TABLE {table}')
                     for column in ('status', 'owner', 'review_date'):
                         connection.execute(f'ALTER TABLE documents DROP COLUMN {column}')
