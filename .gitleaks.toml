@@ -15,4 +15,5 @@ regexes = [
   '''Vertraulich-Zebra-4711''',
   '''test-client-secret-nicht-echt-0000''',
   '''db-test-kennwort''',
+  '''runtime-test-kennwort''',
 ]

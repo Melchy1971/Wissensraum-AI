@@ -2599,7 +2599,8 @@ class ProviderError(ValueError):
 
 
 class AI:
-    def __init__(self, store, key, model='gpt-4.1-mini', transport=None, provider='openai'):
+    def __init__(self, store, key, model='gpt-4.1-mini', transport=None, provider='openai', endpoint=None):
+        """``endpoint`` replaces the provider's address (server: Ollama in another container)."""
         from settings import PROVIDERS
         if provider not in PROVIDERS:
             raise ValueError("Unbekannter KI-Anbieter.")
@@ -2607,7 +2608,7 @@ class AI:
             raise ValueError('API-Schlüssel fehlt oder enthält ungültige Zeichen.')
         if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.:/-]{0,119}',model):
             raise ValueError('Ungültige Modell-ID.')
-        self.provider = provider
+        self.provider, self.endpoint = provider, endpoint
         self.store, self.key, self.model = store, key, model
         self.transport = transport or urllib.request.urlopen
 
@@ -2674,7 +2675,7 @@ class AI:
         user_input = self.user_input(question, sources, evidence, numbers, graph)
         if '"graphkontext"' in user_input:
             instructions += self.GRAPH_RULE
-        endpoint=PROVIDERS[self.provider]['endpoint']
+        endpoint=self.endpoint or PROVIDERS[self.provider]['endpoint']
         headers={'Content-Type':'application/json'}
         if self.provider=='openai':
             headers['Authorization']='Bearer '+self.key

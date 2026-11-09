@@ -1,0 +1,14 @@
+.git
+.github
+.local-ci
+data
+tests
+docs
+deploy
+*.db
+*.db-*
+*.zip
+__pycache__
+*.pyc
+.env
+*.key

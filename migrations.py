@@ -1571,6 +1571,19 @@ def _acquire_postgres_migration_lock(db, timeout_seconds=POSTGRES_LOCK_TIMEOUT_S
         raise
 
 
+def check_postgres_current(db):
+    """Check a current schema without any DDL (step 10.8): the server's runtime role has no CREATE right."""
+    try:
+        db.execute('SET search_path TO wissensraum, public')
+        history = [_value(row, 'version') for row in
+                   db.execute('SELECT version FROM wissensraum.schema_migrations ORDER BY version').fetchall()]
+    except Exception:
+        history = None
+    if history != list(range(1, CURRENT_SCHEMA_VERSION + 1)):
+        raise ValueError('Das Serverschema ist nicht aktuell. Zuerst „python server.py migrate“ ausführen.')
+    _validate_postgres_schema(db, CURRENT_SCHEMA_VERSION)
+
+
 def migrate_postgres(db, lock_timeout_seconds=POSTGRES_LOCK_TIMEOUT_SECONDS, *, acquire_lock=True):
     """Migrate PostgreSQL inside the caller's transaction with a bounded lock wait."""
     if acquire_lock:

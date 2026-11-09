@@ -215,6 +215,8 @@ Gleichzeitige Bearbeitung (10.6): Dokumente, Sammlungen, Entitäten, Graphrelati
 
 Zustandsändernde Aufrufe brauchen die Kopfzeile `X-CSRF-Token` und `Origin`. Der KI-Verlauf wird in 10.4 noch gemeinsam gespeichert und über den Server nicht angezeigt; die Trennung je Konto folgt mit der Weboberfläche (10.7).
 
+Betrieb (10.8, D-029): Der Server läuft per Docker auf dem VPS unter `https://wissen.melchy.cloud`, erreichbar nur über WireGuard. Ablauf, Rollen und Geheimnisse beschreibt `deploy/BETRIEB.md`. `python server.py migrate` migriert mit der Eigentümerrolle und setzt die Rechte der Laufzeitrolle, `python server.py` startet mit der Laufzeitrolle ohne Migration, `python server.py account-add --tenant … --object … --role admin` legt den ersten Administrator an, `python server.py audit-verify` prüft den Audit-Verlauf. Zusätzliche Variablen: `DB_MIGRATION_USERNAME`, `DB_MIGRATION_PASSWORD_FILE`, `WR_OLLAMA_URL`, `WR_FORWARDED_ALLOW_IPS`, `WR_LOG_DIR`.
+
 Konfiguration über Umgebungsvariablen: `WR_BASE_URL` (HTTPS, ohne Pfad; HTTP nur mit `WR_DEVELOPMENT=1` auf localhost), `WR_OIDC_TENANT_ID`, `WR_OIDC_CLIENT_ID`, `WR_OIDC_CLIENT_SECRET_FILE` (oder `WR_OIDC_CLIENT_SECRET`), optional `WR_OIDC_AUTHORITY`, Datenbank über `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_SSLMODE`, `DB_PASSWORD_FILE` (oder `DB_PASSWORD`), dazu `WR_HOST`, `WR_PORT`, `WR_TLS_CERT_FILE`, `WR_TLS_KEY_FILE`, für Fragen `WR_AI_PROVIDER` (`openai`, `anthropic`, `gemini`, `ollama`), `WR_AI_MODEL` und `WR_AI_KEY_FILE` (oder `WR_AI_KEY`). In Entra ID wird `<WR_BASE_URL>/auth/callback` als Umleitungs-URI eingetragen. Start: `python server.py`. Docker und Unraid folgen mit 10.8.
 
 ### PostgreSQL-Sicherung und -Wiederherstellung

@@ -496,6 +496,50 @@ class PostgresStoreTests(unittest.TestCase):
         from test_web import check_history_contract
         check_history_contract(self, PostgresStore(self.profile, self.password))
 
+    def test_server_runtime_role_on_real_postgresql(self):
+        """Step 10.8: the server runs with a role that has no DDL and cannot change the audit trail."""
+        import accounts
+        import audit
+        import server
+        import sessions
+        from migrations import check_postgres_current
+        role, secret = 'wissensraum_test_runtime', 'runtime-test-kennwort'
+        owner = PostgresStore(self.profile, self.password)
+        with owner.connect() as db:
+            db.execute(f"CREATE ROLE {role} LOGIN PASSWORD '{secret}'")
+        try:
+            env = {'DB_HOST': self.profile['host'], 'DB_PORT': str(self.profile['port']),
+                   'DB_DATABASE': self.profile['database'], 'DB_SSLMODE': 'disable',
+                   'DB_USERNAME': role, 'DB_PASSWORD': secret,
+                   'DB_MIGRATION_USERNAME': self.profile['username'], 'DB_MIGRATION_PASSWORD': self.password}
+            with self.assertRaisesRegex(ValueError, 'nicht aktuell'):
+                with PostgresStore({**self.profile, 'username': role}, secret, initialize=False).connect() as db:
+                    check_postgres_current(db)  # nothing granted yet: cannot even read the history
+            with self.assertRaisesRegex(ValueError, 'getrennte'):
+                server.migrate({**env, 'DB_USERNAME': self.profile['username']})
+            server.migrate(env)
+            server.migrate(env)  # repeatable
+            settings = {'database': {**self.profile, 'username': role}, 'db_password': secret}
+            runtime = server.runtime_store(settings)
+            doc, _ = runtime.add('Laufzeit', 'Inhalt über die Laufzeitrolle.')
+            account = accounts.create_account(runtime, '00000000-0000-0000-0000-00000000aaaa', 'oid-r', 'admin')
+            sessions.create(runtime, account)
+            runtime.update_metadata(doc, title='Laufzeit neu', revision=1)
+            audit.record(runtime, 'document_created', account, f'document:{doc}')
+            self.assertTrue(audit.verify(runtime)['ok'])
+            for statement in ('UPDATE audit_log SET event=event', 'DELETE FROM audit_log', 'TRUNCATE audit_log',
+                              'CREATE TABLE eingeschleust(x INT)', 'INSERT INTO schema_migrations(version) VALUES(999)',
+                              'DROP TABLE documents'):
+                with self.subTest(statement):
+                    with self.assertRaisesRegex(Exception, 'permission denied|must be owner|Berechtigung'):
+                        with runtime.connect() as db:
+                            db.execute(statement)
+            self.assertEqual(audit.verify(runtime)['entries'], 1)
+        finally:
+            with owner.connect() as db:
+                db.execute(f'DROP OWNED BY {role}')
+                db.execute(f'DROP ROLE {role}')
+
     def test_graph_context_on_real_postgresql(self):
         from test_graph_context import check_graph_context_contract
         check_graph_context_contract(self, PostgresStore(self.profile, self.password))
