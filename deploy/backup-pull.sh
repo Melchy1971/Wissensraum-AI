@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Holt die verschlüsselten Sicherungen vom VPS auf Unraid (Phase 11.0, S-03). Läuft auf Unraid,
+# Holt die verschlüsselten Sicherungen vom VPS auf Unraid (Paritäts-Roadmap Phase 0, S-03). Läuft auf Unraid,
 # zum Beispiel täglich über das Plugin "User Scripts", über WireGuard.
 #
 # Der VPS braucht dafür keinen Zugang zu Unraid. Auf dem VPS gibt es den Benutzer wrbackup, der nur

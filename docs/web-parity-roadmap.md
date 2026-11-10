@@ -14,8 +14,8 @@ Stand: 10.11.2026, Commit `bf3b126`. Grundlage: `docs/desktop-web-parity.md` (Ma
 
 | Phase | Ziel | Prio | Aufwand | Unsicherheit | Abhängig von |
 |---|---|---|---|---|---|
-| 0 | Betrieb absichern | P0 | 3 bis 5 PT | N | keine |
-| 1 | Service-Schicht und atomare Änderungen | P1 | 5 bis 8 PT | N | 0 |
+| 0 | Betrieb absichern (umgesetzt, Einrichtung auf VPS und Unraid offen) | P0 | 3 bis 5 PT | N | keine |
+| 1 | Service-Schicht und atomare Änderungen (umgesetzt, Gate offen) | P1 | 5 bis 8 PT | N | 0 |
 | 2 | KI und Suche im Server vollständig | P1 | 7 bis 12 PT | M | 1 |
 | 3 | Worker-Dienst und Import | P1 | 9 bis 14 PT | M | 1 |
 | 4 | Dokumentpflege und Organisation | P1/P2 | 18 bis 29 PT | N | 1 |
@@ -66,7 +66,8 @@ Ohne Phase 8 (E-Mail, PST): 69 bis 111 PT. Die Phasensummen ergeben sich aus den
    5. `RateLimit` je Konto für Fragen, Upload, Suche.
    6. Dublettenverhalten nach Entscheidung.
 8. Tests: Fehlerinjektion im Audit lässt keine Änderung zurück. Fehlerinjektion in der Freigabe lässt kein Dokument zurück. KI-Ausfall ergibt 503 und Audit. Grenzwerte der Rate Limits ergeben 429.
-9. Akzeptanz: alle bestehenden 45 Server-Tests grün, neue Tests grün, keine Route ruft `store.add` oder `audit.record` außerhalb von `services.py`.
+9. Akzeptanz: alle bestehenden 45 Server-Tests grün, neue Tests grün, kein Schreibvorgang mit Audit außerhalb von `store.transaction()`.
+   Umsetzung 10.11.2026: Die vier doppelten Abläufe (Dokument anlegen, Metadaten, Freigabe, Konto anlegen) und die Frage liegen in `services.py`. Sammlung ändern, Entität umbenennen, Konto ändern, Freigabe entfernen und Abmelden sind nur an einer Stelle vorhanden und laufen dort direkt in `store.transaction()`. Dubletten bleiben nach Entscheidung vom 10.11.2026 unverändert (409 ohne Zugriff).
 10. Rollback: Revert des PR. Keine Datenmigration außer bei Dublettenvariante a, dafür Rückwärtsmigration mit Sicherung.
 
 ### Phase 2: KI und Suche im Server vollständig (P1)

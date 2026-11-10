@@ -42,16 +42,16 @@ Gemeinsamer Kern: `core.py` (`Store`, `PostgresStore`, `AI`, `Embedder`, Extrakt
 
 | Status | Anzahl Desktop-Funktionen |
 |---|---:|
-| FULL | 11 |
+| FULL | 12 |
 | PARTIAL | 19 |
 | MISSING | 36 |
-| DIFFERENT | 3 |
+| DIFFERENT | 2 |
 | NOT_APPLICABLE | 7 |
 | UNKNOWN | 2 |
 | Summe Desktop-Funktionen | 78 |
 | WEB_ONLY (zusätzlich) | 13 |
 
-Funktionsparität = FULL / (FULL + PARTIAL + MISSING + DIFFERENT) = 11 / 69 = 15,9 % (Stand nach Phase 11.0, Branch `phase-11-0-betrieb`. Vor Phase 11.0: 10 / 69 = 14,5 %).
+Funktionsparität = FULL / (FULL + PARTIAL + MISSING + DIFFERENT) = 12 / 69 = 17,4 % (Stand nach Paritäts-Roadmap Phase 1. Nach Phase 0: 11 / 69 = 15,9 %, vor Phase 0: 10 / 69 = 14,5 %).
 
 ## 5. Funktionsmatrix
 
@@ -91,7 +91,7 @@ Spalte Desktop: Status der Referenz (GUI oder CLI). Spalte Web: Status im Web. A
 | C05 | KI | Monatsbudget je Anbieter | FULL (GUI, CLI) | PARTIAL | `budgets.check` wirkt, keine Verwaltung | keine Web-Tests | P2 | 1 |
 | C06 | KI | Veraltete Dokumente aus Antworten ausschließen | FULL (CLI) | PARTIAL | `exclude_retired` wirkt, Schalter und Status fehlen | keine Web-Tests | P2 | 0,5 |
 | C07 | KI | Graphkontext in Antworten | aus (D-025) | NOT_APPLICABLE | `set_graph_context` | test_graph_context | keine | 0 |
-| C08 | KI | Fehler bei KI-Ausfall oder Budgetgrenze | FULL (GUI) | DIFFERENT | `ProviderError` unbehandelt in `web.ask` und `server.question` | keine | P1 | 0,5 bis 1 |
+| C08 | KI | Fehler bei KI-Ausfall oder Budgetgrenze | FULL (GUI) | FULL | `services.ask` übersetzt `ProviderError` in 503 mit Meldung und Audit `unavailable` | test_services s08 | erledigt | 0 |
 | C09 | KI | Qualitäts-Gate mit eingesetztem Modell | gemessen mit `qwen3:8b` | DIFFERENT | `tests/eval/evaluate.py` | keine Messung `qwen3:4b` | P1 | 1 bis 2 |
 | C10 | KI | Anbieter, Modell und Schlüssel in der Oberfläche | FULL (GUI) | NOT_APPLICABLE | Server: `WR_AI_PROVIDER`, `WR_AI_MODEL`, `WR_AI_KEY_FILE` | test_rights | keine | 0 |
 | D01 | Import | Ordner rekursiv vom lokalen Dateisystem | FULL (GUI) | NOT_APPLICABLE | `discover_documents(folder)` | test_importer | keine | 0 |
@@ -111,7 +111,7 @@ Spalte Desktop: Status der Referenz (GUI oder CLI). Spalte Web: Status im Web. A
 | E02 | Datenschutz | Datenschutzexport aller Daten | FULL (GUI, CLI) | MISSING | `privacy.py` | keine Web-Tests | P2 | 1,5 bis 2,5 |
 | E03 | Datenschutz | Selektive Löschung mit allem Abgeleiteten | FULL (GUI, CLI) | MISSING | `privacy.erase`, Audit `privacy_erase` | keine Web-Tests | P1 | 1,5 bis 2,5 |
 | E04 | Datenschutz | Aufbewahrungsregeln | FULL (GUI, CLI) | MISSING | `retention.py` | keine Web-Tests | P2 | 1 bis 2 |
-| E05 | Betrieb | Strukturiertes Protokoll mit Geheimnismaskierung | FULL | FULL | `local_logging`, Uvicorn-Zugriffsprotokoll nur mit Pfad (`server.PathOnlyAccessLog`, Phase 11.0) | test_server AccessLogTests | erledigt, Einsatz auf VPS offen | 0 |
+| E05 | Betrieb | Strukturiertes Protokoll mit Geheimnismaskierung | FULL | FULL | `local_logging`, Uvicorn-Zugriffsprotokoll nur mit Pfad (`server.PathOnlyAccessLog`, Paritäts-Roadmap Phase 0) | test_server AccessLogTests | erledigt, Einsatz auf VPS offen | 0 |
 | F01 | Wissensstruktur | Sammlungen anzeigen und exportieren | FULL (GUI, CLI) | FULL | `collections`, `export_collection`, `GET /api/collections/{id}/export` | test_web, test_rights, test_audit | erledigt | 0 |
 | F02 | Wissensstruktur | Sammlung anlegen und löschen | FULL (GUI, CLI) | MISSING | `create_collection`, `delete_collection` | keine Web-Tests | P1 | 1 bis 1,5 |
 | F03 | Wissensstruktur | Sammlung umbenennen, Dokumente zuordnen | FULL (GUI, CLI) | PARTIAL | `PATCH /api/collections/{id}`, keine Seite | test_concurrency t2 | P2 | 1 bis 1,5 |
@@ -125,7 +125,7 @@ Spalte Desktop: Status der Referenz (GUI oder CLI). Spalte Web: Status im Web. A
 | F11 | Wissensgraph | Entitäts- und Relationsarten verwalten | FULL (CLI) | MISSING | `add_entity_type`, `add_relation_type` | keine Web-Tests | P3 | 1 |
 | G01 | Administration | Betriebsübersicht | FULL (GUI, CLI) | MISSING | `operations.overview` | keine Web-Tests | P2 | 1 bis 1,5 |
 | G02 | Administration | Integritätsprüfung | FULL (GUI, CLI) | MISSING | `backups.integrity` (SQLite-lastig) | keine Web-Tests | P2 | 1 bis 2 |
-| G03 | Administration | Sicherung und Wiederherstellungsübung | FULL (GUI, CLI, SQLite) | PARTIAL | `deploy/backup.sh`, `backup-pull.sh`, `restore-drill.sh`, `server.audit_check` (Phase 11.0) | test_audit ServerAuditCheckTests, manuelle Probe PG 16 | P0 | 0,5 (Einrichtung, Erstlauf) |
+| G03 | Administration | Sicherung und Wiederherstellungsübung | FULL (GUI, CLI, SQLite) | PARTIAL | `deploy/backup.sh`, `backup-pull.sh`, `restore-drill.sh`, `server.audit_check` (Paritäts-Roadmap Phase 0) | test_audit ServerAuditCheckTests, manuelle Probe PG 16 | P0 | 0,5 (Einrichtung, Erstlauf) |
 | G04 | Administration | Geführte Wiederherstellung | FULL (GUI, SQLite) | NOT_APPLICABLE | Betriebsprozess statt Web-Funktion | test_backups | keine | 0 |
 | G05 | Administration | Datenbankprofil, Verbindungstest, Schema-Reset | FULL (GUI) | NOT_APPLICABLE | Server: Umgebung und Migrationsdienst | test_database | keine | 0 |
 | G06 | Administration | Konfigurationstransfer | FULL (GUI) | NOT_APPLICABLE | `configuration.py` | test_configuration | keine | 0 |
@@ -135,7 +135,7 @@ Spalte Desktop: Status der Referenz (GUI oder CLI). Spalte Web: Status im Web. A
 | H02 | Oberfläche | Hell- und Dunkelmodus | FULL | MISSING | `design.py` | keine | P3 | 0,5 bis 1 |
 | H03 | Oberfläche | Logo und Branding | FULL | MISSING | `design.py` | keine | P3 | 0,5 |
 | H04 | Oberfläche | Fortschritts- und Statusanzeigen | FULL | PARTIAL | kein htmx-Indikator, keine Statuszeile | keine | P2 | 0,5 bis 1 |
-| H05 | Oberfläche | Verständliche Fehlermeldungen | FULL | PARTIAL | HTTP-Fehler gut, unbehandelte Ausnahmen als 500 | test_web | P1 | in C08 |
+| H05 | Oberfläche | Verständliche Fehlermeldungen | FULL | PARTIAL | KI-Fehler, 409, 422, 429 erscheinen im Meldungsbereich `#meldung` (htmx `responseHandling`). Datenbankfehler bleiben 500 | test_services s08 | P2 | 0,5 |
 | H06 | Oberfläche | Tastaturbedienung und Barrierefreiheit | teilweise (Enter-Bindungen) | UNKNOWN | keine Prüfung | keine | P3 | 1 bis 2 |
 
 ## 6. Nachweise und fehlende Bestandteile
@@ -188,7 +188,7 @@ Spalte Desktop: Status der Referenz (GUI oder CLI). Spalte Web: Status im Web. A
 | Nr. | Aussage im Plan | Befund | Bewertung |
 |---|---|---|---|
 | M1 | Kopf: Dokumentversion 1.9, Stand 07.11.2026, Produktstand 2.1 | Inhalt reicht bis 09.11.2026 und Release 2.4 | veraltet |
-| M2 | Phase 10.3 ✅ mit „Rate Limits“, `docs/sicherheit-3.0.md`: Rate Limits für Anmeldung, Suche, KI-Fragen und Uploads | nur Anmeldung begrenzt (`FAILED_SIGN_INS`, `SIGN_IN_STARTS`) | widersprüchlich |
+| M2 | Phase 10.3 ✅ mit „Rate Limits“, `docs/sicherheit-3.0.md`: Rate Limits für Anmeldung, Suche, KI-Fragen und Uploads | bis `bf3b126` nur Anmeldung begrenzt. Seit Paritäts-Roadmap Phase 1 je Konto für Fragen, Uploads und Suche (`services.Limits`) | behoben, Masterplan nachziehen |
 | M3 | Gate-Protokolle für 10.2 bis 10.7 (`local-ci-gate-1ad320f.md`, `27a480a`, `660a7f0`, `0500631`, `91c4d3e`, `ee0a6ef`) und 8B (`bb8d1fe`) | Dateien nicht im Repository. Im Repo liegen nur ältere Gate-Dateien | im Repository unbelegt |
 | M4 | 10.7: Testzahl Linux 725 | lokaler Lauf: 728 Tests (Python 3.12) | plausibel, Abweichung durch spätere Commits |
 | M5 | `docs/sicherheit-3.0.md` Abschnitt 4: Ablaufwarnung für das Entra-Client-Geheimnis in der Betriebsübersicht | nicht implementiert, in `BETRIEB.md` als offen geführt | offen, korrekt als offen dokumentiert |
@@ -197,4 +197,4 @@ Spalte Desktop: Status der Referenz (GUI oder CLI). Spalte Web: Status im Web. A
 | M8 | `BETRIEB.md`: Rocky Linux 9, Modell `qwen3:8b` | Auftrag: Rocky Linux 10, `qwen3:4b` | widersprüchlich |
 | M9 | Pflichtenheft 7.2: pgvector | D-016 verschoben, Byte-Spalte mit numpy | korrekt dokumentiert, Auftrag nimmt anderes an |
 | M10 | 10.8 🟡 offen: VPS-Einrichtung, Sicherung, Probelauf mit zwei Konten | Einrichtung und Admin-Anmeldung laut Auftrag erfolgt. Sicherung und Zwei-Konten-Probelauf nicht belegt | Status 🟡 weiterhin zutreffend |
-| M11 | Phase 11.3 verlangt „vereinbarte Funktionsparität“ | Parität 15,9 %, Zielumfang nicht vereinbart | Vereinbarung fehlt |
+| M11 | Phase 11.3 verlangt „vereinbarte Funktionsparität“ | Parität 17,4 %, Zielumfang nicht vereinbart | Vereinbarung fehlt |

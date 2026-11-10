@@ -14,7 +14,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from core import PostgresStore, _PostgresConnection
+from core import PostgresStore, Store, _PostgresConnection
 from configuration import (ConfigurationTransfer, ConfigurationTransferError,
                            recover_pending_configuration)
 from database import DatabaseSettings
@@ -487,6 +487,11 @@ class PostgresStoreTests(unittest.TestCase):
     def test_audit_on_real_postgresql(self):
         from test_audit import check_audit_contract
         check_audit_contract(self, PostgresStore(self.profile, self.password))
+
+    def test_transactions_on_real_postgresql(self):
+        from test_services import check_transaction_contract
+        with tempfile.TemporaryDirectory() as folder:
+            check_transaction_contract(self, PostgresStore(self.profile, self.password), Store(Path(folder) / 'b.db'))
 
     def test_revisions_on_real_postgresql(self):
         from test_concurrency import check_revision_contract

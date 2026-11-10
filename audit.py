@@ -52,6 +52,11 @@ def record(store, event, account_id=None, target='', source='', details=None, no
     entry = {'created_at': int(time.time() if now is None else now),
              'account_id': None if account_id is None else int(account_id), 'event': event,
              'target': str(target)[:MAX_TEXT], 'source': str(source)[:MAX_TEXT], 'details': _clean_details(details)}
+    # Inside ``store.transaction()`` (services.py) this joins the caller's transaction. PostgreSQL then
+    # holds AUDIT_LOCK until that commit, so ids stay gapless and unique. ponytail: on SQLite the
+    # process lock ends before the commit; a writing transaction already holds the database write
+    # lock there, so only two audit-only calls racing can collide, and that fails with a duplicate id
+    # instead of a broken chain. SQLite is the test and desktop backend, the server runs on PostgreSQL.
     with _lock, store.connect() as db:
         if store.backend == 'postgresql':
             # An advisory lock needs no table right; the runtime role may only insert and read here.

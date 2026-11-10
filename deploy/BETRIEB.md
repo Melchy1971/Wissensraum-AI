@@ -23,11 +23,11 @@ Stand 09.11.2026, Entscheidung D-029: Der Server läuft auf dem IONOS-VPS (`85.2
 - Ohne VPN antwortet `https://wissen.melchy.cloud` mit 403, mit VPN erscheint die Anmeldeseite.
 - `docker compose -f deploy/compose.yaml run --rm server python server.py audit-verify` prüft die Hash-Kette des Audit-Verlaufs. Anzahl und letzten Hash aus der Ausgabe notieren.
 
-## Protokoll ohne Anmeldecode und Suchbegriffe (Phase 11.0, S-01)
+## Protokoll ohne Anmeldecode und Suchbegriffe (Paritäts-Roadmap Phase 0, S-01)
 
 Der Server schreibt im Zugriffsprotokoll nur noch den Pfad, keine Query. Vorher standen `code` und `state` der Anmeldung und die Suchbegriffe aus `/suche?q=` im Docker-Log. Nach dem Update einmal die alten Logs verwerfen: `docker compose -f deploy/compose.yaml up -d --force-recreate server` legt den Container neu an, das alte `json-file`-Log wird dabei entfernt. Prüfen: `docker compose -f deploy/compose.yaml logs server | grep -c 'code='` ergibt 0. Falls Traefik ein Accesslog schreibt, dort ebenfalls Querystrings prüfen (`accessLog.fields.names.RequestPath` bzw. `RequestQuery` auf `drop`).
 
-## Sicherung und Wiederherstellungsübung (Phase 11.0, S-03)
+## Sicherung und Wiederherstellungsübung (Paritäts-Roadmap Phase 0, S-03)
 
 Ablauf: Der VPS erzeugt täglich einen mit age verschlüsselten Dump (`deploy/backup.sh`). Unraid holt ihn über WireGuard ab (`deploy/backup-pull.sh`). Die Übung läuft auf Unraid (`deploy/restore-drill.sh`). Der private age-Schlüssel liegt nur bei dir, nie auf dem VPS. Der VPS hat keinen Zugang zu Unraid.
 

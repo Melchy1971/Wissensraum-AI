@@ -12,6 +12,7 @@ import sqlite3
 import urllib.error
 import urllib.request
 from contextlib import closing, contextmanager
+import contextvars
 from pathlib import Path
 import uuid
 
@@ -109,6 +110,35 @@ def _revise(db, table, object_id, revision, what):
                   (object_id, expected)).rowcount != 1:
         raise Conflict(f'{what} wurde inzwischen geändert. Bitte den aktuellen Stand laden.')
     return expected + 1
+
+
+_TRANSACTION = contextvars.ContextVar('wissensraum_transaction', default=None)
+
+
+class Transaction:
+    """One database transaction for several store calls (parity roadmap phase 1, docs/web-parity-roadmap.md).
+
+    Inside ``with store.transaction():`` every ``connect()`` of a store on the same database, in the
+    same thread or task, joins the open connection instead of opening its own. The outermost block
+    commits once at its end; an exception anywhere rolls back everything, so a change, its owner
+    grant and its audit entry are stored together or not at all. Outside such a block nothing changes.
+    """
+
+    def _joined(self):
+        active = _TRANSACTION.get()
+        return active[1] if active is not None and active[0] == self.vector_identity() else None
+
+    @contextmanager
+    def transaction(self):
+        if self._joined() is not None:
+            yield self._joined()
+            return
+        with self.connect() as db:
+            token = _TRANSACTION.set((self.vector_identity(), db))
+            try:
+                yield db
+            finally:
+                _TRANSACTION.reset(token)
 
 
 class Visibility:
@@ -1502,7 +1532,7 @@ class VectorIndex:
         return [{**details[chunk_id], 'score': score} for chunk_id, score in chosen.items() if chunk_id in details]
 
 
-class Store(Visibility, DocumentMetadata, Organization, Relations, Graph, ChunkStrategies, VectorIndex):
+class Store(Transaction, Visibility, DocumentMetadata, Organization, Relations, Graph, ChunkStrategies, VectorIndex):
     backend = 'sqlite'
     # Declared type, PRAGMA not-null flag, normalized default, primary-key position.
     column_contract = {
@@ -1761,6 +1791,10 @@ class Store(Visibility, DocumentMetadata, Organization, Relations, Graph, ChunkS
 
     @contextmanager
     def connect(self):
+        joined = self._joined()
+        if joined is not None:  # inside store.transaction(): same connection, commit at its end
+            yield joined
+            return
         db = sqlite3.connect(self.path, timeout=20)
         db.row_factory = sqlite3.Row
         db.execute('PRAGMA foreign_keys=ON')
@@ -1873,7 +1907,7 @@ class _PostgresConnection:
             return cursor.executemany(self.sql(query),parameters)
 
 
-class PostgresStore(Visibility, DocumentMetadata, Organization, Relations, Graph, ChunkStrategies, VectorIndex):
+class PostgresStore(Transaction, Visibility, DocumentMetadata, Organization, Relations, Graph, ChunkStrategies, VectorIndex):
     """PostgreSQL implementation used after explicit activation in database settings."""
     backend = 'postgresql'
     # information_schema: data_type, udt_name, is_nullable, normalized default, is_identity.
@@ -2176,6 +2210,10 @@ class PostgresStore(Visibility, DocumentMetadata, Organization, Relations, Graph
 
     @contextmanager
     def connect(self):
+        joined=self._joined()
+        if joined is not None:  # inside store.transaction(): same connection, commit at its end
+            yield joined
+            return
         connection=self._connect()
         try:
             with connection:

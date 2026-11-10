@@ -1,4 +1,4 @@
-# Tägliche Sicherung der Server-Datenbank (Phase 11.0). Pfade und Containername anpassen, siehe deploy/BETRIEB.md.
+# Tägliche Sicherung der Server-Datenbank (Paritäts-Roadmap Phase 0). Pfade und Containername anpassen, siehe deploy/BETRIEB.md.
 [Unit]
 Description=Wissensraum-AI: verschlüsselte Sicherung von wissensraum_server
 Requires=docker.service

@@ -156,7 +156,7 @@ class AuditTests(unittest.TestCase):
 
 
 class ServerAuditCheckTests(unittest.TestCase):
-    """``server.py audit-verify`` for the restore drill (Phase 11.0): count, head and --expect."""
+    """``server.py audit-verify`` for the restore drill (parity roadmap phase 0): count, head and --expect."""
 
     def test_server_audit_check(self):
         import server

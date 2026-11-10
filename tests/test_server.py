@@ -322,7 +322,7 @@ class ServerTests(unittest.TestCase):
 
 
 class AccessLogTests(unittest.TestCase):
-    """S-01 (Phase 11.0): the real uvicorn access log keeps paths but no query strings."""
+    """S-01 (parity roadmap phase 0): the real uvicorn access log keeps paths but no query strings."""
 
     def test_access_log_has_no_sign_in_code_or_search_words(self):
         import logging

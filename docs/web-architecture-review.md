@@ -14,7 +14,9 @@ Die Lücken liegen an drei Stellen:
 
 ## 2. Sicherheitsbefunde
 
-Stand Phase 11.0 (Branch `phase-11-0-betrieb`, 10.11.2026): S-01 und S-02 im Code behoben, S-03 mit Skripten umgesetzt (Erstlauf auf VPS und Unraid offen), S-04 laut Product Owner erledigt. S-05 bleibt bewusst so (Entscheidung Product Owner 10.11.2026), siehe Abschnitt 7.
+Stand Paritäts-Roadmap Phase 0 (Branch `phase-11-0-betrieb`, 10.11.2026): S-01 und S-02 im Code behoben, S-03 mit Skripten umgesetzt (Erstlauf auf VPS und Unraid offen), S-04 laut Product Owner erledigt. S-05 bleibt bewusst so (Entscheidung Product Owner 10.11.2026), siehe Abschnitt 7.
+
+Stand Paritäts-Roadmap Phase 1: S-06 (Rate Limits je Konto, `services.Limits`), S-07 (`Store.transaction`, `services.py`) und S-08 (503 mit Meldung und Audit) behoben, Tests in `tests/test_services.py`. Werte der Rate Limits: Fragen 20 je 10 Minuten, Uploads 60 je 10 Minuten, Suchen 120 je Minute, je Konto, API und Seiten zählen zusammen.
 
 | Nr. | Prio | Befund | Nachweis | Wirkung | Maßnahme | Aufwand |
 |---|---|---|---|---|---|---|

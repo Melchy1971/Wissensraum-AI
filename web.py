@@ -14,7 +14,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+import html
+
 import accounts
+import services
 from core import Conflict
 
 ROOT = Path(__file__).resolve().parent
@@ -23,6 +26,7 @@ MAX_UPLOAD = 50 * 1024 * 1024  # core.MAX_DOCUMENT_BYTES
 FORM_LIMITS = {'max_files': 1, 'max_fields': 20, 'max_part_size': 64 * 1024}
 STATUS_TEXT = {401: 'Bitte zuerst anmelden.', 403: 'Dafür fehlt die Berechtigung.',
                404: 'Nicht gefunden.', 413: 'Die Datei ist zu groß.', 422: 'Die Eingabe ist ungültig.'}
+SHOWN = {409, 422, 429, 503}  # our own messages; for 401, 403 and 404 the fixed text (I3)
 
 
 def register(app, ctx):
@@ -42,8 +46,11 @@ def register(app, ctx):
         if request.url.path.startswith('/api/'):
             from fastapi.exception_handlers import http_exception_handler
             return await http_exception_handler(request, error)
-        # Same page for missing and invisible objects (I3); details only for input errors.
-        message = error.detail if error.status_code == 422 else STATUS_TEXT.get(error.status_code, 'Fehler.')
+        # Same page for missing and invisible objects (I3); details only for our own messages.
+        message = error.detail if error.status_code in SHOWN else STATUS_TEXT.get(error.status_code, 'Fehler.')
+        if request.headers.get('hx-request') == 'true':  # into the htmx target, not a whole page
+            return HTMLResponse(f'<p class="notice">{html.escape(str(message))}</p>', status_code=error.status_code,
+                                headers={'HX-Retarget': '#meldung', 'HX-Reswap': 'innerHTML'})
         return render(request, 'message.html', 'Hinweis', error.status_code, message=message,
                       link='/', link_text='Zur Startseite')
 
@@ -75,6 +82,7 @@ def register(app, ctx):
         scoped, q = ctx.viewer(request), q.strip()[:500]
         results = []
         if q:
+            ctx.limited(request, 'search')
             results = [{'document_id': r['document_id'], 'title': r['title'], 'ordinal': r['ordinal'],
                         'snippet': snippet(r['content'], q)} for r in Retriever(scoped).search(q, limit=20).results]
         return render(request, 'search.html', 'Suche', q=q, results=results)
@@ -96,9 +104,8 @@ def register(app, ctx):
         changes = {key: values.get(key, '').strip() for key in ('title', 'category') if values.get(key, '').strip()}
         status, notice = 200, 'Gespeichert.'
         try:
-            store.update_metadata(doc_id, revision=number(values.get('revision')), **changes)
-            ctx.audited(request, 'document_changed', account['id'], f'document:{doc_id}',
-                        fields=','.join(sorted(changes)))
+            services.change_metadata(store, ctx.recorder(request), account, doc_id, number(values.get('revision')),
+                                     **changes)
         except Conflict:
             status, notice = 409, ('Jemand hat das Dokument inzwischen geändert. Angezeigt ist der aktuelle Stand; '
                                    'bitte die Änderung erneut eintragen.')
@@ -115,6 +122,7 @@ def register(app, ctx):
     async def upload(request: Request):
         from core import ImportRejected, OcrDeferred, extract_document
         account = ctx.require_role(request, 'admin', 'editor')
+        ctx.limited(request, 'upload')
         if int(request.headers.get('content-length') or 0) > MAX_UPLOAD + 1024 * 1024:
             raise HTTPException(413, 'Die Datei ist zu groß.')
         values = await form(request)
@@ -129,16 +137,16 @@ def register(app, ctx):
             raise HTTPException(413, 'Die Datei ist zu groß.')
         try:
             title, text, name, original = extract_document(upload.filename or 'Dokument', data, allow_ocr=False)
-            doc_id, created = store.add(title, text, (values.get('category') or 'Allgemein').strip()[:100] or 'Allgemein',
-                                        filename=name, original=original)
+            doc_id = services.create_document(
+                store, ctx.recorder(request), account, title, text,
+                (values.get('category') or 'Allgemein').strip()[:100] or 'Allgemein', filename=name,
+                original=original, upload=True)
         except OcrDeferred:
             raise HTTPException(422, 'Bilder brauchen die Texterkennung; der Server nimmt sie noch nicht an.') from None
+        except services.Duplicate as error:
+            raise HTTPException(409, str(error)) from None
         except (ImportRejected, ValueError) as error:
             raise HTTPException(422, str(error)) from None
-        if not created:
-            raise HTTPException(409, 'Dieser Inhalt ist bereits vorhanden.')
-        accounts.grant(store, account['id'], 'owner', document_id=doc_id, end_sessions=False)
-        ctx.audited(request, 'document_created', account['id'], f'document:{doc_id}', upload=True)
         response = HTMLResponse(f'<p>Gespeichert. <a href="/dokument/{doc_id}">Zum Dokument</a></p>', 201)
         response.headers['HX-Redirect'] = f'/dokument/{doc_id}'
         return response
@@ -155,10 +163,12 @@ def register(app, ctx):
             raise HTTPException(422, 'Bitte eine Frage mit bis zu 4000 Zeichen eingeben.')
         if ctx.ai is None:
             raise HTTPException(503, 'Für den Server ist kein KI-Anbieter eingerichtet.')
-        result = ctx.ai(scoped).ask(question)
+        ctx.limited(request, 'question')
+        try:
+            result = services.ask(scoped, ctx.ai, ctx.recorder(request), request.state.account, question)
+        except services.Unavailable as error:
+            raise HTTPException(503, str(error)) from None
         sources = [s for s in result.sources if s.get('document_id') is not None]
-        ctx.audited(request, 'ai_question', request.state.account['id'], status=result.status,
-                    sources=sorted({s['document_id'] for s in sources}))
         return render(request, 'answer.html', '', answer=result.text, sources=sources)
 
     @app.get('/sammlungen', response_class=HTMLResponse)
@@ -198,11 +208,10 @@ def register(app, ctx):
         admin_account = ctx.require_role(request, 'admin')
         values = await form(request)
         try:
-            created = accounts.create_account(store, values.get('tenant_id', ''), values.get('object_id', ''),
-                                              values.get('role', ''), values.get('display_name', ''))
+            services.create_account(store, ctx.recorder(request), admin_account, values.get('tenant_id', ''),
+                                    values.get('object_id', ''), values.get('role', ''), values.get('display_name', ''))
         except ValueError as error:
             return admin_page(request, str(error), 422)
-        ctx.audited(request, 'account_created', admin_account['id'], f'account:{created}', role=values.get('role'))
         return RedirectResponse('/verwaltung', status_code=303)
 
     @app.post('/verwaltung/konten/{account_id}', response_class=HTMLResponse)
@@ -211,14 +220,15 @@ def register(app, ctx):
         values = await form(request)
         disabled = values.get('disabled') == '1'
         try:
-            changed = accounts.update_account(store, account_id, number(values.get('version')),
-                                              role=values.get('role'), disabled=disabled)
+            with store.transaction():
+                changed = accounts.update_account(store, account_id, number(values.get('version')),
+                                                  role=values.get('role'), disabled=disabled)
+                ctx.audited(request, 'account_changed', admin_account['id'], f'account:{account_id}',
+                            role=changed['role'], disabled=bool(changed['disabled']))
         except Conflict:
             return admin_page(request, 'Das Konto wurde inzwischen geändert. Angezeigt ist der aktuelle Stand.', 409)
         except ValueError as error:
             return admin_page(request, str(error), 422)
-        ctx.audited(request, 'account_changed', admin_account['id'], f'account:{account_id}',
-                    role=changed['role'], disabled=bool(changed['disabled']))
         if account_id == admin_account['id']:
             return RedirectResponse('/', status_code=303)  # own role or lock changed: signed out
         return RedirectResponse('/verwaltung', status_code=303)
@@ -229,11 +239,9 @@ def register(app, ctx):
         values = await form(request)
         target, account_id = target_of(values.get('target')), number(values.get('account_id'))
         try:
-            accounts.grant(store, account_id, values.get('access', ''), **target)
+            services.grant(store, ctx.recorder(request), admin_account, account_id, values.get('access', ''), **target)
         except ValueError as error:
             return admin_page(request, str(error), 422)
-        ctx.audited(request, 'grant_created', admin_account['id'], values.get('target'), account=account_id,
-                    access=values.get('access'))
         return RedirectResponse('/verwaltung', status_code=303)
 
     @app.post('/verwaltung/freigaben/entfernen', response_class=HTMLResponse)
@@ -242,8 +250,9 @@ def register(app, ctx):
         values = await form(request)
         target, account_id = target_of(values.get('target')), number(values.get('account_id'))
         try:
-            accounts.revoke(store, account_id, revision=number(values.get('revision')), **target)
+            with store.transaction():
+                accounts.revoke(store, account_id, revision=number(values.get('revision')), **target)
+                ctx.audited(request, 'grant_revoked', admin_account['id'], values.get('target'), account=account_id)
         except Conflict:
             return admin_page(request, 'Die Freigabe wurde inzwischen geändert. Angezeigt ist der aktuelle Stand.', 409)
-        ctx.audited(request, 'grant_revoked', admin_account['id'], values.get('target'), account=account_id)
         return RedirectResponse('/verwaltung', status_code=303)

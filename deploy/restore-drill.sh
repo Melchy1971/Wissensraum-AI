@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Wiederherstellungsübung für die Server-Datenbank (Phase 11.0, S-03). Läuft auf Unraid.
+# Wiederherstellungsübung für die Server-Datenbank (Paritäts-Roadmap Phase 0, S-03). Läuft auf Unraid.
 #
 # Entschlüsselt eine Sicherung, spielt sie in einen Wegwerf-Container postgres:18 ohne Netzwerk ein,
 # zählt die Zeilen je Tabelle und prüft die Audit-Kette mit dem Server-Image gegen den Stand, der vor

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tägliche Sicherung der Server-Datenbank wissensraum_server (Phase 11.0, S-03). Läuft auf dem VPS.
+# Tägliche Sicherung der Server-Datenbank wissensraum_server (Paritäts-Roadmap Phase 0, S-03). Läuft auf dem VPS.
 #
 # 1. notiert den Stand des Audit-Verlaufs (Anzahl:Hash) vor dem Dump,
 # 2. erzeugt mit pg_dump im PostgreSQL-Container einen Dump (Format custom) mit der Eigentümerrolle,

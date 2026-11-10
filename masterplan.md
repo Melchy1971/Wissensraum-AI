@@ -16,6 +16,20 @@
 
 **Legende:** ✅ vollständig implementiert und gesamtes Gate nachweislich bestanden · 🟡 implementiert oder teilweise geprüft, aber noch nicht vollständig abgenommen · ❌ Gate fehlgeschlagen oder Freigabe blockiert · ⬜ geplant und noch nicht begonnen
 
+## Aktualisierung 10.11.2026 – Paritäts-Roadmap Phase 0 und 1 (Betrieb und Service-Schicht des Servers) 🟡
+
+**Grundlage:** Analyse Desktop/Web an `bf3b126` in `docs/desktop-web-parity.md`, `docs/web-architecture-review.md`, `docs/web-parity-roadmap.md`, `docs/web-parity-testplan.md`. Die Roadmap-Phasen sind nicht die Teilschritte 11.1 bis 11.5 dieses Plans. Sie gehören zum Abschluss von 10.8 und zu 11.1 und 11.2.
+
+**Phase 0 (Befunde S-01 bis S-04):** Zugriffsprotokoll von uvicorn nur mit Pfad, ohne Anmeldecode und Suchbegriffe (`server.PathOnlyAccessLog`). `.gitignore` schließt `deploy/secrets/` und `deploy/wissensraum.env` aus. `server.py audit-verify` braucht nur die Datenbank und kennt `--expect`. Sicherung mit `deploy/backup.sh` (VPS, pg_dump mit age verschlüsselt, Audit-Stand vor dem Dump), Abholung mit `deploy/backup-pull.sh` (Unraid über WireGuard), Übung mit `deploy/restore-drill.sh` (Unraid). Entscheidungen des Product Owners 10.11.2026: Unraid holt ab, age, Kennwort laut Angabe rotiert (Datum in `deploy/BETRIEB.md` nachtragen).
+
+**Phase 1 (Befunde S-06 bis S-08):** `Store.transaction()` für beide Backends. Änderung, Besitzerfreigabe und Audit-Eintrag liegen in einer Transaktion (`services.py`). KI-Ausfall und Budgetgrenze antworten 503 mit Meldung und Audit-Status `unavailable`. Rate Limits je Konto für Fragen, Uploads und Suche. Fehlermeldungen erscheinen in htmx-Bereichen. Dubletten über Kontogrenzen bleiben 409 ohne Zugriff (Entscheidung 10.11.2026).
+
+**Nachweise:** Linux, Python 3.12 mit Tk unter Xvfb: 743 Tests, 1 Fehlschlag (`test_settings_pages_scroll_to_their_last_widget_at_minimum_size`, Seite `mail`, 1 Pixel, bestand schon an `bf3b126`), 60 übersprungen (47 PostgreSQL ohne Konfiguration im Gesamtlauf, 10 Tesseract, 3 nur Windows). PostgreSQL 16 Wegwerf-Cluster: 50 von 50. PostgreSQL 18, Windows und das Matrix-Gate liefen nicht. Mutationsprobe: ohne Filter, ohne Transaktion im Dienst und ohne Einklinken in `connect()` scheitern die neuen Tests.
+
+**Offen:** Matrix-Gate 7 von 7, Einrichtung von Sicherung und Übung auf VPS und Unraid, Neuanlage des Server-Containers zum Verwerfen alter Logs, Prüfung des GUI-Fehlschlags auf Windows.
+
+**Status:** Phase 0 und 1 der Paritäts-Roadmap 🟡. 10.8 bleibt 🟡.
+
 ## Aktualisierung 05.11.2026 (Mittag) – Phase 8A, Schritt 8A.1 Metadaten bearbeiten ✅
 
 **Plan Phase 8A (freigegeben vom Product Owner 05.11.2026):** 8A.1 Metadaten bearbeiten mit Verlauf · 8A.2 Dokumentstatus, Verantwortlicher, Wiedervorlage, Ausschluss veralteter Inhalte aus KI-Antworten · 8A.3 Sammlungen, Favoriten, gespeicherte Suchen · 8A.4 Beziehungen zwischen Dokumenten, Vergleich zweier Fassungen · 8A.5 Export einer Sammlung mit Quellenmanifest. Jeder Schritt mit eigener Migration, Tests für beide Backends, Matrix-Gate 7 von 7 und eigenem PR.

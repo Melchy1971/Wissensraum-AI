@@ -31,6 +31,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 import accounts
 import audit
 from core import Conflict
+import services
 import sessions
 from oidc import Provider, SignInError
 
@@ -140,12 +141,16 @@ class NewGrant(BaseModel):
     revision: int | None = None  # of the grant read; 0 when none was there
 
 
-def create_app(store, provider, base_url, development=False, logger=None, clock=time.time, ai=None):
-    """``ai`` builds the answering component for a store (``core.AI``); None: questions answer 503."""
+def create_app(store, provider, base_url, development=False, logger=None, clock=time.time, ai=None, limits=None):
+    """``ai`` builds the answering component for a store (``core.AI``); None: questions answer 503.
+
+    ``limits`` (``services.Limits``) replaces the default rate limits per account, for tests.
+    """
     base = check_base_url(base_url, development)
     host = urllib.parse.urlsplit(base).hostname
     failed = RateLimit(*FAILED_SIGN_INS)
     starts = RateLimit(*SIGN_IN_STARTS)
+    limits = limits or services.Limits()
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     app.state.failed_sign_ins = failed
 
@@ -163,6 +168,17 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
         """Audit entry first (a failure stops the request), then the operational log."""
         audit.record(store, event, account_id, target, client(request), details, clock())
         log(event, 'WARNING' if event == 'sign_in_refused' else 'INFO', account_id=account_id, target=target, **details)
+
+    def recorder(request):
+        """``audited`` bound to the request, in the form ``services`` expects."""
+        return lambda event, account_id=None, target='', **details: audited(request, event, account_id, target,
+                                                                            **details)
+
+    def limited(request, kind):
+        """429 once the signed-in account used up its requests of ``kind`` (S-06)."""
+        if not limits.allow(kind, signed_in(request)['id']):
+            log('rate_limited', 'WARNING', kind=kind)
+            raise HTTPException(429, 'Zu viele Anfragen. Bitte etwas später erneut versuchen.')
 
     def refuse(request, reason, status=401):
         failed.record(client(request))
@@ -276,9 +292,9 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
     @app.post('/logout')
     def logout(request: Request):
         account = request.state.account
-        with store.connect() as db:
+        with store.transaction() as db:
             sessions.end_all(db, account['id'])
-        audited(request, 'sign_out', account['id'])
+            audited(request, 'sign_out', account['id'])
         response = RedirectResponse('/', status_code=303)
         response.delete_cookie(SESSION_COOKIE, path='/', secure=True, httponly=True, samesite='lax')
         return response
@@ -338,6 +354,7 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
         from retrieval import Retriever, snippet
         if not 0 < len(q) <= 500:
             raise HTTPException(422, 'Suchbegriff mit 1 bis 500 Zeichen angeben.')
+        limited(request, 'search')
         result = Retriever(viewer(request)).search(q, limit=max(1, min(limit, 50)))
         return {'mode': result.mode, 'results': [
             {'document_id': r['document_id'], 'title': r['title'], 'ordinal': r['ordinal'],
@@ -381,25 +398,26 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
         scoped = viewer(request)
         if ai is None:
             raise HTTPException(503, 'Für den Server ist kein KI-Anbieter eingerichtet.')
-        result = ai(scoped).ask(body.question)
-        audited(request, 'ai_question', request.state.account['id'], status=result.status,
-                sources=sorted({s['document_id'] for s in result.sources if s.get('document_id') is not None}))
+        limited(request, 'question')
+        try:
+            result = services.ask(scoped, ai, recorder(request), request.state.account, body.question)
+        except services.Unavailable as error:
+            raise HTTPException(503, str(error)) from None
         return {'answer': result.text, 'status': result.status, 'sources': [
             {key: source.get(key) for key in ('document_id', 'title', 'ordinal')} for source in result.sources]}
 
     @app.post('/api/documents', status_code=201)
     def create_document(request: Request, body: NewDocument):
         account = require_role(request, 'admin', 'editor')
+        limited(request, 'upload')
         try:
-            doc_id, created = store.add(body.title.strip(), body.content)
+            doc_id = services.create_document(store, recorder(request), account, body.title.strip(), body.content)
+        except services.Duplicate as error:
+            # ponytail: answers whether this exact text already exists somewhere, without its id or
+            # title; guessing that needs the whole text. Kept on purpose (decision 10.11.2026, S-05).
+            raise HTTPException(409, str(error)) from None
         except ValueError as error:
             raise HTTPException(422, str(error)) from None
-        if not created:
-            # ponytail: answers whether this exact text already exists somewhere, without its id or
-            # title; guessing that needs the whole text. A per-account copy would remove even that.
-            raise HTTPException(409, 'Dieser Inhalt ist bereits vorhanden.')
-        accounts.grant(store, account['id'], 'owner', document_id=doc_id, end_sessions=False)
-        audited(request, 'document_created', account['id'], f'document:{doc_id}')
         return {'id': doc_id}
 
     @app.patch('/api/documents/{doc_id}')
@@ -410,38 +428,35 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
             raise HTTPException(403, 'Keine Berechtigung.')
         changes = {key: value for key, value in (('title', body.title), ('category', body.category)) if value}
         try:
-            store.update_metadata(doc_id, revision=body.revision, **changes)
+            services.change_metadata(store, recorder(request), account, doc_id, body.revision, **changes)
         except Conflict as error:
             row = store.get(doc_id)
             return conflict(error, {key: row[key] for key in ('id', 'title', 'category', 'revision')})
         except ValueError as error:
             raise HTTPException(422, str(error)) from None
-        audited(request, 'document_changed', account['id'], f'document:{doc_id}', fields=','.join(sorted(changes)))
         return {'id': doc_id}
 
     @app.post('/api/accounts', status_code=201)
     def create_account(request: Request, body: NewAccount):
         admin = require_role(request, 'admin')
         try:
-            created = accounts.create_account(store, body.tenant_id, body.object_id, body.role, body.display_name)
+            created = services.create_account(store, recorder(request), admin, body.tenant_id, body.object_id,
+                                              body.role, body.display_name)
         except ValueError as error:
             raise HTTPException(422, str(error)) from None
-        audited(request, 'account_created', admin['id'], f'account:{created}', role=body.role)
         return {'id': created}
 
     @app.post('/api/grants', status_code=201)
     def create_grant(request: Request, body: NewGrant):
         admin = require_role(request, 'admin')
         try:
-            created = accounts.grant(store, body.account_id, body.access, body.document_id, body.collection_id,
-                                     revision=body.revision)
+            created = services.grant(store, recorder(request), admin, body.account_id, body.access, body.document_id,
+                                     body.collection_id, revision=body.revision)
         except Conflict as error:
             return conflict(error, [g for g in accounts.grants(store, body.account_id)
                                     if (g['document_id'], g['collection_id']) == (body.document_id, body.collection_id)])
         except ValueError as error:
             raise HTTPException(422, str(error)) from None
-        target = f'document:{body.document_id}' if body.document_id is not None else f'collection:{body.collection_id}'
-        audited(request, 'grant_created', admin['id'], target, account=body.account_id, access=body.access)
         return {'id': created}
 
     def conflict(error, current):
@@ -467,18 +482,19 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
         for doc_id in body.add_documents + body.remove_documents:
             document(scoped, doc_id)  # only documents the account sees
         try:
-            if body.name:
-                store.rename_collection(collection_id, body.name, body.revision)
-            elif body.add_documents:
-                store.add_to_collection(collection_id, body.add_documents, body.revision)
-            else:
-                store.remove_from_collection(collection_id, body.remove_documents, body.revision)
+            with store.transaction():
+                if body.name:
+                    store.rename_collection(collection_id, body.name, body.revision)
+                elif body.add_documents:
+                    store.add_to_collection(collection_id, body.add_documents, body.revision)
+                else:
+                    store.remove_from_collection(collection_id, body.remove_documents, body.revision)
+                audited(request, 'collection_changed', account['id'], f'collection:{collection_id}',
+                        added=body.add_documents, removed=body.remove_documents, renamed=bool(body.name))
         except Conflict as error:
             return conflict(error, visible_collection(scoped, collection_id))
         except ValueError as error:
             raise HTTPException(422, str(error)) from None
-        audited(request, 'collection_changed', account['id'], f'collection:{collection_id}',
-                added=body.add_documents, removed=body.remove_documents, renamed=bool(body.name))
         return visible_collection(scoped, collection_id)
 
     @app.patch('/api/entities/{entity_id}')
@@ -490,13 +506,14 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
             raise HTTPException(404, NOT_FOUND) from None
         admin = require_role(request, 'admin')
         try:
-            store.rename_entity(entity_id, body.name, body.revision)
+            with store.transaction():
+                store.rename_entity(entity_id, body.name, body.revision)
+                audited(request, 'graph_changed', admin['id'], f'entity:{entity_id}')
         except Conflict as error:
             current = scoped.entity(entity_id)
             return conflict(error, {key: current[key] for key in ('id', 'name', 'revision')})
         except ValueError as error:
             raise HTTPException(422, str(error)) from None
-        audited(request, 'graph_changed', admin['id'], f'entity:{entity_id}')
         return {'id': entity_id}
 
     @app.get('/healthz')
@@ -511,7 +528,7 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
 
     import web  # the pages of step 10.7, with the same helpers as the API
     web.register(app, SimpleNamespace(store=store, signed_in=signed_in, viewer=viewer, require_role=require_role,
-                                      document=document, audited=audited, ai=ai))
+                                      document=document, audited=audited, ai=ai, recorder=recorder, limited=limited))
     return app
 
 
@@ -632,15 +649,16 @@ def add_account(store, argv):
     parser.add_argument('--role', required=True, choices=accounts.ROLES)
     parser.add_argument('--name', default='')
     args = parser.parse_args(argv)
-    created = accounts.create_account(store, args.tenant, args.object, args.role, args.name)
-    audit.record(store, 'account_created', None, f'account:{created}', 'cli', {'role': args.role})
+    with store.transaction():
+        created = accounts.create_account(store, args.tenant, args.object, args.role, args.name)
+        audit.record(store, 'account_created', None, f'account:{created}', 'cli', {'role': args.role})
     return json.dumps(accounts.account(store, created), ensure_ascii=False)
 
 
 def audit_check(store, argv):
     """``audit-verify [--expect ANZAHL:HASH]``: (JSON text, exit code); needs only the database.
 
-    Used in the container and by the restore drill against a restored copy (Phase 11.0, S-03).
+    Used in the container and by the restore drill against a restored copy (parity roadmap phase 0, S-03).
     """
     import argparse
     import json
@@ -661,7 +679,7 @@ class PathOnlyAccessLog:
     """Logging filter for ``uvicorn.access``: keeps the path, drops the query string.
 
     Uvicorn writes the full request target, so ``/auth/callback?code=...&state=...`` would put the
-    sign-in code into the container log and ``/suche?q=...`` the search words (Phase 11.0, S-01).
+    sign-in code into the container log and ``/suche?q=...`` the search words (parity roadmap phase 0, S-01).
     """
 
     def filter(self, record):
