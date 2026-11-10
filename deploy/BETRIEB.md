@@ -1,6 +1,6 @@
 # Betrieb des Servers auf dem VPS (Release 3.0, Schritt 10.8)
 
-Stand 09.11.2026, Entscheidung D-029: Der Server läuft auf dem IONOS-VPS (`85.215.131.200`, Rocky Linux 9, Docker) unter `https://wissen.melchy.cloud` und ist nur aus dem WireGuard-Netz erreichbar. Er nutzt eine eigene Datenbank `wissensraum_server` im vorhandenen PostgreSQL 18 und das vorhandene Ollama. Die Datenbank der Desktop-Anwendung bleibt unberührt.
+Stand 09.11.2026, Entscheidung D-029: Der Server läuft auf dem IONOS-VPS (`85.215.131.200`, Rocky Linux 10, Docker) unter `https://wissen.melchy.cloud` und ist nur aus dem WireGuard-Netz erreichbar. Er nutzt eine eigene Datenbank `wissensraum_server` im vorhandenen PostgreSQL 18 und das vorhandene Ollama. Die Datenbank der Desktop-Anwendung bleibt unberührt.
 
 ## Ablauf
 
@@ -23,9 +23,44 @@ Stand 09.11.2026, Entscheidung D-029: Der Server läuft auf dem IONOS-VPS (`85.2
 - Ohne VPN antwortet `https://wissen.melchy.cloud` mit 403, mit VPN erscheint die Anmeldeseite.
 - `docker compose -f deploy/compose.yaml run --rm server python server.py audit-verify` prüft die Hash-Kette des Audit-Verlaufs. Anzahl und letzten Hash aus der Ausgabe notieren.
 
+## Protokoll ohne Anmeldecode und Suchbegriffe (Phase 11.0, S-01)
+
+Der Server schreibt im Zugriffsprotokoll nur noch den Pfad, keine Query. Vorher standen `code` und `state` der Anmeldung und die Suchbegriffe aus `/suche?q=` im Docker-Log. Nach dem Update einmal die alten Logs verwerfen: `docker compose -f deploy/compose.yaml up -d --force-recreate server` legt den Container neu an, das alte `json-file`-Log wird dabei entfernt. Prüfen: `docker compose -f deploy/compose.yaml logs server | grep -c 'code='` ergibt 0. Falls Traefik ein Accesslog schreibt, dort ebenfalls Querystrings prüfen (`accessLog.fields.names.RequestPath` bzw. `RequestQuery` auf `drop`).
+
+## Sicherung und Wiederherstellungsübung (Phase 11.0, S-03)
+
+Ablauf: Der VPS erzeugt täglich einen mit age verschlüsselten Dump (`deploy/backup.sh`). Unraid holt ihn über WireGuard ab (`deploy/backup-pull.sh`). Die Übung läuft auf Unraid (`deploy/restore-drill.sh`). Der private age-Schlüssel liegt nur bei dir, nie auf dem VPS. Der VPS hat keinen Zugang zu Unraid.
+
+Einmalige Einrichtung auf deinem Rechner oder Unraid:
+
+1. `age-keygen -o wissensraum-backup.key`. Die Datei sicher ablegen (Passwortmanager plus Offline-Kopie). Ohne sie ist keine Sicherung lesbar.
+2. Die Zeile `Public key: age1...` notieren.
+
+Auf dem VPS:
+
+1. `dnf install age rsync` (age liegt in EPEL).
+2. Den öffentlichen Schlüssel (nur `age1...`) in `deploy/backup-recipient.txt` schreiben. Er ist kein Geheimnis.
+3. Benutzer und Ordner: `useradd --system --create-home --shell /bin/bash wrbackup`, dann `install -d -m 750 -g wrbackup /var/backups/wissensraum` und `setfacl -m g:wrbackup:rx /var/backups/wissensraum && setfacl -d -m g:wrbackup:r /var/backups/wissensraum`. Die Standard-ACL gibt jeder neuen Sicherung Leserecht für `wrbackup`, alle anderen Benutzer sehen nichts.
+4. In `~wrbackup/.ssh/authorized_keys` den öffentlichen SSH-Schlüssel von Unraid mit Einschränkung eintragen: `restrict,from="10.13.13.0/24" ssh-ed25519 AAAA... unraid`. Wenn `rrsync` vorhanden ist, zusätzlich `command="rrsync -ro /var/backups/wissensraum"` und auf Unraid `WR_REMOTE_DIR=` (leer) setzen.
+5. `deploy/wissensraum-backup.service` und `.timer` nach `/etc/systemd/system/` kopieren, Containername eintragen, `systemctl daemon-reload && systemctl enable --now wissensraum-backup.timer`.
+6. Erster Lauf von Hand: `systemctl start wissensraum-backup.service && journalctl -u wissensraum-backup -n 20`.
+
+Auf Unraid:
+
+1. SSH-Schlüssel erzeugen: `ssh-keygen -t ed25519 -N '' -f /boot/config/ssh/wrbackup_ed25519`, einmal `ssh -i ... wrbackup@10.13.13.1` zum Bestätigen des Host-Schlüssels.
+2. `deploy/backup-pull.sh` im Plugin User Scripts täglich nach dem VPS-Lauf ausführen, zum Beispiel 04:00. Das Skript meldet einen Fehler, wenn die neueste Sicherung älter als 36 Stunden ist.
+3. Für die Übung das Server-Image im gleichen Stand bauen: im Repository auf Unraid `docker build -t wissensraum-server:3.0 .`.
+4. Übung vierteljährlich: `WR_AGE_IDENTITY=/pfad/wissensraum-backup.key deploy/restore-drill.sh`. Sie spielt die neueste Sicherung in einen Container ohne Netzwerk ein, zählt die Zeilen und prüft die Audit-Kette gegen den Stand vor dem Dump. Ergebnis steht in `restore-drill.log`. Den Schlüssel danach wieder aus dem Arbeitsordner entfernen.
+
+Nachweis im Repository: Dump mit der Eigentümerrolle, Rückspielen mit `--no-owner --no-privileges` und `server.py audit-verify --expect` auf der Kopie wurden am 10.11.2026 gegen PostgreSQL 16 geprüft, ebenso `backup.sh` mit echtem age und pg_dump und einem Ersatz für docker. `restore-drill.sh` lief noch nicht mit echtem Docker. Der erste Lauf auf Unraid ist die Abnahme.
+
+## Erledigt
+
+- Veröffentlichtes PostgreSQL-Kennwort rotiert (Angabe des Product Owners am 10.11.2026). Datum der Rotation und betroffene Rollen hier nachtragen.
+
 ## Offen bis zur Abnahme von 10.8
 
-- tägliche Sicherung der Server-Datenbank mit `pg_dump` außerhalb des VPS und eine Wiederherstellungsübung (Betriebsprozess in `docs/sicherheit-3.0.md`)
+- erster Lauf von Sicherung, Abholung und Wiederherstellungsübung auf VPS und Unraid
 - wöchentlicher `pip-audit` und Prüfung des Basis-Images
 - Ablaufwarnung für das Entra-Client-Geheimnis
 - Probelauf mit zwei echten Konten im Browser

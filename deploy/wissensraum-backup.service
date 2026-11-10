@@ -1,0 +1,11 @@
+# Tägliche Sicherung der Server-Datenbank (Phase 11.0). Pfade und Containername anpassen, siehe deploy/BETRIEB.md.
+[Unit]
+Description=Wissensraum-AI: verschlüsselte Sicherung von wissensraum_server
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+Environment=WR_PG_CONTAINER=<name-des-postgres-containers>
+Environment=WR_BACKUP_DIR=/var/backups/wissensraum
+ExecStart=/opt/docker/wissen/app/deploy/backup.sh

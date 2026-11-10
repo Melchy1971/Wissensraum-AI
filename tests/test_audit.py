@@ -155,6 +155,25 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(len(json.loads(run('audit-list', '--limit', '1')[1])), 1)
 
 
+class ServerAuditCheckTests(unittest.TestCase):
+    """``server.py audit-verify`` for the restore drill (Phase 11.0): count, head and --expect."""
+
+    def test_server_audit_check(self):
+        import server
+        with tempfile.TemporaryDirectory() as folder:
+            store = Store(Path(folder) / 'audit.db')
+            audit.record(store, 'sign_in', None, '', 'test', {})
+            audit.record(store, 'sign_out', None, '', 'test', {})
+            text, code = server.audit_check(store, [])
+            state = json.loads(text)
+            self.assertEqual((code, state['entries']), (0, 2))
+            self.assertEqual(server.audit_check(store, ['--expect', f'2:{state["head"]}'])[1], 0)
+            self.assertEqual(server.audit_check(store, ['--expect', f'1:{state["head"]}'])[1], 1)  # other head at 1
+            self.assertEqual(server.audit_check(store, ['--expect', f'3:{state["head"]}'])[1], 1)  # shortened
+            with self.assertRaisesRegex(ValueError, 'ANZAHL:HASH'):
+                server.audit_check(store, ['--expect', '2:kurz'])
+
+
 class AuditEndpointTests(unittest.TestCase):
     """R1: every event type of the server leaves one entry with account, time and source."""
 

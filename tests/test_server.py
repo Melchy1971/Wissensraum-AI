@@ -321,6 +321,52 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(self.idp.calls.count(AUTHORITY + '/keys'), keys_fetched + 1)
 
 
+class AccessLogTests(unittest.TestCase):
+    """S-01 (Phase 11.0): the real uvicorn access log keeps paths but no query strings."""
+
+    def test_access_log_has_no_sign_in_code_or_search_words(self):
+        import logging
+        import socket
+        import threading
+        import urllib.request
+        import uvicorn
+        from fastapi import FastAPI
+        app = FastAPI()
+        for path in ('/auth/callback', '/suche'):
+            app.get(path)(lambda: {'ok': True})
+        with socket.socket() as probe:
+            probe.bind(('127.0.0.1', 0))
+            port = probe.getsockname()[1]
+        config = uvicorn.Config(app, host='127.0.0.1', port=port, log_level='info')
+        server.quiet_access_log()
+        server.quiet_access_log()  # idempotent
+        lines = []
+        handler = logging.Handler()
+        handler.emit = lambda record: lines.append(record.getMessage())
+        access = logging.getLogger('uvicorn.access')
+        access.addHandler(handler)
+        direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        running = uvicorn.Server(config)
+        thread = threading.Thread(target=running.run, daemon=True)
+        thread.start()
+        try:
+            deadline = time.monotonic() + 10
+            while not running.started and time.monotonic() < deadline:
+                time.sleep(0.05)
+            for target in ('/auth/callback?code=Geheimcode-4711&state=Zustand-0815', '/suche?q=Gehaltsliste'):
+                direct.open(f'http://127.0.0.1:{port}{target}', timeout=5).close()
+        finally:
+            running.should_exit = True
+            thread.join(10)
+            access.removeHandler(handler)
+        text = '\n'.join(lines)
+        self.assertEqual(sum(1 for f in access.filters if isinstance(f, server.PathOnlyAccessLog)), 1)
+        self.assertIn('GET /auth/callback HTTP/1.1', text)
+        self.assertIn('/suche', text)
+        for secret in ('Geheimcode-4711', 'Zustand-0815', 'code=', 'Gehaltsliste'):
+            self.assertNotIn(secret, text)
+
+
 class ConfigurationTests(unittest.TestCase):
     ENV = {'WR_BASE_URL': 'https://wissen.heimnetz', 'WR_OIDC_TENANT_ID': TENANT, 'WR_OIDC_CLIENT_ID': CLIENT_ID,
            'DB_HOST': 'db', 'DB_DATABASE': 'wissensraum', 'DB_USERNAME': 'wissensraum'}

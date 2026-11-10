@@ -637,6 +637,48 @@ def add_account(store, argv):
     return json.dumps(accounts.account(store, created), ensure_ascii=False)
 
 
+def audit_check(store, argv):
+    """``audit-verify [--expect ANZAHL:HASH]``: (JSON text, exit code); needs only the database.
+
+    Used in the container and by the restore drill against a restored copy (Phase 11.0, S-03).
+    """
+    import argparse
+    import json
+    parser = argparse.ArgumentParser(prog='server.py audit-verify')
+    parser.add_argument('--expect', metavar='ANZAHL:HASH')
+    args = parser.parse_args(argv)
+    expected = None
+    if args.expect:
+        count, _, head = args.expect.partition(':')
+        if not count.isdigit() or len(head) != 64:
+            raise ValueError('--expect erwartet ANZAHL:HASH aus einer früheren Prüfung.')
+        expected = (int(count), head)
+    result = audit.verify(store, expected)
+    return json.dumps(result, ensure_ascii=False), 0 if result['ok'] else 1
+
+
+class PathOnlyAccessLog:
+    """Logging filter for ``uvicorn.access``: keeps the path, drops the query string.
+
+    Uvicorn writes the full request target, so ``/auth/callback?code=...&state=...`` would put the
+    sign-in code into the container log and ``/suche?q=...`` the search words (Phase 11.0, S-01).
+    """
+
+    def filter(self, record):
+        args = record.args
+        if isinstance(args, tuple) and len(args) >= 3 and isinstance(args[2], str):
+            record.args = (*args[:2], args[2].split('?', 1)[0], *args[3:])
+        return True
+
+
+def quiet_access_log():
+    """Install ``PathOnlyAccessLog`` once; call it after uvicorn has configured its logging."""
+    import logging
+    access = logging.getLogger('uvicorn.access')
+    if not any(isinstance(f, PathOnlyAccessLog) for f in access.filters):
+        access.addFilter(PathOnlyAccessLog())
+
+
 def main(argv=None):  # pragma: no cover - starts the real server
     import sys
     import uvicorn
@@ -646,25 +688,28 @@ def main(argv=None):  # pragma: no cover - starts the real server
         migrate()
         print('Schema aktuell, Rechte der Laufzeitrolle gesetzt.')
         return
+    if argv[:1] == ['audit-verify']:  # only the database, no sign-in settings (restore drill)
+        database, password = database_from_env(os.environ)
+        text, code = audit_check(runtime_store({'database': database, 'db_password': password}), argv[1:])
+        print(text)
+        raise SystemExit(code)
     settings = settings_from_env()
     store = runtime_store(settings)
     if argv[:1] == ['account-add']:
         print(add_account(store, argv[1:]))
         return
-    if argv[:1] == ['audit-verify']:
-        import json
-        result = audit.verify(store)
-        print(json.dumps(result, ensure_ascii=False))
-        raise SystemExit(0 if result['ok'] else 1)
     logger = create_operational_logger(Path(os.environ.get('WR_LOG_DIR') or Path(__file__).resolve().parent),
                                        'server', known_secrets=settings['secrets'])
     app = create_app(store, settings['provider'], settings['base_url'], settings['development'], logger,
                      ai=settings['ai'])
     # Behind Traefik the client address comes from X-Forwarded-For, trusted only from the proxy.
-    uvicorn.run(app, host=os.environ.get('WR_HOST', '127.0.0.1'), port=int(os.environ.get('WR_PORT', '8000')),
-                proxy_headers=True, forwarded_allow_ips=os.environ.get('WR_FORWARDED_ALLOW_IPS', '127.0.0.1'),
-                ssl_certfile=os.environ.get('WR_TLS_CERT_FILE') or None,
-                ssl_keyfile=os.environ.get('WR_TLS_KEY_FILE') or None)
+    config = uvicorn.Config(app, host=os.environ.get('WR_HOST', '127.0.0.1'),
+                            port=int(os.environ.get('WR_PORT', '8000')),
+                            proxy_headers=True, forwarded_allow_ips=os.environ.get('WR_FORWARDED_ALLOW_IPS', '127.0.0.1'),
+                            ssl_certfile=os.environ.get('WR_TLS_CERT_FILE') or None,
+                            ssl_keyfile=os.environ.get('WR_TLS_KEY_FILE') or None)
+    quiet_access_log()  # after Config, which sets up uvicorn's loggers
+    uvicorn.Server(config).run()
 
 
 if __name__ == '__main__':

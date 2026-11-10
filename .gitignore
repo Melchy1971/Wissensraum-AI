@@ -22,3 +22,6 @@ design-preview.png
 *.mbox
 *.eml
 .local-ci/
+# Server-Betrieb (Phase 11.0, S-02): Geheimnisse und lokale Umgebung nie ins Repository
+deploy/secrets/
+deploy/wissensraum.env
