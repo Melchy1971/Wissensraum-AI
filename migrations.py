@@ -9,7 +9,7 @@ import uuid
 from contextlib import closing, contextmanager
 from pathlib import Path
 
-CURRENT_SCHEMA_VERSION = 23
+CURRENT_SCHEMA_VERSION = 24
 # Unversioned PostgreSQL schemas predate schema_migrations and match version 4.
 POSTGRES_LEGACY_SCHEMA_VERSION = 4
 # ponytail: source_type is validated in application code (core.SOURCE_TYPES), not by a
@@ -347,6 +347,9 @@ SQLITE_MIGRATIONS = (
                for table in ('documents', 'collections', 'entities', 'graph_relations', 'grants'))),
     # Release 3.0, step 10.7: the AI history belongs to the asking account (None: desktop, command line).
     (23, ('ALTER TABLE ai_runs ADD COLUMN account_id INTEGER',)),
+    # Parity roadmap phase 3: an import job of the server belongs to the uploading account (None: desktop,
+    # command line); an uploaded file waits in import_items.upload until the worker imported it.
+    (24, ('ALTER TABLE import_jobs ADD COLUMN account_id INTEGER', 'ALTER TABLE import_items ADD COLUMN upload BLOB')),
 )
 
 
@@ -651,6 +654,9 @@ POSTGRES_MIGRATIONS = (
                for table in ('documents', 'collections', 'entities', 'graph_relations', 'grants'))),
     # Release 3.0, step 10.7: the AI history belongs to the asking account (None: desktop, command line).
     (23, ('ALTER TABLE ai_runs ADD COLUMN account_id INTEGER',)),
+    # Parity roadmap phase 3: an import job of the server belongs to the uploading account (None: desktop,
+    # command line); an uploaded file waits in import_items.upload until the worker imported it.
+    (24, ('ALTER TABLE import_jobs ADD COLUMN account_id INTEGER', 'ALTER TABLE import_items ADD COLUMN upload BYTEA')),
 )
 
 # Columns added to an existing table by a later migration: (table, column) -> version.
@@ -659,13 +665,15 @@ POSTGRES_COLUMN_VERSIONS = {('chunks', 'search_vector'): 11, ('documents', 'sear
                             ('documents', 'review_date'): 13, ('entity_mentions', 'status'): 17,
                             **{(table, 'revision'): 22 for table in ('documents', 'collections', 'entities',
                                                                        'graph_relations', 'grants')},
-                            ('ai_runs', 'account_id'): 23}
+                            ('ai_runs', 'account_id'): 23,
+                            ('import_jobs', 'account_id'): 24, ('import_items', 'upload'): 24}
 # Columns added to an existing SQLite table by a later migration: (table, column) -> version.
 SQLITE_COLUMN_VERSIONS = {('documents', 'status'): 13, ('documents', 'owner'): 13, ('documents', 'review_date'): 13,
                           ('entity_mentions', 'status'): 17,
                           **{(table, 'revision'): 22 for table in ('documents', 'collections', 'entities',
                                                                      'graph_relations', 'grants')},
-                          ('ai_runs', 'account_id'): 23}
+                          ('ai_runs', 'account_id'): 23,
+                          ('import_jobs', 'account_id'): 24, ('import_items', 'upload'): 24}
 # Generated columns and their expression as PostgreSQL reports it (whitespace-insensitive).
 POSTGRES_GENERATED_COLUMNS = {
     ('chunks', 'search_vector'): "to_tsvector('simple'::regconfig, content)",
@@ -724,14 +732,14 @@ SQLITE_COLUMNS = {
     'import_jobs': (('id','INTEGER',0,None,1), ('kind','TEXT',1,None,0),
                     ('root','TEXT',1,"''",0), ('category','TEXT',1,"'Allgemein'",0),
                     ('status','TEXT',1,None,0), ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0),
-                    ('updated_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
+                    ('updated_at','TEXT',1,'CURRENT_TIMESTAMP',0), ('account_id','INTEGER',0,None,0)),
     'import_items': (('id','INTEGER',0,None,1), ('job_id','INTEGER',1,None,0),
                      ('ordinal','INTEGER',1,None,0), ('path','TEXT',1,None,0),
                      ('locator','TEXT',1,None,0), ('status','TEXT',1,"'pending'",0),
                      ('reason','TEXT',1,"''",0), ('size','INTEGER',0,None,0),
                      ('sha256','TEXT',1,"''",0), ('document_id','INTEGER',0,None,0),
                      ('attempts','INTEGER',1,'0',0),
-                     ('updated_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
+                     ('updated_at','TEXT',1,'CURRENT_TIMESTAMP',0), ('upload','BLOB',0,None,0)),
     'import_item_errors': (('id','INTEGER',0,None,1), ('item_id','INTEGER',1,None,0),
                            ('attempt','INTEGER',1,None,0), ('reason','TEXT',1,None,0),
                            ('message','TEXT',1,None,0),
@@ -927,6 +935,7 @@ POSTGRES_LEGACY_COLUMNS = {
     ('import_jobs','status','text','NO','NO',None,None),
     ('import_jobs','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
     ('import_jobs','updated_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('import_jobs','account_id','integer','YES','NO',None,None),
     ('import_items','id','bigint','NO','YES',None,'ALWAYS'),
     ('import_items','job_id','bigint','NO','NO',None,None),
     ('import_items','ordinal','integer','NO','NO',None,None),
@@ -939,6 +948,7 @@ POSTGRES_LEGACY_COLUMNS = {
     ('import_items','document_id','bigint','YES','NO',None,None),
     ('import_items','attempts','integer','NO','NO','0',None),
     ('import_items','updated_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('import_items','upload','bytea','YES','NO',None,None),
     ('import_item_errors','id','bigint','NO','YES',None,'ALWAYS'),
     ('import_item_errors','item_id','bigint','NO','NO',None,None),
     ('import_item_errors','attempt','integer','NO','NO',None,None),

@@ -42,16 +42,16 @@ Gemeinsamer Kern: `core.py` (`Store`, `PostgresStore`, `AI`, `Embedder`, Extrakt
 
 | Status | Anzahl Desktop-Funktionen |
 |---|---:|
-| FULL | 16 |
-| PARTIAL | 16 |
-| MISSING | 35 |
+| FULL | 18 |
+| PARTIAL | 17 |
+| MISSING | 32 |
 | DIFFERENT | 2 |
 | NOT_APPLICABLE | 7 |
 | UNKNOWN | 2 |
 | Summe Desktop-Funktionen | 78 |
 | WEB_ONLY (zusätzlich) | 13 |
 
-Funktionsparität = FULL / (FULL + PARTIAL + MISSING + DIFFERENT) = 16 / 69 = 23,2 % (Stand nach Paritäts-Roadmap Phase 2. Nach Phase 1: 12 / 69 = 17,4 %, nach Phase 0: 11 / 69 = 15,9 %, vor Phase 0: 10 / 69 = 14,5 %).
+Funktionsparität = FULL / (FULL + PARTIAL + MISSING + DIFFERENT) = 18 / 69 = 26,1 % (Stand nach Paritäts-Roadmap Phase 3. Nach Phase 2: 16 / 69 = 23,2 %, nach Phase 1: 12 / 69 = 17,4 %, nach Phase 0: 11 / 69 = 15,9 %, vor Phase 0: 10 / 69 = 14,5 %).
 
 ## 5. Funktionsmatrix
 
@@ -61,7 +61,7 @@ Spalte Desktop: Status der Referenz (GUI oder CLI). Spalte Web: Status im Web. A
 |---|---|---|---|---|---|---|---|---|
 | A01 | Dokumente | Notiz bzw. Textdokument erfassen | FULL (GUI) | PARTIAL | `Store.add`, `POST /api/documents` | test_rights e1 | P2 | 0,5 bis 1 |
 | A02 | Dokumente | Einzeldatei hochladen (Textformate) | FULL (GUI) | FULL | `extract_document`, `POST /hochladen` | test_web upload | erledigt | 0 |
-| A03 | Dokumente | Mehrere Dateien mit Importvorschau | FULL (GUI) | MISSING | `ImportJobs.preview_*` | keine Web-Tests | P1 | 3 bis 5 |
+| A03 | Dokumente | Mehrere Dateien mit Importvorschau | FULL (GUI) | PARTIAL | Mehrfach- und ZIP-Upload als Auftrag (`ImportJobs.create_uploads`), Ergebnis je Datei. Keine Vorschau mit Abwahl vor dem Import | test_uploads, test_web | P2 | 1 bis 2 |
 | A04 | Dokumente | Titel und Bereich bearbeiten | FULL (GUI, CLI) | FULL | `update_metadata`, `PATCH /api/documents/{id}`, `POST /dokument/{id}/metadaten` | test_web, test_concurrency | erledigt | 0 |
 | A05 | Dokumente | Tags bearbeiten | FULL (GUI, CLI) | MISSING | `update_metadata(add_tags, remove_tags)` | keine Web-Tests | P2 | 1 bis 2 |
 | A06 | Dokumente | Status, Verantwortlicher, Wiedervorlage | FULL (GUI, CLI) | PARTIAL | `update_metadata(status, owner, review_date)` | keine Web-Tests | P2 | 1 bis 1,5 |
@@ -95,8 +95,8 @@ Spalte Desktop: Status der Referenz (GUI oder CLI). Spalte Web: Status im Web. A
 | C09 | KI | Qualitäts-Gate mit eingesetztem Modell | gemessen mit `qwen3:8b` | DIFFERENT | `tests/eval/evaluate.py` | keine Messung `qwen3:4b` | P1 | 1 bis 2 |
 | C10 | KI | Anbieter, Modell und Schlüssel in der Oberfläche | FULL (GUI) | NOT_APPLICABLE | Server: `WR_AI_PROVIDER`, `WR_AI_MODEL`, `WR_AI_KEY_FILE` | test_rights | keine | 0 |
 | D01 | Import | Ordner rekursiv vom lokalen Dateisystem | FULL (GUI) | NOT_APPLICABLE | `discover_documents(folder)` | test_importer | keine | 0 |
-| D02 | Import | Persistente Importaufträge mit Fortschritt, Abbruch, Fortsetzen | FULL (GUI) | MISSING | `ImportJobs`, Tabellen `import_jobs`, `import_items` | keine Web-Tests | P1 | 4 bis 6 |
-| D03 | Import | Importbericht und Fehlerjournal | FULL (GUI) | MISSING | `import_item_errors`, `write_report` | keine Web-Tests | P1 | 1 bis 2 |
+| D02 | Import | Persistente Importaufträge mit Fortschritt, Abbruch, Fortsetzen | FULL (GUI) | FULL | Worker `import_once`, `/importe`, Polling je 2 s, Abbrechen, Fortsetzen, Neustart setzt fort, Schema 24 | test_uploads, test_postgres | erledigt | 0 |
+| D03 | Import | Importbericht und Fehlerjournal | FULL (GUI) | FULL | Status und Grund je Datei, CSV unter `/importe/{id}/bericht` | test_uploads | erledigt | 0 |
 | D04 | Import | OCR für Bilder und Scans | FULL (GUI, optional) | MISSING | `ocr.py`, Server lehnt Bilder ab | test_web (Ablehnung) | P2 | 3 bis 5 |
 | D05 | Import | OCR-Quarantäne erneut verarbeiten | FULL (GUI) | MISSING | `retry_quarantined` | keine Web-Tests | P3 | 1 |
 | D06 | Import | PST-Import mit Vorschau | FULL (GUI, optional) | MISSING | `import_pst`, `pst_archive.py` | keine Web-Tests | P3 | 3 bis 5 |
@@ -197,4 +197,4 @@ Spalte Desktop: Status der Referenz (GUI oder CLI). Spalte Web: Status im Web. A
 | M8 | `BETRIEB.md`: Rocky Linux 9, Modell `qwen3:8b` | Auftrag: Rocky Linux 10, `qwen3:4b` | widersprüchlich |
 | M9 | Pflichtenheft 7.2: pgvector | D-016 verschoben, Byte-Spalte mit numpy | korrekt dokumentiert, Auftrag nimmt anderes an |
 | M10 | 10.8 🟡 offen: VPS-Einrichtung, Sicherung, Probelauf mit zwei Konten | Einrichtung und Admin-Anmeldung laut Auftrag erfolgt. Sicherung und Zwei-Konten-Probelauf nicht belegt | Status 🟡 weiterhin zutreffend |
-| M11 | Phase 11.3 verlangt „vereinbarte Funktionsparität“ | Parität 23,2 %, Zielumfang nicht vereinbart | Vereinbarung fehlt |
+| M11 | Phase 11.3 verlangt „vereinbarte Funktionsparität“ | Parität 26,1 %, Zielumfang nicht vereinbart | Vereinbarung fehlt |

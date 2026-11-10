@@ -1569,13 +1569,14 @@ class Store(Transaction, Visibility, DocumentMetadata, Organization, Relations, 
         'import_jobs': {
             'id':('INTEGER',0,None,1), 'kind':('TEXT',1,None,0), 'root':('TEXT',1,"''",0),
             'category':('TEXT',1,"'allgemein'",0), 'status':('TEXT',1,None,0),
-            'created_at':('TEXT',1,'current_timestamp',0), 'updated_at':('TEXT',1,'current_timestamp',0)},
+            'created_at':('TEXT',1,'current_timestamp',0), 'updated_at':('TEXT',1,'current_timestamp',0),
+            'account_id':('INTEGER',0,None,0)},
         'import_items': {
             'id':('INTEGER',0,None,1), 'job_id':('INTEGER',1,None,0), 'ordinal':('INTEGER',1,None,0),
             'path':('TEXT',1,None,0), 'locator':('TEXT',1,None,0), 'status':('TEXT',1,"'pending'",0),
             'reason':('TEXT',1,"''",0), 'size':('INTEGER',0,None,0), 'sha256':('TEXT',1,"''",0),
             'document_id':('INTEGER',0,None,0), 'attempts':('INTEGER',1,'0',0),
-            'updated_at':('TEXT',1,'current_timestamp',0)},
+            'updated_at':('TEXT',1,'current_timestamp',0), 'upload':('BLOB',0,None,0)},
         'import_item_errors': {
             'id':('INTEGER',0,None,1), 'item_id':('INTEGER',1,None,0), 'attempt':('INTEGER',1,None,0),
             'reason':('TEXT',1,None,0), 'message':('TEXT',1,None,0),
@@ -1954,7 +1955,8 @@ class PostgresStore(Transaction, Visibility, DocumentMetadata, Organization, Rel
             'root':('text','text','NO',"''",'NO'), 'category':('text','text','NO',"'allgemein'",'NO'),
             'status':('text','text','NO',None,'NO'),
             'created_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO'),
-            'updated_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO')},
+            'updated_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO'),
+            'account_id':('integer','int4','YES',None,'NO')},
         'import_items': {
             'id':('bigint','int8','NO',None,'YES'), 'job_id':('bigint','int8','NO',None,'NO'),
             'ordinal':('integer','int4','NO',None,'NO'), 'path':('text','text','NO',None,'NO'),
@@ -1962,7 +1964,8 @@ class PostgresStore(Transaction, Visibility, DocumentMetadata, Organization, Rel
             'reason':('text','text','NO',"''",'NO'), 'size':('bigint','int8','YES',None,'NO'),
             'sha256':('text','text','NO',"''",'NO'), 'document_id':('bigint','int8','YES',None,'NO'),
             'attempts':('integer','int4','NO','0','NO'),
-            'updated_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO')},
+            'updated_at':('timestamp with time zone','timestamptz','NO','current_timestamp','NO'),
+            'upload':('bytea','bytea','YES',None,'NO')},
         'import_item_errors': {
             'id':('bigint','int8','NO',None,'YES'), 'item_id':('bigint','int8','NO',None,'NO'),
             'attempt':('integer','int4','NO',None,'NO'), 'reason':('text','text','NO',None,'NO'),

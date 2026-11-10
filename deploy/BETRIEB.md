@@ -66,6 +66,12 @@ Der Dienst `worker` läuft aus demselben Image wie `server` (`python worker.py`)
 
 Genau ein Worker. Zwei würden dieselben Abschnitte doppelt einbetten (harmlos, aber unnötige Last).
 
+## Uploads und Importaufträge (Paritäts-Roadmap Phase 3)
+
+Hochladen legt einen Auftrag an, der Worker importiert ihn. Mehrere Dateien und ZIP-Archive sind möglich, bis 50 MB je Datei und 100 MB je Upload. Die Dateien liegen bis zum Import in PostgreSQL (`import_items.upload`) und sind damit in der Sicherung. Nach dem Import werden sie dort entfernt, das Original liegt dann am Dokument. Ein gesperrtes Konto oder eines ohne Importrecht stoppt seinen Auftrag. Ein Neustart des Workers setzt laufende Aufträge fort.
+
+Traefik begrenzt den Anfragekörper auf 110 MB (Middleware `wissensraum-groesse` in `compose.yaml`). Nach dem Update prüfen: Ein Upload über 110 MB endet mit 413 von Traefik, bevor der Server ihn liest.
+
 ## Antwortqualität von qwen3:4b messen
 
 Alle Grenzwerte (False Reject höchstens 10 %, False Accept höchstens 5 %) sind mit `qwen3:8b` gemessen. Für das Modell des Servers gilt der Nachweis erst nach eigener Messung auf dem eingefrorenen Bestand V2, auf deinem Rechner, mit exklusiv laufendem Ollama:

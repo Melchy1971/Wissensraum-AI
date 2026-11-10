@@ -1,0 +1,17 @@
+<div id="import-state"{% if open %} hx-get="/importe/{{ job.id }}/stand" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+<p class="status">Status: {{ labels.get(job.status, job.status) }} · {{ summary.total }} Dateien: {{ summary.imported }} importiert, {{ summary.duplicate }} bereits vorhanden, {{ summary.quarantined }} in Quarantäne, {{ summary.failed }} fehlgeschlagen, {{ summary.pending + summary.running }} offen</p>
+{% if open %}
+<form method="post" action="/importe/{{ job.id }}/abbrechen"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit">Abbrechen</button></form>
+{% elif summary.resumable %}
+<form method="post" action="/importe/{{ job.id }}/fortsetzen"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit">Fortsetzen</button></form>
+{% endif %}
+<table>
+<thead><tr><th>Nr.</th><th>Datei</th><th>Status</th><th>Grund</th></tr></thead>
+<tbody>
+{% for item in items %}
+<tr><td>{{ item.ordinal }}</td><td>{% if item.document_id %}<a href="/dokument/{{ item.document_id }}">{{ item.locator }}</a>{% else %}{{ item.locator }}{% endif %}</td>
+<td>{{ item.status_text }}</td><td>{{ item.reason_text }}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+</div>

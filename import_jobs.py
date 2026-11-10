@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import csv
 import hashlib
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext as _nothing
 from pathlib import Path
 
-from core import QUARANTINE_REASONS, ImportRejected, OcrDeferred, discover_documents, import_document
+from core import (MAX_DOCUMENT_BYTES, QUARANTINE_REASONS, ImportRejected, OcrDeferred, discover_documents,
+                  extract_document, import_document)
 
 FINAL_STATUSES = ('imported', 'versioned', 'duplicate', 'quarantined')
 OPEN_STATUSES = ('pending', 'running', 'failed')
@@ -25,6 +26,59 @@ MAIL_KINDS = ('imap', 'graph', 'pst')
 OUTCOME_LABELS = {'new': 'neu', 'version': 'neue Version', 'duplicate': 'bereits vorhanden',
                   'ocr': 'Texterkennung beim Import', 'quarantined': 'Quarantäne'}
 PREVIEW_EXCERPT = 400
+# Server uploads (parity roadmap phase 3): a ZIP archive is unpacked into one item per file, within limits.
+UPLOAD = 'upload'
+MAX_ARCHIVE_ENTRIES = 1000
+MAX_ARCHIVE_BYTES = 300 * 1024 * 1024
+MAX_ARCHIVE_RATIO = 100
+ITEM_COLUMNS = ('id,job_id,ordinal,path,locator,status,reason,size,sha256,document_id,attempts,updated_at')
+
+
+def upload_name(name):
+    """The file name of an upload or archive entry: no folders, no control characters, at most 200 characters."""
+    name = str(name or '').replace('\\', '/').rsplit('/', 1)[-1]
+    name = ''.join(c for c in name if c.isprintable()).strip(' .')
+    return name[:200] or 'Datei'
+
+
+def archive_entries(archive_name, data):
+    """``(entries, problems)`` of a ZIP upload: entries are (name, bytes), problems (name, reason, message).
+
+    Only regular files; folders and macOS metadata are skipped. Nested archives stay archives and land
+    in quarantine as unsupported. Limits: entries, unpacked total, size per file and compression ratio.
+    """
+    import io
+    import zipfile
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(data))
+    except zipfile.BadZipFile:
+        return [], [(archive_name, 'damaged', 'ZIP-Archiv ist beschädigt.')]
+    with archive:
+        infos = [i for i in archive.infolist() if not i.is_dir() and not i.filename.startswith('__MACOSX/')
+                 and not i.filename.replace('\\', '/').rsplit('/', 1)[-1].startswith('.')]
+        unpacked = sum(i.file_size for i in infos)
+        packed = max(1, sum(i.compress_size for i in infos))
+        if len(infos) > MAX_ARCHIVE_ENTRIES or unpacked > MAX_ARCHIVE_BYTES or unpacked / packed > MAX_ARCHIVE_RATIO:
+            return [], [(archive_name, 'limits', 'ZIP-Archiv überschreitet die Entpackgrenzen.')]
+        entries, problems = [], []
+        for info in infos:
+            name = f'{upload_name(archive_name)}/{upload_name(info.filename)}'
+            if info.flag_bits & 0x1:
+                problems.append((name, 'encrypted', 'Datei im Archiv ist verschlüsselt.'))
+            elif info.file_size > MAX_DOCUMENT_BYTES:
+                problems.append((name, 'too_large', 'Datei im Archiv ist zu groß.'))
+            else:
+                try:
+                    with archive.open(info) as member:
+                        content = member.read(MAX_DOCUMENT_BYTES + 1)
+                except (zipfile.BadZipFile, OSError, ValueError, NotImplementedError):
+                    problems.append((name, 'damaged', 'Datei im Archiv ist nicht lesbar.'))
+                    continue
+                if len(content) > MAX_DOCUMENT_BYTES:  # the header lied about the size
+                    problems.append((name, 'limits', 'Datei im Archiv überschreitet die Entpackgrenzen.'))
+                else:
+                    entries.append((name, content))
+        return entries, problems
 
 
 def file_source(path):
@@ -76,6 +130,65 @@ class ImportJobs:
                            (item_id, 1, 'unreadable', message))
         return job_id
 
+    def create_uploads(self, account_id, files, category='Allgemein'):
+        """Server job for ``account_id``: ``files`` are (name, bytes); ZIP archives are unpacked.
+
+        The bytes wait in ``import_items.upload`` until the worker imported the item and are removed then.
+        """
+        entries, problems = [], []
+        for name, data in files:
+            if upload_name(name).lower().endswith('.zip'):
+                found, failed = archive_entries(name, data)
+                entries += found
+                problems += failed
+            else:
+                entries.append((upload_name(name), data))
+        if not entries and not problems:
+            raise ValueError('Keine Dateien gefunden.')
+        with self.store.transaction() as db:
+            job_id = db.execute('INSERT INTO import_jobs(kind,root,category,status,account_id) VALUES(?,?,?,?,?) '
+                                'RETURNING id', (UPLOAD, '', category, 'pending', account_id)).fetchone()['id']
+            for ordinal, (name, data) in enumerate(entries, start=1):
+                db.execute('INSERT INTO import_items(job_id,ordinal,path,locator,size,upload) VALUES(?,?,?,?,?,?)',
+                           (job_id, ordinal, name, name, len(data), data))
+            for ordinal, (name, reason, message) in enumerate(problems, start=len(entries) + 1):
+                item_id = db.execute(
+                    'INSERT INTO import_items(job_id,ordinal,path,locator,status,reason,attempts) '
+                    'VALUES(?,?,?,?,?,?,?) RETURNING id',
+                    (job_id, ordinal, name, name, 'quarantined', reason, 1)).fetchone()['id']
+                db.execute('INSERT INTO import_item_errors(item_id,attempt,reason,message) VALUES(?,?,?,?)',
+                           (item_id, 1, reason, message))
+        return job_id
+
+    def next_upload_job(self):
+        """The oldest open server job (pending, or running after an interruption), or None.
+
+        ponytail: one worker reads this; two could pick the same job. Upgrade path: FOR UPDATE SKIP LOCKED.
+        """
+        with self.store.connect() as db:
+            row = db.execute("SELECT id FROM import_jobs WHERE kind=? AND status IN ('pending','running') "
+                             'ORDER BY id LIMIT 1', (UPLOAD,)).fetchone()
+        return row['id'] if row else None
+
+    def upload_jobs(self, account_id=None, limit=50):
+        """Summaries of server jobs, newest first; ``account_id`` None: all (administrators)."""
+        with self.store.connect() as db:
+            ids = [row['id'] for row in db.execute(
+                'SELECT id FROM import_jobs WHERE kind=? AND (? IS NULL OR account_id=?) ORDER BY id DESC LIMIT ?',
+                (UPLOAD, account_id, account_id, limit))]
+        return [self.summary(job_id) for job_id in ids]
+
+    def set_status(self, job_id, status):
+        """Cancel (``cancelled``) an unfinished job, or resume (``pending``) one with open or failed items."""
+        if status not in ('cancelled', 'pending'):
+            raise ValueError('Unbekannter Auftragsstatus.')
+        allowed = ("status IN ('pending','running')" if status == 'cancelled' else
+                   "EXISTS (SELECT 1 FROM import_items i WHERE i.job_id=import_jobs.id "
+                   "AND i.status IN ('pending','running','failed'))")
+        with self.store.connect() as db:
+            return db.execute(f'UPDATE import_jobs SET status=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND {allowed}',
+                              (status, job_id)).rowcount == 1
+
     def retry_candidates(self, reason='no_text'):
         """Items whose latest outcome is quarantine for ``reason``, grouped by source; oldest first.
 
@@ -106,8 +219,12 @@ class ImportJobs:
         return [self._create(kind, root, category, entries, ())
                 for (kind, root, category), entries in self.retry_candidates(reason).items()]
 
-    def run(self, job_id, cancel=None, progress=None):
-        """Process all open items in order; stop between items when ``cancel`` is set."""
+    def run(self, job_id, cancel=None, progress=None, pause=None):
+        """Process all open items in order; stop between items when ``cancel`` is set.
+
+        ``pause`` (the worker's shutdown) also stops between items but leaves the job running, so that
+        the next start resumes it; ``cancel`` marks it cancelled.
+        """
         job = self.job(job_id)
         items = [item for item in self.items(job_id) if item['status'] in OPEN_STATUSES]
         self._set_job_status(job_id, 'running')
@@ -115,7 +232,9 @@ class ImportJobs:
         mail = job['kind'] in MAIL_KINDS
         with self._handler(job) as handle:
             for done, item in enumerate(items, start=1):
-                if cancel is not None and cancel.is_set():
+                if pause is not None and pause.is_set():
+                    return self.summary(job_id)
+                if cancel is not None and cancel.is_set() or job['kind'] == UPLOAD and self._cancelled(job_id):
                     self._set_job_status(job_id, 'cancelled')
                     return self.summary(job_id)
                 self._process(item, handle)
@@ -136,7 +255,44 @@ class ImportJobs:
                 self._set_job_status(job['id'], 'cancelled')  # e.g. login failed: job stays resumable
                 raise
             return
+        if job['kind'] == UPLOAD:
+            yield self._upload_handler(job)
+            return
         yield lambda item, recovering: self._file_item(job, item, recovering)
+
+    def _cancelled(self, job_id):
+        return self.job(job_id)['status'] == 'cancelled'
+
+    def _upload_handler(self, job):
+        """Import one uploaded item for the job's account: document, owner grant and audit entry together.
+
+        The account is read again for every job: a locked account or one that lost the right to import
+        stops the job (status cancelled), nothing is created in its name.
+        """
+        import accounts
+        import audit
+        account = accounts.account(self.store, job['account_id'])
+        if account['disabled'] or account['role'] not in ('admin', 'editor'):
+            self._set_job_status(job['id'], 'cancelled')
+            raise PermissionError('Das Konto darf nicht mehr importieren.')
+
+        def handle(item, recovering):
+            with self.store.connect() as db:
+                data = bytes(db.execute('SELECT upload FROM import_items WHERE id=?', (item['id'],)).fetchone()['upload'])
+            try:
+                title, text, filename, original = extract_document(item['locator'], data, allow_ocr=False)
+            except OcrDeferred:  # quarantine, so that a later run with OCR can take it up again
+                raise ImportRejected('no_text', 'Bilder brauchen die Texterkennung; der Server verarbeitet '
+                                                'sie noch nicht.') from None
+            document_id, created = self.store.add(title, text, job['category'], filename, original)
+            if created:
+                accounts.grant(self.store, account['id'], 'owner', document_id=document_id, end_sessions=False)
+                audit.record(self.store, 'document_created', account['id'], f'document:{document_id}', 'worker',
+                             {'job': job['id']})
+            # Decision 10.11.2026: an existing text gives no access; the item only says "already there".
+            return ('imported' if created else 'duplicate'), (document_id if created else None), original
+        handle.atomic = True
+        return handle
 
     def _file_item(self, job, item, recovering):
         title, text, filename, data = import_document(item['path'])
@@ -157,8 +313,11 @@ class ImportJobs:
             db.execute("UPDATE import_items SET status='running',attempts=?,updated_at=CURRENT_TIMESTAMP "
                        'WHERE id=?', (attempt, item['id']))
         try:
-            status, document_id, data = handle(item, recovering)
-            self._finish(item['id'], status, '', document_id, len(data), hashlib.sha256(data).hexdigest())
+            # Server uploads: the item's result and what it created in one transaction (document, owner grant,
+            # audit entry). Desktop jobs keep their two steps and the recovery after an interruption.
+            with self.store.transaction() if getattr(handle, 'atomic', False) else _nothing():
+                status, document_id, data = handle(item, recovering)
+                self._finish(item['id'], status, '', document_id, len(data), hashlib.sha256(data).hexdigest())
         except ImportRejected as rejected:
             self._finish(item['id'], 'quarantined', rejected.reason, error=(attempt, str(rejected)))
         except OSError as error:
@@ -169,9 +328,11 @@ class ImportJobs:
 
     def _finish(self, item_id, status, reason, document_id=None, size=None, sha256='', error=None):
         with self.store.connect() as db:
-            db.execute('UPDATE import_items SET status=?,reason=?,document_id=?,size=?,sha256=?,'
+            db.execute('UPDATE import_items SET status=?,reason=?,document_id=?,size=COALESCE(?,size),sha256=?,'
                        'updated_at=CURRENT_TIMESTAMP WHERE id=?',
                        (status, reason, document_id, size, sha256, item_id))
+            if status in FINAL_STATUSES:  # an upload's bytes are not kept once the item is decided
+                db.execute('UPDATE import_items SET upload=NULL WHERE id=? AND upload IS NOT NULL', (item_id,))
             if error is not None:
                 db.execute('INSERT INTO import_item_errors(item_id,attempt,reason,message) VALUES(?,?,?,?)',
                            (item_id, error[0], reason, error[1]))
@@ -245,8 +406,8 @@ class ImportJobs:
 
     def items(self, job_id):
         with self.store.connect() as db:
-            return [dict(row) for row in db.execute(
-                'SELECT * FROM import_items WHERE job_id=? ORDER BY ordinal', (job_id,))]
+            return [dict(row) for row in db.execute(  # without the upload bytes
+                f'SELECT {ITEM_COLUMNS} FROM import_items WHERE job_id=? ORDER BY ordinal', (job_id,))]
 
     def errors(self, item_id):
         with self.store.connect() as db:

@@ -42,8 +42,10 @@ services:
       traefik.http.routers.wissensraum.rule: Host(`wissen.melchy.cloud`)
       traefik.http.routers.wissensraum.entrypoints: <https-entrypoint>
       traefik.http.routers.wissensraum.tls.certresolver: <certresolver>
-      traefik.http.routers.wissensraum.middlewares: wissensraum-vpn
+      traefik.http.routers.wissensraum.middlewares: wissensraum-vpn,wissensraum-groesse
       traefik.http.middlewares.wissensraum-vpn.ipallowlist.sourcerange: 10.13.13.0/24
+      # S-09: Obergrenze für den Anfragekörper vor dem Server (Upload 100 MB plus Formularrahmen), auch ohne Content-Length.
+      traefik.http.middlewares.wissensraum-groesse.buffering.maxRequestBodyBytes: "110000000"
       traefik.http.services.wissensraum.loadbalancer.server.port: "8000"
 
   # Hintergrundarbeiten (Paritäts-Roadmap Phase 2): bettet Abschnitte für die semantische Suche ein.

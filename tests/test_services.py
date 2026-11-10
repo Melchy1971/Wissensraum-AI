@@ -102,10 +102,6 @@ class ServiceEndpointTests(EndpointTests):
         self.assertEqual(created.status_code, 201)
         self.assertEqual((self.documents(), self.owner_grants()), (before + 1, grants + 1))
         self.assertEqual(audit.verify(self.store)['entries'], entries + 1)
-        upload = editor.post('/hochladen', files={'file': ('neu.txt', 'Neuer Text für den Upload.'.encode(), 'text/plain')},
-                             data={'category': 'Allgemein'}, headers={'HX-Request': 'true'})
-        self.assertEqual(upload.status_code, 201)
-        self.assertEqual(self.owner_grants(), grants + 2)
         self.assertTrue(audit.verify(self.store)['ok'])
 
     def test_s07_metadata_and_grant_changes_roll_back_without_audit(self):

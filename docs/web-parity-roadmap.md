@@ -17,7 +17,7 @@ Stand: 10.11.2026, Commit `bf3b126`. Grundlage: `docs/desktop-web-parity.md` (Ma
 | 0 | Betrieb absichern (umgesetzt, Einrichtung auf VPS und Unraid offen) | P0 | 3 bis 5 PT | N | keine |
 | 1 | Service-Schicht und atomare Änderungen (umgesetzt, Gate offen) | P1 | 5 bis 8 PT | N | 0 |
 | 2 | KI und Suche im Server vollständig (umgesetzt außer C03, C06, Messungen C09 und B10) | P1 | 7 bis 12 PT | M | 1 |
-| 3 | Worker-Dienst und Import | P1 | 9 bis 14 PT | M | 1 |
+| 3 | Worker-Dienst und Import (umgesetzt, Vorschau mit Abwahl offen) | P1 | 9 bis 14 PT | M | 1 |
 | 4 | Dokumentpflege und Organisation | P1/P2 | 18 bis 29 PT | N | 1 |
 | 5 | Administration, Datenschutz, Betrieb | P2 | 10 bis 15 PT | M | 1, 3 |
 | 6 | OCR im Server | P2 | 4 bis 6 PT | M | 3 |

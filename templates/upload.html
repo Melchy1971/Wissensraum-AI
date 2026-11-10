@@ -1,10 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
 <form hx-post="/hochladen" hx-encoding="multipart/form-data" hx-target="#upload-result">
-<input type="file" name="file" required>
+<input type="file" name="file" multiple required>
 <label>Bereich <input name="category" value="Allgemein" maxlength="100" required></label>
 <button type="submit">Hochladen</button>
 </form>
 <div id="upload-result"></div>
-<p><small>Bis 50 MB. Bilder brauchen die Texterkennung und werden im Server noch nicht angenommen.</small></p>
+<p><small>Mehrere Dateien oder ZIP-Archive, bis 50 MB je Datei und 100 MB je Upload. Der Import läuft im Hintergrund, der Fortschritt erscheint danach. Bilder brauchen die Texterkennung und landen bis dahin in der Quarantäne.</small></p>
+<p><a href="/importe">Bisherige Importe</a></p>
 {% endblock %}

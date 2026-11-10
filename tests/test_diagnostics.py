@@ -465,6 +465,8 @@ class DiagnosticTests(unittest.TestCase):
                     for column in ('status', 'owner', 'review_date', 'revision'):
                         connection.execute(f'ALTER TABLE documents DROP COLUMN {column}')
                     connection.execute('ALTER TABLE ai_runs DROP COLUMN account_id')
+                    connection.execute('ALTER TABLE import_jobs DROP COLUMN account_id')
+                    connection.execute('ALTER TABLE import_items DROP COLUMN upload')
                     connection.execute('DROP TABLE chunk_vectors')
                     if version < 9:
                         for table in ('rule_run_changes', 'rule_runs', 'rules', 'document_tags', 'tags'):

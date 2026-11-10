@@ -291,6 +291,7 @@ SQLITE_HISTORICAL_MIGRATIONS = (
     )),
     (22, tuple(f'ALTER TABLE {table} ADD COLUMN revision INTEGER NOT NULL DEFAULT 1'
                for table in ('documents', 'collections', 'entities', 'graph_relations', 'grants'))),
+    (23, ('ALTER TABLE ai_runs ADD COLUMN account_id INTEGER',)),
 )
 
 
@@ -410,7 +411,8 @@ class FakePostgres:
                                                      ('owner', 'text', 'NO', "''::text"),
                                                      ('review_date', 'text', 'YES', None),
                                                      ('revision', 'integer', 'NO', '1'),
-                                                     ('account_id', 'integer', 'YES', None)):
+                                                     ('account_id', 'integer', 'YES', None),
+                                                     ('upload', 'bytea', 'YES', None)):
             if normalized.startswith('ALTER TABLE ') and f' ADD COLUMN {column} ' in normalized:
                 table = normalized.split()[2]
                 self.columns.append({'table_name': table, 'column_name': column,

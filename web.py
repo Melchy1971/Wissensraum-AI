@@ -22,7 +22,9 @@ from core import Conflict
 
 ROOT = Path(__file__).resolve().parent
 PAGE_SIZE = 50
-MAX_UPLOAD = 50 * 1024 * 1024  # core.MAX_DOCUMENT_BYTES
+MAX_UPLOAD = 50 * 1024 * 1024  # core.MAX_DOCUMENT_BYTES, per file
+MAX_REQUEST = 100 * 1024 * 1024  # all files of one upload together
+MAX_FILES = 200
 FORM_LIMITS = {'max_files': 1, 'max_fields': 20, 'max_part_size': 64 * 1024}
 STATUS_TEXT = {401: 'Bitte zuerst anmelden.', 403: 'Dafür fehlt die Berechtigung.',
                404: 'Nicht gefunden.', 413: 'Die Datei ist zu groß.', 422: 'Die Eingabe ist ungültig.'}
@@ -54,9 +56,9 @@ def register(app, ctx):
         return render(request, 'message.html', 'Hinweis', error.status_code, message=message,
                       link='/', link_text='Zur Startseite')
 
-    async def form(request):
+    async def form(request, **limits):
         try:
-            return await request.form(**FORM_LIMITS)
+            return await request.form(**{**FORM_LIMITS, **limits})
         except Exception:  # malformed or over the limits
             raise HTTPException(422, 'Das Formular konnte nicht gelesen werden.') from None
 
@@ -122,36 +124,97 @@ def register(app, ctx):
 
     @app.post('/hochladen', response_class=HTMLResponse)
     async def upload(request: Request):
-        from core import ImportRejected, OcrDeferred, extract_document
+        """Several files or ZIP archives become one import job; the worker imports them (roadmap phase 3)."""
+        from import_jobs import ImportJobs
         account = ctx.require_role(request, 'admin', 'editor')
         ctx.limited(request, 'upload')
-        if int(request.headers.get('content-length') or 0) > MAX_UPLOAD + 1024 * 1024:
-            raise HTTPException(413, 'Die Datei ist zu groß.')
-        values = await form(request)
-        upload = values.get('file')
-        if upload is None or not hasattr(upload, 'read'):
-            raise HTTPException(422, 'Bitte eine Datei auswählen.')
+        if int(request.headers.get('content-length') or 0) > MAX_REQUEST + 1024 * 1024:
+            raise HTTPException(413, 'Die Dateien sind zusammen zu groß (höchstens 100 MB je Upload).')
+        values = await form(request, max_files=MAX_FILES)
+        files, total = [], 0
         try:
-            data = await upload.read(MAX_UPLOAD + 1)
+            for upload in values.getlist('file'):
+                if not hasattr(upload, 'read'):
+                    continue
+                data = await upload.read(MAX_UPLOAD + 1)
+                if len(data) > MAX_UPLOAD:
+                    raise HTTPException(413, f'Die Datei {upload.filename} ist zu groß (höchstens 50 MB).')
+                total += len(data)
+                if total > MAX_REQUEST:
+                    raise HTTPException(413, 'Die Dateien sind zusammen zu groß (höchstens 100 MB je Upload).')
+                files.append((upload.filename or 'Datei', data))
         finally:
             await values.close()
-        if len(data) > MAX_UPLOAD:
-            raise HTTPException(413, 'Die Datei ist zu groß.')
+        if not files:
+            raise HTTPException(422, 'Bitte mindestens eine Datei auswählen.')
+        category = (values.get('category') or 'Allgemein').strip()[:100] or 'Allgemein'
         try:
-            title, text, name, original = extract_document(upload.filename or 'Dokument', data, allow_ocr=False)
-            doc_id = services.create_document(
-                store, ctx.recorder(request), account, title, text,
-                (values.get('category') or 'Allgemein').strip()[:100] or 'Allgemein', filename=name,
-                original=original, upload=True)
-        except OcrDeferred:
-            raise HTTPException(422, 'Bilder brauchen die Texterkennung; der Server nimmt sie noch nicht an.') from None
-        except services.Duplicate as error:
-            raise HTTPException(409, str(error)) from None
-        except (ImportRejected, ValueError) as error:
+            with store.transaction():
+                job_id = ImportJobs(store).create_uploads(account['id'], files, category)
+                ctx.audited(request, 'import_started', account['id'], f'import:{job_id}', files=len(files))
+        except ValueError as error:
             raise HTTPException(422, str(error)) from None
-        response = HTMLResponse(f'<p>Gespeichert. <a href="/dokument/{doc_id}">Zum Dokument</a></p>', 201)
-        response.headers['HX-Redirect'] = f'/dokument/{doc_id}'
+        response = HTMLResponse(f'<p>Auftrag angelegt. <a href="/importe/{job_id}">Zum Fortschritt</a></p>', 202)
+        response.headers['HX-Redirect'] = f'/importe/{job_id}'
         return response
+
+    def own_job(request, job_id):
+        """The job if the signed-in account may see it (its own, or any for administrators), else 404."""
+        from import_jobs import UPLOAD, ImportJobs
+        account = ctx.require_role(request, 'admin', 'editor')
+        jobs = ImportJobs(store)
+        try:
+            job = jobs.job(job_id)
+        except ValueError:
+            raise HTTPException(404, 'Nicht gefunden.') from None
+        if job['kind'] != UPLOAD or (account['role'] != 'admin' and job['account_id'] != account['id']):
+            raise HTTPException(404, 'Nicht gefunden.')
+        return jobs, job
+
+    def job_view(jobs, job):
+        from import_jobs import REASON_LABELS, STATUS_LABELS
+        summary = jobs.summary(job['id'])
+        items = [{**item, 'status_text': STATUS_LABELS[item['status']],
+                  'reason_text': REASON_LABELS.get(item['reason'], item['reason'])} for item in jobs.items(job['id'])]
+        return {'job': job, 'summary': summary, 'items': items, 'open': job['status'] in ('pending', 'running'),
+                'labels': STATUS_LABELS}
+
+    @app.get('/importe', response_class=HTMLResponse)
+    def imports(request: Request):
+        from import_jobs import STATUS_LABELS, ImportJobs
+        account = ctx.require_role(request, 'admin', 'editor')
+        rows = ImportJobs(store).upload_jobs(None if account['role'] == 'admin' else account['id'])
+        return render(request, 'imports.html', 'Importe', jobs=rows, labels=STATUS_LABELS)
+
+    @app.get('/importe/{job_id}', response_class=HTMLResponse)
+    def import_page(request: Request, job_id: int):
+        jobs, job = own_job(request, job_id)
+        return render(request, 'import.html', f'Import {job_id}', **job_view(jobs, job))
+
+    @app.get('/importe/{job_id}/stand', response_class=HTMLResponse)
+    def import_state(request: Request, job_id: int):
+        jobs, job = own_job(request, job_id)
+        return render(request, 'import_state.html', '', **job_view(jobs, job))
+
+    @app.post('/importe/{job_id}/{action}', response_class=HTMLResponse)
+    def import_action(request: Request, job_id: int, action: str):
+        jobs, job = own_job(request, job_id)
+        status = {'abbrechen': 'cancelled', 'fortsetzen': 'pending'}.get(action)
+        if status is None:
+            raise HTTPException(404, 'Nicht gefunden.')
+        if not jobs.set_status(job_id, status):
+            raise HTTPException(409, 'Der Auftrag ist abgeschlossen oder bereits in diesem Zustand.')
+        return RedirectResponse(f'/importe/{job_id}', status_code=303)
+
+    @app.get('/importe/{job_id}/bericht')
+    def import_report(request: Request, job_id: int):
+        import tempfile
+        from fastapi.responses import Response
+        jobs, job = own_job(request, job_id)
+        with tempfile.TemporaryDirectory() as folder:
+            data = jobs.write_report(job_id, Path(folder) / 'bericht.csv').read_bytes()
+        return Response(data, media_type='text/csv; charset=utf-8',
+                        headers={'Content-Disposition': f'attachment; filename="import-{job_id}.csv"'})
 
     @app.get('/fragen', response_class=HTMLResponse)
     def questions(request: Request):

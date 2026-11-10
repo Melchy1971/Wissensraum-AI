@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<p><a href="/hochladen">Neue Dateien hochladen</a></p>
+<table>
+<thead><tr><th>Auftrag</th><th>Status</th><th>Dateien</th><th>Importiert</th><th>Bereits vorhanden</th><th>Quarantäne</th><th>Fehlgeschlagen</th></tr></thead>
+<tbody>
+{% for s in jobs %}
+<tr><td><a href="/importe/{{ s.job_id }}">Import {{ s.job_id }}</a></td><td>{{ labels.get(s.status, s.status) }}</td><td>{{ s.total }}</td>
+<td>{{ s.imported }}</td><td>{{ s.duplicate }}</td><td>{{ s.quarantined }}</td><td>{{ s.failed }}</td></tr>
+{% else %}
+<tr><td colspan="7">Noch keine Importe.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% endblock %}
