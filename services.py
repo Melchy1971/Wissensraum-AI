@@ -77,6 +77,21 @@ def ask(scoped, ai, record, account, question):
     return result
 
 
+def set_semantic_search(store, record, admin, enabled, model=None):
+    """Switch semantic search for the whole installation; only administrators call this.
+
+    Switching on first sends one probe to Ollama, outside the transaction (it can take seconds); a
+    missing model or service raises ``ValueError`` and changes nothing. The worker embeds afterwards.
+    """
+    from vector_sync import VectorSync
+    sync = VectorSync(store)
+    model = sync.probe(model) if enabled else None
+    with store.transaction():
+        state = sync.enable(model) if enabled else sync.deactivate()
+        record('settings_changed', admin['id'], 'settings:vectors', enabled=bool(enabled), model=state['model'])
+    return state
+
+
 class Limits:
     """Sliding windows per account and kind (S-06, docs/sicherheit-3.0.md: search, AI, upload).
 

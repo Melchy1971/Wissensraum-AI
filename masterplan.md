@@ -16,7 +16,7 @@
 
 **Legende:** ✅ vollständig implementiert und gesamtes Gate nachweislich bestanden · 🟡 implementiert oder teilweise geprüft, aber noch nicht vollständig abgenommen · ❌ Gate fehlgeschlagen oder Freigabe blockiert · ⬜ geplant und noch nicht begonnen
 
-## Aktualisierung 10.11.2026 – Paritäts-Roadmap Phase 0 und 1 (Betrieb und Service-Schicht des Servers) 🟡
+## Aktualisierung 10.11.2026 – Paritäts-Roadmap Phase 0 bis 2 (Betrieb, Service-Schicht, semantische Suche im Server) 🟡
 
 **Grundlage:** Analyse Desktop/Web an `bf3b126` in `docs/desktop-web-parity.md`, `docs/web-architecture-review.md`, `docs/web-parity-roadmap.md`, `docs/web-parity-testplan.md`. Die Roadmap-Phasen sind nicht die Teilschritte 11.1 bis 11.5 dieses Plans. Sie gehören zum Abschluss von 10.8 und zu 11.1 und 11.2.
 
@@ -24,11 +24,13 @@
 
 **Phase 1 (Befunde S-06 bis S-08):** `Store.transaction()` für beide Backends. Änderung, Besitzerfreigabe und Audit-Eintrag liegen in einer Transaktion (`services.py`). KI-Ausfall und Budgetgrenze antworten 503 mit Meldung und Audit-Status `unavailable`. Rate Limits je Konto für Fragen, Uploads und Suche. Fehlermeldungen erscheinen in htmx-Bereichen. Dubletten über Kontogrenzen bleiben 409 ohne Zugriff (Entscheidung 10.11.2026).
 
-**Nachweise:** Linux, Python 3.12 mit Tk unter Xvfb: 743 Tests, 1 Fehlschlag (`test_settings_pages_scroll_to_their_last_widget_at_minimum_size`, Seite `mail`, 1 Pixel, bestand schon an `bf3b126`), 60 übersprungen (47 PostgreSQL ohne Konfiguration im Gesamtlauf, 10 Tesseract, 3 nur Windows). PostgreSQL 16 Wegwerf-Cluster: 50 von 50. PostgreSQL 18, Windows und das Matrix-Gate liefen nicht. Mutationsprobe: ohne Filter, ohne Transaktion im Dienst und ohne Einklinken in `connect()` scheitern die neuen Tests.
+**Phase 2:** Dienst `worker` (gleiches Image, eigener Container) bettet Abschnitte ein, wenn ein Administrator die semantische Suche unter Verwaltung einschaltet (Probe gegen Ollama, Audit `settings_changed`). `WR_OLLAMA_URL` gilt auch für Einbettungen. Schalter (`vectors`) und Laufergebnis (`vectors_run`) liegen getrennt, ein Lauf schaltet eine abgeschaltete Suche nicht wieder ein. Suchseite und API zeigen den Suchmodus, Antworten die Quellenlage. Ohne Antwort erscheinen Treffer nur als Suchhinweise, wie im Desktop. Offen: KI-Verlauf mit Quellen (C03), Schalter für veraltete Dokumente (C06), Messung von `qwen3:4b` auf Bestand V2 (Anleitung in `deploy/BETRIEB.md`), Antwortzeiten auf dem VPS.
+
+**Nachweise Phase 0 und 1:** Linux, Python 3.12 mit Tk unter Xvfb: 743 Tests, 1 Fehlschlag (`test_settings_pages_scroll_to_their_last_widget_at_minimum_size`, Seite `mail`, 1 Pixel, bestand schon an `bf3b126`), 60 übersprungen (47 PostgreSQL ohne Konfiguration im Gesamtlauf, 10 Tesseract, 3 nur Windows). PostgreSQL 16 Wegwerf-Cluster: 50 von 50. PostgreSQL 18, Windows und das Matrix-Gate liefen nicht. Mutationsprobe: ohne Filter, ohne Transaktion im Dienst und ohne Einklinken in `connect()` scheitern die neuen Tests.
 
 **Offen:** Matrix-Gate 7 von 7, Einrichtung von Sicherung und Übung auf VPS und Unraid, Neuanlage des Server-Containers zum Verwerfen alter Logs, Prüfung des GUI-Fehlschlags auf Windows.
 
-**Status:** Phase 0 und 1 der Paritäts-Roadmap 🟡. 10.8 bleibt 🟡.
+**Status:** Phase 0 bis 2 der Paritäts-Roadmap 🟡. 10.8 bleibt 🟡.
 
 ## Aktualisierung 05.11.2026 (Mittag) – Phase 8A, Schritt 8A.1 Metadaten bearbeiten ✅
 

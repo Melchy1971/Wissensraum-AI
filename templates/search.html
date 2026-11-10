@@ -2,6 +2,7 @@
 {% block content %}
 <form method="get" action="/suche"><input type="search" name="q" value="{{ q }}" maxlength="500" required> <button type="submit">Suchen</button></form>
 {% if q %}
+<p class="status">{{ search_status }}</p>
 <ol>
 {% for hit in results %}
 <li><a href="/dokument/{{ hit.document_id }}">{{ hit.title }}</a> (Abschnitt {{ hit.ordinal }})<br><small>{{ hit.snippet }}</small></li>

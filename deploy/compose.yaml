@@ -46,6 +46,40 @@ services:
       traefik.http.middlewares.wissensraum-vpn.ipallowlist.sourcerange: 10.13.13.0/24
       traefik.http.services.wissensraum.loadbalancer.server.port: "8000"
 
+  # Hintergrundarbeiten (Paritäts-Roadmap Phase 2): bettet Abschnitte für die semantische Suche ein.
+  # Gleiches Image und gleiche Datenbankrolle wie server, kein Port, keine Anmeldedaten. Genau ein Worker.
+  worker:
+    image: wissensraum-server:3.0
+    command: ["python", "worker.py"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    env_file: wissensraum.env
+    secrets: [db_app]
+    volumes:
+      - worker-logs:/data/logs
+    # Der Worker braucht PostgreSQL und Ollama. Liegt Ollama in einem anderen Netz als datenbank, dieses
+    # Netz hier ergänzen. Nicht das Proxy-Netz: der Worker bietet nichts an.
+    networks: [datenbank]
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 512m
+    cpus: 1
+    restart: unless-stopped
+    stop_grace_period: 2m
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "5"}
+    healthcheck:
+      # Herzschlag nach jeder Runde; älter als drei Runden (WR_WORKER_INTERVAL, Standard 30 s) gilt als hängend.
+      test: ["CMD", "python", "-c", "import os,sys,time; sys.exit(time.time()-os.path.getmtime('/tmp/wissensraum-worker.alive') > 3*int(os.environ.get('WR_WORKER_INTERVAL') or 30)+60)"]
+      interval: 60s
+      timeout: 5s
+      start_period: 2m
+      retries: 3
+
 secrets:
   db_owner: {file: ./secrets/db_owner.txt}
   db_app: {file: ./secrets/db_app.txt}
@@ -53,6 +87,7 @@ secrets:
 
 volumes:
   logs:
+  worker-logs:
 
 networks:
   datenbank: {external: true, name: <netz-des-postgres-containers>}

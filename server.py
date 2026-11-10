@@ -177,7 +177,7 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
     def limited(request, kind):
         """429 once the signed-in account used up its requests of ``kind`` (S-06)."""
         if not limits.allow(kind, signed_in(request)['id']):
-            log('rate_limited', 'WARNING', kind=kind)
+            log('rate_limited', 'WARNING', operation=kind)
             raise HTTPException(429, 'Zu viele Anfragen. Bitte etwas später erneut versuchen.')
 
     def refuse(request, reason, status=401):
@@ -356,7 +356,7 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
             raise HTTPException(422, 'Suchbegriff mit 1 bis 500 Zeichen angeben.')
         limited(request, 'search')
         result = Retriever(viewer(request)).search(q, limit=max(1, min(limit, 50)))
-        return {'mode': result.mode, 'results': [
+        return {'mode': result.mode, 'status': result.status, 'results': [
             {'document_id': r['document_id'], 'title': r['title'], 'ordinal': r['ordinal'],
              'snippet': snippet(r['content'], q)} for r in result.results]}
 
@@ -582,6 +582,12 @@ def settings_from_env(environ=None):
             'ai': ai, 'secrets': tuple(value for value in (secret, password, ai_key) if value)}
 
 
+def configure_ollama(environ):
+    """``WR_OLLAMA_URL`` also for embeddings (search, worker); without it the local default stays."""
+    import core
+    core.use_ollama_at(environ.get('WR_OLLAMA_URL') or None)
+
+
 def database_from_env(environ, prefix='DB'):
     """PostgreSQL profile and password from ``<prefix>_HOST`` and so on; ``<prefix>_PASSWORD_FILE`` first."""
     from database import DatabaseSettings
@@ -712,6 +718,7 @@ def main(argv=None):  # pragma: no cover - starts the real server
         print(text)
         raise SystemExit(code)
     settings = settings_from_env()
+    configure_ollama(os.environ)
     store = runtime_store(settings)
     if argv[:1] == ['account-add']:
         print(add_account(store, argv[1:]))

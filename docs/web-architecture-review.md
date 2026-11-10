@@ -65,8 +65,8 @@ Nicht prüfbar aus dem Repository: Traefik-Konfiguration und Accesslog, WireGuar
 
 | Annahme | Stelle | Folge im Server | Maßnahme |
 |---|---|---|---|
-| Ollama läuft auf demselben Rechner | `EMBEDDING_PROVIDERS['ollama']['endpoint'] = http://127.0.0.1:11434/api/embed` | Einbettung im Container unerreichbar, Suche fällt still auf Volltext zurück | Endpunkt aus Konfiguration, `WR_OLLAMA_URL` auch für `/api/embed` |
-| Hintergrundarbeit läuft im Fenster-Timer | `VectorSync.run`, `MailSync.run_due`, `backups.auto`, `ImportJobs.run` werden aus `app.py` getaktet | im Server läuft nichts davon | eigener Worker-Prozess (gleiches Image, eigener Dienst in Compose) mit Auftragstabelle |
+| Ollama läuft auf demselben Rechner | `EMBEDDING_PROVIDERS['ollama']['endpoint'] = http://127.0.0.1:11434/api/embed` | Einbettung im Container unerreichbar, Suche fällt still auf Volltext zurück | behoben: `core.use_ollama_at`, Server und Worker setzen es aus `WR_OLLAMA_URL` |
+| Hintergrundarbeit läuft im Fenster-Timer | `VectorSync.run`, `MailSync.run_due`, `backups.auto`, `ImportJobs.run` werden aus `app.py` getaktet | im Server lief nichts davon | teilweise behoben: Dienst `worker` übernimmt `VectorSync` (Entscheidung 10.11.2026). Schalter und Laufergebnis liegen getrennt (`vectors`, `vectors_run`), damit Worker und Admin sich nicht überschreiben. Importaufträge folgen in Phase 3 |
 | Einstellungen gelten für die ganze Datenbank | Tabelle `settings` (Vektoren, `exclude_retired`, Budgets, Chunk-Strategien, Graphkontext) | jede Änderung wirkt für alle Konten | nur Admin darf ändern, Audit `settings_changed` |
 | Ein Benutzer | `favorites`, `saved_searches` ohne `account_id` | würden zwischen Konten geteilt | Migration mit `account_id` |
 | Geheimnisse im OS-Schlüsselspeicher | `settings.SystemVault`, `MailAccounts` | im Container nicht vorhanden | eigenes Konzept für Postfachzugänge je Konto (ADR) |
@@ -133,4 +133,6 @@ Erst Betrieb absichern (S-01 bis S-04), dann eine dünne Service-Schicht und ein
 | 10.11.2026 | Sicherungsziel | Unraid holt über WireGuard ab, VPS hat keinen Zugang zu Unraid |
 | 10.11.2026 | Verschlüsselung der Sicherung | age, privater Schlüssel nur beim Product Owner |
 | 10.11.2026 | Veröffentlichtes DB-Kennwort | rotiert (Angabe Product Owner) |
+| 10.11.2026 | Hintergrundarbeit | eigener Dienst `worker` aus dem Server-Image, nicht Thread im Serverprozess |
+| 10.11.2026 | Antwortmodell | `qwen3:4b` wird auf Bestand V2 gemessen, Wechsel auf `qwen3:8b` nur bei verfehltem Gate |
 | 10.11.2026 | Dublette über Kontogrenzen (S-05) | Verhalten bleibt: 409 ohne Zugriff. Restrisiko: ein Bearbeiter erfährt, dass ein exakt gleicher Text existiert. Kein Titel, keine Kennung wird preisgegeben. |

@@ -29,6 +29,14 @@
 <select name="role">{% for r in roles %}<option value="{{ r }}">{{ r }}</option>{% endfor %}</select>
 <button type="submit">Anlegen</button>
 </form>
+<h2>Semantische Suche</h2>
+<p>Status: {% if vectors.enabled %}eingeschaltet, Modell {{ vectors.model }}{% else %}ausgeschaltet{% endif %} · Abschnitte mit Vektor: {{ vectors.progress[0] }} von {{ vectors.progress[1] }}{% if vectors.last_result %} · Letzter Lauf: {{ vectors.last_result }}{% endif %}</p>
+<form method="post" action="/verwaltung/semantische-suche">
+<input type="hidden" name="csrf_token" value="{{ csrf }}">
+<input type="hidden" name="enabled" value="{{ '0' if vectors.enabled else '1' }}">
+<button type="submit">{{ 'Ausschalten' if vectors.enabled else 'Einschalten' }}</button>
+</form>
+<p><small>Einschalten prüft einmal, ob Ollama das Embedding-Modell bereitstellt. Der Worker-Dienst bettet danach im Hintergrund ein.</small></p>
 <h2>Freigaben</h2>
 <form method="post" action="/verwaltung/freigaben">
 <input type="hidden" name="csrf_token" value="{{ csrf }}">

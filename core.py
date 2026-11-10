@@ -10,6 +10,7 @@ import os
 import re
 import sqlite3
 import urllib.error
+import urllib.parse
 import urllib.request
 from contextlib import closing, contextmanager
 import contextvars
@@ -2526,6 +2527,28 @@ EMBEDDING_PROVIDERS = {
     'ollama': {'model': 'qwen3-embedding:0.6b', 'endpoint': 'http://127.0.0.1:11434/api/embed'},
     'openai': {'model': 'text-embedding-3-small', 'endpoint': 'https://api.openai.com/v1/embeddings'},
 }
+# Server and worker run Ollama in another container (parity roadmap phase 2): ``use_ollama_at`` points
+# the embedding requests there. The desktop never calls it and keeps the local address.
+_OLLAMA_BASE = None
+
+
+def use_ollama_at(base_url):
+    """Send Ollama embedding requests to ``base_url`` (``http://host:port``); None: back to the local default."""
+    global _OLLAMA_BASE
+    if base_url is not None:
+        parts = urllib.parse.urlsplit(base_url)
+        if parts.scheme not in ('http', 'https') or not parts.hostname or parts.path not in ('', '/'):
+            raise ValueError('WR_OLLAMA_URL braucht die Form http://host:port.')
+        base_url = f'{parts.scheme}://{parts.netloc}'
+    _OLLAMA_BASE = base_url
+
+
+def embedding_endpoint(provider):
+    if provider == 'ollama' and _OLLAMA_BASE:
+        return _OLLAMA_BASE + '/api/embed'
+    return EMBEDDING_PROVIDERS[provider]['endpoint']
+
+
 # Qwen3-Embedding expects this instruction in front of queries, documents stay plain (model card).
 QUERY_INSTRUCTION = ('Instruct: Given a web search query, retrieve relevant passages that answer the query\n'
                      'Query: ')
@@ -2559,7 +2582,7 @@ class Embedder:
         headers = {'Content-Type': 'application/json'}
         if self.provider == 'openai':
             headers['Authorization'] = 'Bearer '+self.key
-        request = urllib.request.Request(EMBEDDING_PROVIDERS[self.provider]['endpoint'], method='POST',
+        request = urllib.request.Request(embedding_endpoint(self.provider), method='POST',
                                          data=json.dumps({'model': self.model, 'input': batch}).encode(),
                                          headers=headers)
         try:

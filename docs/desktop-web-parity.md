@@ -42,16 +42,16 @@ Gemeinsamer Kern: `core.py` (`Store`, `PostgresStore`, `AI`, `Embedder`, Extrakt
 
 | Status | Anzahl Desktop-Funktionen |
 |---|---:|
-| FULL | 12 |
-| PARTIAL | 19 |
-| MISSING | 36 |
+| FULL | 16 |
+| PARTIAL | 16 |
+| MISSING | 35 |
 | DIFFERENT | 2 |
 | NOT_APPLICABLE | 7 |
 | UNKNOWN | 2 |
 | Summe Desktop-Funktionen | 78 |
 | WEB_ONLY (zusätzlich) | 13 |
 
-Funktionsparität = FULL / (FULL + PARTIAL + MISSING + DIFFERENT) = 12 / 69 = 17,4 % (Stand nach Paritäts-Roadmap Phase 1. Nach Phase 0: 11 / 69 = 15,9 %, vor Phase 0: 10 / 69 = 14,5 %).
+Funktionsparität = FULL / (FULL + PARTIAL + MISSING + DIFFERENT) = 16 / 69 = 23,2 % (Stand nach Paritäts-Roadmap Phase 2. Nach Phase 1: 12 / 69 = 17,4 %, nach Phase 0: 11 / 69 = 15,9 %, vor Phase 0: 10 / 69 = 14,5 %).
 
 ## 5. Funktionsmatrix
 
@@ -75,9 +75,9 @@ Spalte Desktop: Status der Referenz (GUI oder CLI). Spalte Web: Status im Web. A
 | A14 | Dokumente | Favoriten | FULL (GUI, CLI) | MISSING | Tabelle `favorites` ohne Konto | keine | P2 | 1,5 bis 2,5 |
 | A15 | Dokumente | Dokumentinhalt anzeigen | FULL (GUI) | FULL | `GET /dokument/{id}`, `GET /api/documents/{id}` | test_web, test_rights i1 | erledigt | 0 |
 | B01 | Suche | Volltextsuche mit Rechtefilter | FULL (GUI, CLI) | FULL | `Store.search`, `GET /suche`, `GET /api/search` | test_rights i1, test_web | erledigt | 0 |
-| B02 | Suche | Semantische und hybride Suche (RRF) | FULL (GUI, CLI) | PARTIAL | `Retriever`, `vector_search`, `Embedder` | test_retrieval (Kern), keine Web-Tests | P1 | 3 bis 5 |
+| B02 | Suche | Semantische und hybride Suche (RRF) | FULL (GUI, CLI) | FULL | `Retriever`, `vector_search`, `Embedder` über `WR_OLLAMA_URL`, Einbettung im Dienst `worker` | test_worker (hybrid mit Rechtefilter) | erledigt, Modell auf VPS laden | 0 |
 | B03 | Suche | Fundstelle mit Abschnitt | FULL (GUI) | FULL | `retrieval.snippet` | test_web | erledigt | 0 |
-| B04 | Suche | Suchstatus (Modus, Fallback, Vektorstand) | FULL (GUI) | PARTIAL | `Retrieval.status`, API liefert nur `mode` | keine Web-Tests | P2 | 0,5 |
+| B04 | Suche | Suchstatus (Modus, Fallback, Vektorstand) | FULL (GUI) | FULL | `Retrieval.status` auf der Suchseite und als `status` in `/api/search` | test_worker | erledigt | 0 |
 | B05 | Suche | Ränge und Score anzeigen | FULL (GUI) | MISSING | `Retrieval.results` | keine | P3 | 0,5 |
 | B06 | Suche | Tag-Filter | FULL (GUI, CLI) | MISSING | `search(tag=)`, `list(tag=)` | keine Web-Tests | P2 | 1 |
 | B07 | Suche | Filter Sammlung und Favoriten | FULL (GUI, CLI) | MISSING | `list(collection=, favorites=)` | keine Web-Tests | P2 | 1 |
@@ -85,7 +85,7 @@ Spalte Desktop: Status der Referenz (GUI oder CLI). Spalte Web: Status im Web. A
 | B09 | Suche | Dokumentliste mit Seiten | FULL (GUI, CLI) | FULL | `Store.list`, `GET /`, `GET /api/documents` | test_web, test_rights | erledigt | 0 |
 | B10 | Suche | Antwortzeiten unter Last auf dem VPS | gemessen (Benchmark Desktop) | UNKNOWN | `tests/bench/benchmark.py` | keine Messung Server | P2 | 1 bis 2 |
 | C01 | KI | Frage mit Quellen und Evidenzprüfung | FULL (GUI, CLI) | FULL | `AI.ask`, `POST /fragen`, `POST /api/questions` | test_web, test_rights i2 | erledigt | 0 |
-| C02 | KI | Quellenlage und Ablehnungsgrund anzeigen | FULL (GUI) | PARTIAL | `AnswerResult.assessment` nicht ausgegeben | keine | P2 | 0,5 bis 1 |
+| C02 | KI | Quellenlage und Ablehnungsgrund anzeigen | FULL (GUI) | FULL | `AnswerResult.label` in `answer.html`, ohne Antwort Treffer nur als Suchhinweise | test_worker | erledigt | 0 |
 | C03 | KI | KI-Verlauf | FULL (GUI) | PARTIAL | `Store.history` je Konto, Quellen nicht angezeigt | test_web | P2 | 0,5 bis 1 |
 | C04 | KI | Dokument zusammenfassen | FULL (GUI) | MISSING | `AI.summarize` | keine Web-Tests | P2 | 1 bis 1,5 |
 | C05 | KI | Monatsbudget je Anbieter | FULL (GUI, CLI) | PARTIAL | `budgets.check` wirkt, keine Verwaltung | keine Web-Tests | P2 | 1 |
@@ -130,7 +130,7 @@ Spalte Desktop: Status der Referenz (GUI oder CLI). Spalte Web: Status im Web. A
 | G05 | Administration | Datenbankprofil, Verbindungstest, Schema-Reset | FULL (GUI) | NOT_APPLICABLE | Server: Umgebung und Migrationsdienst | test_database | keine | 0 |
 | G06 | Administration | Konfigurationstransfer | FULL (GUI) | NOT_APPLICABLE | `configuration.py` | test_configuration | keine | 0 |
 | G07 | Administration | Startdiagnose | FULL (GUI, CLI) | PARTIAL | `/healthz`, `check_postgres_current` | test_rights | P2 | 1 |
-| G08 | Administration | Semantische Suche aktivieren, Vektorstand | FULL (GUI) | MISSING | `VectorSync`, kein Hintergrundlauf im Server | keine Web-Tests | P1 | in B02 |
+| G08 | Administration | Semantische Suche aktivieren, Vektorstand | FULL (GUI) | FULL | `services.set_semantic_search`, `/verwaltung/semantische-suche`, Audit `settings_changed`, `worker.py` | test_worker | erledigt | 0 |
 | H01 | Oberfläche | Hauptnavigation | FULL | FULL | `base.html` | test_web | erledigt | 0 |
 | H02 | Oberfläche | Hell- und Dunkelmodus | FULL | MISSING | `design.py` | keine | P3 | 0,5 bis 1 |
 | H03 | Oberfläche | Logo und Branding | FULL | MISSING | `design.py` | keine | P3 | 0,5 |
@@ -197,4 +197,4 @@ Spalte Desktop: Status der Referenz (GUI oder CLI). Spalte Web: Status im Web. A
 | M8 | `BETRIEB.md`: Rocky Linux 9, Modell `qwen3:8b` | Auftrag: Rocky Linux 10, `qwen3:4b` | widersprüchlich |
 | M9 | Pflichtenheft 7.2: pgvector | D-016 verschoben, Byte-Spalte mit numpy | korrekt dokumentiert, Auftrag nimmt anderes an |
 | M10 | 10.8 🟡 offen: VPS-Einrichtung, Sicherung, Probelauf mit zwei Konten | Einrichtung und Admin-Anmeldung laut Auftrag erfolgt. Sicherung und Zwei-Konten-Probelauf nicht belegt | Status 🟡 weiterhin zutreffend |
-| M11 | Phase 11.3 verlangt „vereinbarte Funktionsparität“ | Parität 17,4 %, Zielumfang nicht vereinbart | Vereinbarung fehlt |
+| M11 | Phase 11.3 verlangt „vereinbarte Funktionsparität“ | Parität 23,2 %, Zielumfang nicht vereinbart | Vereinbarung fehlt |

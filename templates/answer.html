@@ -1,4 +1,5 @@
 <div class="answer">
+{% if label %}<p class="status">{{ label }}</p>{% endif %}
 <p>{{ answer }}</p>
-{% if sources %}<p>Quellen:</p><ol>{% for s in sources %}<li><a href="/dokument/{{ s.document_id }}">{{ s.title }}</a> (Abschnitt {{ s.ordinal }})</li>{% endfor %}</ol>{% endif %}
+{% if sources %}<p>{% if hints %}Ähnlichste Dokumente (Suchhinweise, keine Antwort):{% else %}Quellen:{% endif %}</p><ol>{% for s in sources %}<li><a href="/dokument/{{ s.document_id }}">{{ s.title }}</a> (Abschnitt {{ s.ordinal }})</li>{% endfor %}</ol>{% endif %}
 </div>

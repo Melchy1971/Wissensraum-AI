@@ -54,6 +54,29 @@ Auf Unraid:
 
 Nachweis im Repository: Dump mit der Eigentümerrolle, Rückspielen mit `--no-owner --no-privileges` und `server.py audit-verify --expect` auf der Kopie wurden am 10.11.2026 gegen PostgreSQL 16 geprüft, ebenso `backup.sh` mit echtem age und pg_dump und einem Ersatz für docker. `restore-drill.sh` lief noch nicht mit echtem Docker. Der erste Lauf auf Unraid ist die Abnahme.
 
+## Worker und semantische Suche (Paritäts-Roadmap Phase 2)
+
+Der Dienst `worker` läuft aus demselben Image wie `server` (`python worker.py`), ohne Port und ohne Anmeldedaten. Er bettet Abschnitte für die semantische Suche im Hintergrund ein. `WR_OLLAMA_URL` gilt jetzt auch für Einbettungen, nicht nur für Antworten.
+
+1. Auf dem VPS das Embedding-Modell laden: `docker exec <ollama-container> ollama pull qwen3-embedding:0.6b`.
+2. Prüfen, in welchem Docker-Netz Ollama hängt. Der Worker ist nur im Netz `datenbank`. Liegt Ollama woanders, dieses Netz beim Dienst `worker` in `compose.yaml` ergänzen, nicht das Proxy-Netz.
+3. `docker compose -f deploy/compose.yaml up -d --build`, danach zeigt `docker compose -f deploy/compose.yaml ps` beide Dienste als healthy. Der Worker meldet sich alle 30 Sekunden (`WR_WORKER_INTERVAL`).
+4. Als Administrator unter Verwaltung, Semantische Suche, „Einschalten“. Der Server prüft einmal, ob Ollama das Modell liefert. Danach steigt der Zähler „Abschnitte mit Vektor“ mit jeder Runde um bis zu 256.
+5. Die Suche zeigt ihren Modus über der Trefferliste: „Hybride Suche“, sobald alle Abschnitte einen Vektor haben, vorher „Hybride Suche – Vektorbestand unvollständig“.
+
+Genau ein Worker. Zwei würden dieselben Abschnitte doppelt einbetten (harmlos, aber unnötige Last).
+
+## Antwortqualität von qwen3:4b messen
+
+Alle Grenzwerte (False Reject höchstens 10 %, False Accept höchstens 5 %) sind mit `qwen3:8b` gemessen. Für das Modell des Servers gilt der Nachweis erst nach eigener Messung auf dem eingefrorenen Bestand V2, auf deinem Rechner, mit exklusiv laufendem Ollama:
+
+```
+ollama pull qwen3:4b
+python tests/eval/evaluate.py --own data/<eigene-fragen>.json --db data/<messkopie>.db --answers qwen3:4b --json > data/bericht-qwen3-4b.json
+```
+
+Liegen False Reject und False Accept innerhalb der Grenzen, bleibt `qwen3:4b`. Sonst auf `qwen3:8b` wechseln (`WR_AI_MODEL`, rund 6 GB Speicher für Ollama). Ergebnis nur mit Frage-IDs in den Masterplan, Messkopie danach löschen.
+
 ## Erledigt
 
 - Veröffentlichtes PostgreSQL-Kennwort rotiert (Angabe des Product Owners am 10.11.2026). Datum der Rotation und betroffene Rollen hier nachtragen.

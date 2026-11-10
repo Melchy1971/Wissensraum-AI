@@ -57,6 +57,25 @@ class VectorSyncTests(unittest.TestCase):
         self.assertTrue(state['enabled'])
         self.assertEqual(FakeEmbedder.calls, [('ollama', 'qwen3-embedding:0.6b', ['Verbindungstest'])] * 2)
 
+    def test_switching_off_during_a_run_stays_off(self):
+        """Parity roadmap phase 2: worker and web server write apart; a run never switches the search back on."""
+        self.sync.activate()
+        admin = VectorSync(self.store, FakeEmbedder)
+
+        class SwitchedOffMeanwhile(FakeEmbedder):
+            def embed(inner, texts, query=False):
+                admin.deactivate()  # the administrator, while the worker embeds
+                return super().embed(texts, query)
+        worker = VectorSync(self.store, SwitchedOffMeanwhile, lambda: self.now[0])
+        state = worker.run()
+        self.assertEqual(state['embedded'], 5)
+        current = VectorSync(self.store).config()
+        self.assertFalse(current['enabled'])
+        self.assertEqual(current['last_result'], state['last_result'])  # the run result is still shown
+        self.assertFalse(worker.due())
+        admin.enable('qwen3-embedding:0.6b')
+        self.assertEqual(VectorSync(self.store).config()['last_result'], 'Aktiviert.')  # old result dropped
+
     def test_runs_are_bounded_and_new_imports_become_due(self):
         self.sync.activate()
         state = self.sync.run(limit=3)

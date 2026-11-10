@@ -80,12 +80,14 @@ def register(app, ctx):
     def search(request: Request, q: str = ''):
         from retrieval import Retriever, snippet
         scoped, q = ctx.viewer(request), q.strip()[:500]
-        results = []
+        results, search_status = [], ''
         if q:
             ctx.limited(request, 'search')
+            found = Retriever(scoped).search(q, limit=20)
             results = [{'document_id': r['document_id'], 'title': r['title'], 'ordinal': r['ordinal'],
-                        'snippet': snippet(r['content'], q)} for r in Retriever(scoped).search(q, limit=20).results]
-        return render(request, 'search.html', 'Suche', q=q, results=results)
+                        'snippet': snippet(r['content'], q)} for r in found.results]
+            search_status = found.status
+        return render(request, 'search.html', 'Suche', q=q, results=results, search_status=search_status)
 
     @app.get('/dokument/{doc_id}', response_class=HTMLResponse)
     def document(request: Request, doc_id: int):
@@ -168,8 +170,11 @@ def register(app, ctx):
             result = services.ask(scoped, ctx.ai, ctx.recorder(request), request.state.account, question)
         except services.Unavailable as error:
             raise HTTPException(503, str(error)) from None
+        from evidence import INSUFFICIENT, UNAVAILABLE
         sources = [s for s in result.sources if s.get('document_id') is not None]
-        return render(request, 'answer.html', '', answer=result.text, sources=sources)
+        # Without an answer the hits are search hints, never sources (as on the desktop, step 7.4).
+        return render(request, 'answer.html', '', answer=result.text, sources=sources, label=result.label,
+                      hints=result.state in (INSUFFICIENT, UNAVAILABLE))
 
     @app.get('/sammlungen', response_class=HTMLResponse)
     def collection_page(request: Request):
@@ -187,7 +192,11 @@ def register(app, ctx):
                 label = (f"Dokument: {documents.get(g['document_id'], g['document_id'])}" if g['document_id'] is not None
                          else f"Sammlung: {collections.get(g['collection_id'], g['collection_id'])}")
                 grants.append({**g, 'account': name, 'account_id': account_id, 'target': target, 'target_name': label})
-        return render(request, 'admin.html', 'Verwaltung', status, notice=notice, accounts=accounts.accounts(store),
+        from vector_sync import VectorSync
+        sync = VectorSync(store)
+        vectors = {**sync.config(), 'progress': sync.progress()}
+        return render(request, 'admin.html', 'Verwaltung', status, notice=notice, vectors=vectors,
+                      accounts=accounts.accounts(store),
                       roles=accounts.ROLES, access=accounts.ACCESS, grants=grants,
                       documents=[{'id': k, 'title': v} for k, v in documents.items()],
                       collections=[{'id': k, 'name': v} for k, v in collections.items()])
@@ -241,6 +250,16 @@ def register(app, ctx):
         try:
             services.grant(store, ctx.recorder(request), admin_account, account_id, values.get('access', ''), **target)
         except ValueError as error:
+            return admin_page(request, str(error), 422)
+        return RedirectResponse('/verwaltung', status_code=303)
+
+    @app.post('/verwaltung/semantische-suche', response_class=HTMLResponse)
+    async def admin_semantic_search(request: Request):
+        admin_account = ctx.require_role(request, 'admin')
+        values = await form(request)
+        try:
+            services.set_semantic_search(store, ctx.recorder(request), admin_account, values.get('enabled') == '1')
+        except ValueError as error:  # Ollama or the embedding model missing: nothing changed
             return admin_page(request, str(error), 422)
         return RedirectResponse('/verwaltung', status_code=303)
 
