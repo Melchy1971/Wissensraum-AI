@@ -1,6 +1,6 @@
 # Wissensraum-AI: Roadmap zur Web-Parität
 
-Stand: 10.11.2026, Commit `bf3b126`. Grundlage: `docs/desktop-web-parity.md` (Matrix, IDs) und `docs/web-architecture-review.md` (Befunde S-xx).
+Stand: 11.11.2026, Commit `1298469`, Schema 26. Grundlage: `docs/desktop-web-parity.md` (Matrix, IDs) und `docs/web-architecture-review.md` (Befunde S-xx).
 
 ## 1. Leitlinien
 

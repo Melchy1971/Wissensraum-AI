@@ -1,6 +1,6 @@
 # Betrieb des Servers auf dem VPS (Release 3.0, Schritt 10.8)
 
-Stand 09.11.2026, Entscheidung D-029: Der Server läuft auf dem IONOS-VPS (`85.215.131.200`, Rocky Linux 10, Docker) unter `https://wissen.melchy.cloud` und ist nur aus dem WireGuard-Netz erreichbar. Er nutzt eine eigene Datenbank `wissensraum_server` im vorhandenen PostgreSQL 18 und das vorhandene Ollama. Die Datenbank der Desktop-Anwendung bleibt unberührt.
+Stand 11.11.2026, Entscheidung D-029, Code-Stand `1298469`, Schema 26: Der Server läuft auf dem IONOS-VPS (`85.215.131.200`, Rocky Linux 10, Docker) unter `https://wissen.melchy.cloud` und ist nur aus dem WireGuard-Netz erreichbar. Er nutzt eine eigene Datenbank `wissensraum_server` im vorhandenen PostgreSQL 18 und das vorhandene Ollama. Die Datenbank der Desktop-Anwendung bleibt unberührt.
 
 Für die Inbetriebnahme der Paritäts-Roadmap (Phase 0 bis 9) gibt es eine Schrittliste mit Prüfpunkten: `deploy/VPS-ABLAUF.md`.
 

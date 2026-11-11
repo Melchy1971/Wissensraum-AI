@@ -1,12 +1,14 @@
 # Masterplan Wissensraum-AI
 
-**Dokumentversion:** 1.9
+**Dokumentversion:** 2.0
 
-**Stand:** 07.11.2026
+**Stand:** 11.11.2026
 
-**Produktstand:** 2.1 freigegeben am 05.11.2026 (Code-Stand `4957182`, Gate an `b0b41de`) · 2.0 abgenommen am 26.10.2026 (Code-Stand `84f9ecf`) · 1.9 freigegeben am 23.10.2026
+**Produktstand:** 2.4 freigegeben am 08.11.2026 · Release 3.0 Mehrbenutzerbetrieb und Web-Parität in Arbeit · Code-Stand `1298469` · Schemaversion 26
 
 **Repository:** `Melchy1971/Wissensraum-AI`
+
+**Aktuelle Codebasis:** `1298469` (11.11.2026), Schemaversion 26. Geprüft wurden in dieser Aktualisierung Dokumentkonsistenz und Markdown-Diff; der letzte lokale Gesamtlauf ergab 713 bestandene, 98 übersprungene und einen unter Windows reproduzierbaren Cleanup-Fehler wegen einer noch geöffneten temporären SQLite-Datei. Die nachfolgende Zeile „Geprüfte Codebasis“ dokumentiert den älteren Freigabe- und Gate-Verlauf und ist kein aktueller Head-Verweis.
 
 **Geprüfte Codebasis:** Letzter produktcodewirksamer Stand `4d2ecbe` (05.11.2026, Schritt 8A.1 Metadaten bearbeiten mit Verlauf, Schemaversion 12). Lokales Matrix-Gate an `7f6c43c`: 7 von 7 Jobs grün (`local-ci-gate-7f6c43c.md`); GitHub Actions für PR #8: 14 von 14 Checks grün. Davor `4957182` (05.11.2026, Chunk-Strategie je Dokumenttyp und Fundstellenanzeige, Schemaversion 11). Lokales Matrix-Gate an `b0b41de`: 7 von 7 Jobs grün (`local-ci-gate-b0b41de.md`); GitHub Actions für PR #7: 14 von 14 Checks grün. Davor `8bdd4f7` (03.11.2026, Schritt 7.4 Zweitabschnitt im erweiterten Antwortfenster): Lokales Matrix-Gate an `8bdd4f7`: 6 von 7 Jobs grün, windows-3.11 lokal durch Dateisperren des Virenscanners gestört; GitHub Actions für PR #6: 14 von 14 Checks grün (D-020). Davor: Lokales Matrix-Gate `tests/local_ci.py`: 7 von 7 Jobs grün an `5ca9021`, `4ef9545`, `6e1a9e3`, `ebd2475`, `72f0fbf`, `7b85460`, `3cb3aaa`, `d7decfe`, `c7ef78a` und `17aa5d2` (D-015, GitHub Actions ohne Budget). Vorheriger Abnahmestand `84f9ecf`: CI-Lauf [40185408996](https://github.com/Melchy1971/Wissensraum-AI/actions/runs/40185408996): alle sieben Jobs grün. Release 2.0 wurde am 26.10.2026 mit eigenen Daten abgenommen; nachfolgende Commits bis zu dieser Planaktualisierung betreffen ausschließlich README und Masterplan.
 

@@ -6,9 +6,9 @@ Grundregel: erst sichern, dann ändern. Die Migrationen 24, 25 und 26 laufen bei
 
 ## A. Vorbereitung am eigenen Rechner (vor dem VPS)
 
-1. **Patches übernehmen.** Im Repository auf dem Stand `bf3b126`: `git am 0001-*.patch … 0014-*.patch`.
-   Prüfpunkt: `git log --oneline -15` zeigt die 14 Commits, `git status` ist sauber.
-   Wenn `git am` stoppt: `git am --abort`, Stand prüfen, nicht von Hand mischen.
+1. **Aktuellen Hauptbranch übernehmen.** `git fetch origin && git switch main && git pull --ff-only origin main`. Erwarteter Mindeststand dieser Anleitung ist Commit `1298469`, Schema 26.
+   Prüfpunkt: `git merge-base --is-ancestor 1298469 HEAD` endet mit Code 0 und `git status` ist sauber.
+   Wenn der Fast-forward nicht möglich ist: lokale Änderungen sichern und den abweichenden Stand klären; nicht von Hand mischen.
 2. **Matrix-Gate.** Windows: `python tests/local_ci.py run`. Linux: `python tests/local_ci.py run --postgres --pg-bin <PostgreSQL-18-bin>`. Danach `python tests/local_ci.py report`.
    Prüfpunkt: `local-ci-gate-<commit>.md` meldet 7 von 7 grün. Bekannt: der GUI-Pixeltest `page='mail'` scheiterte schon vor diesen Änderungen unter Linux.
    Wenn rot: hier aufhören. Der Fehler geht vor den Betrieb.

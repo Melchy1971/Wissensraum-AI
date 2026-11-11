@@ -1,6 +1,6 @@
 # Release 3.0: Bedrohungsmodell und Architektur
 
-Stand 08.11.2026, Schritt 10.1. Grundlage für 10.2 bis 10.8. Änderungen an diesem Dokument brauchen die Zustimmung des Product Owners.
+Stand 11.11.2026, Schritte 10.1 bis 10.8 und Paritäts-Roadmap bis Schema 26. Änderungen an Sicherheitsentscheidungen brauchen die Zustimmung des Product Owners.
 
 ## 1. Entscheidungen (D-028)
 
@@ -105,7 +105,7 @@ Dokumenttexte und Originale, Abschnitte und Vektoren (sie verraten Inhalte), KI-
 
 ## 6. Nicht Teil von Release 3.0
 
-Öffentliche Erreichbarkeit, eigene Domain und VPS (Release 3.1), mehrere Organisationen, öffentliche Registrierung, anonyme Freigabelinks, mobile App, Synchronisation zwischen Desktop- und Serverbestand.
+Öffentliche Erreichbarkeit außerhalb des WireGuard-Netzes, mehrere Organisationen, öffentliche Registrierung, anonyme Freigabelinks, mobile App und Synchronisation zwischen Desktop- und Serverbestand. VPS und eigene Domain werden bereits in Release 3.0 VPN-geschützt genutzt (D-029); Release 3.1 betrifft eine weitergehende öffentliche Betriebsform.
 
 ## 7. Betriebsprozess (10.8)
 

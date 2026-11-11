@@ -1,12 +1,12 @@
 # Wissensraum-AI: Funktionsparität Desktop und Web
 
-Stand: 10.11.2026. Analysephase, keine Codeänderung.
+Stand: 11.11.2026. Ursprüngliche Analyse am 10.11.2026; Umsetzungsstand bis Commit `1298469` nachgetragen.
 
 ## 1. Grundlage und Methode
 
 | Punkt | Wert |
 |---|---|
-| Analysierter Stand | GitHub `Melchy1971/Wissensraum-AI`, Branch `main`, Commit `bf3b126` (Merge PR #46, 09.11.2026 14:42) |
+| Analysierter Stand | Ausgangsanalyse: `bf3b126` (09.11.2026). Nachgetragener Umsetzungsstand: Branch `main`, Commit `1298469` (11.11.2026), Schema 26. |
 | Nicht analysiert | Arbeitsbaum auf dem VPS unter `/opt/docker/wissen/app`. Lokale Änderungen dort, `deploy/wissensraum.env`, Secrets, Traefik- und WireGuard-Konfiguration sind nicht geprüft. Abweichungen vom GitHub-Stand sind möglich. |
 | Desktop-Quellen | vollständig vorhanden: `app.py` (Tkinter), `cli.py`, Fachkern `core.py` und Module. Die vergleichende Bewertung ist damit zulässig. |
 | Web-Quellen | vollständig vorhanden: `server.py` (FastAPI, API und Anmeldung), `web.py` mit `templates/` und `static/` (Jinja2 und htmx), `accounts.py`, `sessions.py`, `oidc.py`, `audit.py`, `Dockerfile`, `deploy/` |

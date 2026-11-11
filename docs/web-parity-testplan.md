@@ -1,6 +1,6 @@
 # Wissensraum-AI: Teststrategie und Akzeptanzkriterien für die Web-Parität
 
-Stand: 10.11.2026, Commit `bf3b126`. Bezug: `docs/desktop-web-parity.md`, `docs/web-parity-roadmap.md`, `docs/web-architecture-review.md`.
+Stand: 11.11.2026, Commit `1298469`, Schema 26. Bezug: `docs/desktop-web-parity.md`, `docs/web-parity-roadmap.md`, `docs/web-architecture-review.md`.
 
 ## 1. Ausgangslage (gemessen am 10.11.2026)
 
