@@ -8,6 +8,7 @@ import json
 import sqlite3
 import sys
 import tempfile
+from contextlib import closing
 import threading
 import unittest
 from pathlib import Path
@@ -70,7 +71,7 @@ class ContractTests(unittest.TestCase):
             ids = fill(store)
             admin, editor, _ = people(store, ids)
             second = accounts.create_account(store, TENANT, 'oid-admin-2', 'admin', 'Zweiter Admin')
-            with sqlite3.connect(store.path) as db:
+            with closing(sqlite3.connect(store.path)) as db, db:
                 db.execute('INSERT INTO favorites(document_id) VALUES(?)', (ids['secret'],))
                 db.execute("INSERT INTO saved_searches(name,normalized,query) VALUES('Alt','alt','Pumpe')")
                 for sql in dict(migrations.SQLITE_MIGRATIONS)[25]:
