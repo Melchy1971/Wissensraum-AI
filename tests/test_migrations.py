@@ -293,6 +293,12 @@ SQLITE_HISTORICAL_MIGRATIONS = (
                for table in ('documents', 'collections', 'entities', 'graph_relations', 'grants'))),
     (23, ('ALTER TABLE ai_runs ADD COLUMN account_id INTEGER',)),
     (24, ('ALTER TABLE import_jobs ADD COLUMN account_id INTEGER', 'ALTER TABLE import_items ADD COLUMN upload BLOB')),
+    (25, (
+        'CREATE TABLE IF NOT EXISTS account_favorites (\n            account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,\n            document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,\n            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,\n            PRIMARY KEY(account_id, document_id)\n        )',
+        'CREATE TABLE IF NOT EXISTS account_saved_searches (\n            id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,\n            name TEXT NOT NULL, normalized TEXT NOT NULL, query TEXT NOT NULL, mode TEXT, tag TEXT,\n            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(account_id, normalized)\n        )',
+        "INSERT INTO account_favorites(account_id,document_id,created_at) SELECT a.id,f.document_id,f.created_at FROM favorites f JOIN (SELECT MIN(id) AS id FROM accounts WHERE role='admin') a ON a.id IS NOT NULL",
+        "INSERT INTO account_saved_searches(account_id,name,normalized,query,mode,tag,created_at) SELECT a.id,s.name,s.normalized,s.query,s.mode,s.tag,s.created_at FROM saved_searches s JOIN (SELECT MIN(id) AS id FROM accounts WHERE role='admin') a ON a.id IS NOT NULL",
+    )),
 )
 
 
@@ -459,7 +465,7 @@ class FakePostgres:
                        'import_item_errors', 'document_versions', 'email_attachments',
                        'tags', 'document_tags', 'rules', 'rule_runs', 'rule_run_changes',
                        'chunk_vectors', 'metadata_changes', 'collections', 'collection_documents', 'favorites', 'saved_searches',
-                       'document_relations', 'entity_types', 'relation_types', 'entities', 'entity_mentions', 'graph_relations', 'graph_changes', 'ai_usage', 'organizations', 'accounts', 'grants', 'web_sessions', 'login_requests', 'audit_log', 'account_favorites', 'account_saved_searches'}
+                       'document_relations', 'entity_types', 'relation_types', 'entities', 'entity_mentions', 'graph_relations', 'graph_changes', 'ai_usage', 'organizations', 'accounts', 'grants', 'web_sessions', 'login_requests', 'audit_log', 'account_favorites', 'account_saved_searches', 'account_mailboxes'}
         return tables
 
 
@@ -866,7 +872,7 @@ class PostgresMigrationTests(unittest.TestCase):
                                                           'document_tags', 'rules', 'rule_runs',
                                                           'rule_run_changes', 'chunk_vectors',
                                                           'metadata_changes', 'collections', 'collection_documents', 'favorites', 'saved_searches',
-                                                          'document_relations', 'entity_types', 'relation_types', 'entities', 'entity_mentions', 'graph_relations', 'graph_changes', 'ai_usage', 'organizations', 'accounts', 'grants', 'web_sessions', 'login_requests', 'audit_log', 'account_favorites', 'account_saved_searches')),
+                                                          'document_relations', 'entity_types', 'relation_types', 'entities', 'entity_mentions', 'graph_relations', 'graph_changes', 'ai_usage', 'organizations', 'accounts', 'grants', 'web_sessions', 'login_requests', 'audit_log', 'account_favorites', 'account_saved_searches', 'account_mailboxes')),
         ]
         indexes = [
             {'table_name':'chunks','index_name':'chunks_document_id_idx','index_definition':'CREATE INDEX chunks_document_id_idx ON wissensraum.chunks USING btree (document_id)'},

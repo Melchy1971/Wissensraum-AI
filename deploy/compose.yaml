@@ -22,7 +22,7 @@ services:
       migrate:
         condition: service_completed_successfully
     env_file: wissensraum.env
-    secrets: [db_app, oidc_client_secret]
+    secrets: [db_app, oidc_client_secret, mail_key]
     environment:
       WISSENSRAUM_OCR: "0"  # Texterkennung nur im Worker (Paritäts-Roadmap Phase 6)
     volumes:
@@ -52,7 +52,7 @@ services:
       traefik.http.services.wissensraum.loadbalancer.server.port: "8000"
 
   # Hintergrundarbeiten (Paritäts-Roadmap Phase 2, 3, 5, 6): Einbettung, Uploads samt Texterkennung, Installationsexport.
-  # Gleiches Image und gleiche Datenbankrolle wie server, kein Port, keine Anmeldedaten. Genau ein Worker.
+  # Gleiches Image und gleiche Datenbankrolle wie server, kein Port, keine Benutzeranmeldung. Genau ein Worker.
   worker:
     image: wissensraum-server:3.0
     command: ["python", "worker.py"]
@@ -60,7 +60,8 @@ services:
       migrate:
         condition: service_completed_successfully
     env_file: wissensraum.env
-    secrets: [db_app]
+    # mail_key und oidc_client_secret: Postfachabrufe im Auftrag der Konten (Phase 8, D-030).
+    secrets: [db_app, oidc_client_secret, mail_key]
     volumes:
       - worker-logs:/data/logs
       - exports:/data/exports
@@ -91,6 +92,8 @@ secrets:
   db_owner: {file: ./secrets/db_owner.txt}
   db_app: {file: ./secrets/db_app.txt}
   oidc_client_secret: {file: ./secrets/oidc_client_secret.txt}
+  # 32 Zufallsbytes als Base64 (openssl rand -base64 32), Kopie mit age außerhalb des VPS (D-030)
+  mail_key: {file: ./secrets/mail_key.txt}
 
 volumes:
   logs:

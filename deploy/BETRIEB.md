@@ -91,6 +91,16 @@ Das Image enthält jetzt Tesseract mit Deutsch und Englisch. Nur der Worker erke
 
 Dateien ohne erkannten Text bleiben 30 Tage in der Datenbank (`import_items.upload`), damit Besitzer oder Admin sie unter Importe erneut verarbeiten können. Danach entfernt der Worker die Bytes.
 
+## Postfächer (Paritäts-Roadmap Phase 8, D-030)
+
+1. Schlüssel erzeugen: `openssl rand -base64 32 > deploy/secrets/mail_key.txt`, Rechte 600. Eine Kopie mit age verschlüsseln und außerhalb des VPS ablegen, wie die Sicherung. Ohne diesen Schlüssel sind gespeicherte Zugänge nach einer Wiederherstellung unbrauchbar.
+2. In `deploy/wissensraum.env`: `WR_MAIL_KEY_FILE=/run/secrets/mail_key`. Server und Worker bekommen das Secret über `compose.yaml`.
+3. Entra-App der Server-Anmeldung: unter Authentifizierung die Umleitungs-URI `https://wissen.melchy.cloud/postfaecher/microsoft/rueckruf` ergänzen, unter API-Berechtigungen Microsoft Graph, delegiert, `Mail.Read` und `offline_access` hinzufügen und die Administratorzustimmung für den Mandanten erteilen.
+4. Migration 26 läuft mit dem Dienst `migrate`, danach Container neu anlegen.
+5. Probe: als Bearbeiter unter Postfächer das eigene Microsoft-Postfach verbinden, Vorschau öffnen, eine Nachricht importieren, nach einer Worker-Runde ist sie ein Dokument des Kontos.
+
+Schlüsselwechsel: neuen Schlüssel als `mail_key`, den alten als zweites Secret und `WR_MAIL_KEY_PREVIOUS_FILE`, Container neu anlegen, `docker compose exec server python server.py mail-rewrap`, danach den alten Schlüssel entfernen.
+
 ## Antwortqualität von qwen3:4b messen
 
 Alle Grenzwerte (False Reject höchstens 10 %, False Accept höchstens 5 %) sind mit `qwen3:8b` gemessen. Für das Modell des Servers gilt der Nachweis erst nach eigener Messung auf dem eingefrorenen Bestand V2, auf deinem Rechner, mit exklusiv laufendem Ollama:

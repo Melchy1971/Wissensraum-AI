@@ -460,7 +460,7 @@ class DiagnosticTests(unittest.TestCase):
                 with store.connect() as connection:
                     for table in ('metadata_changes', 'collections', 'collection_documents', 'favorites', 'saved_searches', 'document_relations',
                                   'graph_changes', 'graph_relations', 'entity_mentions', 'entities', 'entity_types', 'relation_types',
-                                  'ai_usage', 'audit_log', 'web_sessions', 'login_requests', 'account_favorites', 'account_saved_searches',
+                                  'ai_usage', 'audit_log', 'web_sessions', 'login_requests', 'account_favorites', 'account_saved_searches', 'account_mailboxes',
                                   'grants', 'accounts', 'organizations'):
                         connection.execute(f'DROP TABLE {table}')
                     for column in ('status', 'owner', 'review_date', 'revision'):

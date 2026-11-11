@@ -16,7 +16,7 @@
   {% if account %}
   <nav aria-label="Hauptnavigation">
     {% set links = [('/', 'Dokumente'), ('/suche', 'Suche'), ('/fragen', 'Fragen'), ('/sammlungen', 'Sammlungen'), ('/graph', 'Wissensgraph'), ('/wiedervorlagen', 'Wiedervorlagen')] %}
-    {% if account.role in ('admin', 'editor') %}{% set links = links + [('/notiz', 'Notiz'), ('/hochladen', 'Hochladen'), ('/importe', 'Importe')] %}{% endif %}
+    {% if account.role in ('admin', 'editor') %}{% set links = links + [('/notiz', 'Notiz'), ('/hochladen', 'Hochladen'), ('/postfaecher', 'Postfächer'), ('/importe', 'Importe')] %}{% endif %}
     {% if account.role == 'admin' %}{% set links = links + [('/verwaltung', 'Verwaltung')] %}{% endif %}
     {% for href, label in links %}<a href="{{ href }}"{% if path == href or (href != '/' and path.startswith(href + '/')) %} aria-current="page"{% endif %}>{{ label }}</a>
     {% endfor %}

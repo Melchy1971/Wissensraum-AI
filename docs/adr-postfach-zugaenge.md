@@ -85,6 +85,8 @@ Folgen bei Annahme:
 
 Aufwand Phase 8 mit Empfehlung: 9 bis 14 PT statt 15 bis 25 PT laut Roadmap.
 
+Umsetzung (11.11.2026): Migration 26 legt nur die Tabelle `account_mailboxes` an (Besitz und Chiffrat), `email_accounts` bleibt unverändert. Audit-Ereignis heißt `mailbox_changed`, Importe laufen als `import_started` mit `mail`. D12 (Anhänge alter E-Mails entfernen) entfällt im Server, weil er Anhänge nie im Original speichert.
+
 ## 6. Offene Fragen an den Product Owner
 
 1. Welche Option für die Ablage: A, B, C oder D?

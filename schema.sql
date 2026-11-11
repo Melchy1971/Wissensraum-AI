@@ -168,4 +168,5 @@ CREATE TRIGGER IF NOT EXISTS audit_log_no_delete BEFORE DELETE ON audit_log
         BEGIN SELECT RAISE(ABORT, 'Der Audit-Verlauf ist unveränderlich.'); END;
 CREATE TABLE IF NOT EXISTS account_favorites ( account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(account_id, document_id) );
 CREATE TABLE IF NOT EXISTS account_saved_searches ( id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, name TEXT NOT NULL, normalized TEXT NOT NULL, query TEXT NOT NULL, mode TEXT, tag TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(account_id, normalized) );
-PRAGMA user_version = 25;
+CREATE TABLE IF NOT EXISTS account_mailboxes ( mailbox_id TEXT PRIMARY KEY REFERENCES email_accounts(id) ON DELETE CASCADE, account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, key_id TEXT NOT NULL, nonce BLOB NOT NULL, secret BLOB NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP );
+PRAGMA user_version = 26;

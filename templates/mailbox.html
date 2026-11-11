@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+<p>{{ mailbox.email }} · {{ 'Microsoft 365' if mailbox.provider == 'microsoft' else 'IMAP ' ~ mailbox.host }} · <a href="/postfaecher">Alle Postfächer</a></p>
+<form method="get" action="/postfaecher/{{ mailbox.id }}"><input type="hidden" name="vorschau" value="1">
+{% if mailbox.provider != 'microsoft' %}<label>Ordner <input name="ordner" value="{{ folder }}" maxlength="200"></label>{% endif %}
+<label>Anzahl <input name="anzahl" value="{{ count }}" inputmode="numeric" size="4"></label>
+<button type="submit">Neueste Nachrichten anzeigen</button></form>
+<p><small>Die Vorschau lädt nur Betreff, Absender, Datum und Anhangsnamen, keinen Text und keine Anhänge.</small></p>
+{% if problem %}<p class="error">{{ problem }}</p>{% endif %}
+{% if previewed and not problem %}
+{% if items %}
+<form method="post" action="/postfaecher/{{ mailbox.id }}/import"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="folder" value="{{ folder }}">
+<table><thead><tr><th>Import</th><th>Nachricht</th><th>Anhänge freigeben</th></tr></thead><tbody>
+{% for item in items %}<tr><td>{% if item.imported %}schon importiert{% else %}<input type="checkbox" name="message" value="{{ item.id }}" aria-label="{{ item.subject }} importieren"><input type="hidden" name="subject:{{ item.id }}" value="{{ item.subject }}">{% endif %}</td>
+<td>{{ item.subject }}<br><small>{{ item.sender }} · {{ item.date }}</small></td>
+<td>{% for a in item.attachments %}<label><input type="checkbox" name="attachment" value="{{ item.id }}#{{ a.id }}"> {{ a.name }}</label><br>{% endfor %}</td></tr>{% endfor %}
+</tbody></table>
+<button type="submit">Ausgewählte importieren</button></form>
+{% else %}<p>Keine Nachrichten.</p>{% endif %}
+{% endif %}
+<h2>Synchronisation</h2>
+<p>{% if sync.enabled %}Eingeschaltet, alle {{ sync.interval }} Minuten{% if sync.stopped %}, gestoppt: {{ sync.stopped }}{% endif %}. {{ sync.last_result }}{% else %}Ausgeschaltet.{% endif %}</p>
+<form method="post" action="/postfaecher/{{ mailbox.id }}/synchronisation"><input type="hidden" name="csrf_token" value="{{ csrf }}">
+{% if sync.enabled %}<input type="hidden" name="enabled" value="0"><button type="submit">Ausschalten</button>
+{% else %}<input type="hidden" name="enabled" value="1"><input type="hidden" name="folder" value="{{ folder }}"><label>Intervall <select name="interval">{% for minutes in (15, 30, 60, 240) %}<option value="{{ minutes }}"{% if minutes == 60 %} selected{% endif %}>{{ minutes }} Minuten</option>{% endfor %}</select></label> <button type="submit">Einschalten</button>{% endif %}
+</form>
+<p><small>Die Synchronisation holt nur neue Nachrichten ohne Anhänge, ab dem Zeitpunkt des Einschaltens.</small></p>
+<h2>Postfach entfernen</h2>
+<form method="post" action="/postfaecher/{{ mailbox.id }}/loeschen"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit">Postfach und Zugang löschen</button></form>
+<p><small>Importierte E-Mails bleiben als Dokumente erhalten.</small></p>
+{% endblock %}

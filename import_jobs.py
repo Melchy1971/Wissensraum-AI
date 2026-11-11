@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import json
 from contextlib import contextmanager, nullcontext as _nothing
 from pathlib import Path
 
@@ -168,16 +169,16 @@ class ImportJobs:
         ponytail: one worker reads this; two could pick the same job. Upgrade path: FOR UPDATE SKIP LOCKED.
         """
         with self.store.connect() as db:
-            row = db.execute("SELECT id FROM import_jobs WHERE kind=? AND status IN ('pending','running') "
-                             'ORDER BY id LIMIT 1', (UPLOAD,)).fetchone()
+            row = db.execute("SELECT id FROM import_jobs WHERE (kind=? OR kind IN ('imap','graph') AND account_id IS NOT "
+                             "NULL) AND status IN ('pending','running') ORDER BY id LIMIT 1", (UPLOAD,)).fetchone()
         return row['id'] if row else None
 
     def upload_jobs(self, account_id=None, limit=50):
         """Summaries of server jobs, newest first; ``account_id`` None: all (administrators)."""
         with self.store.connect() as db:
             ids = [row['id'] for row in db.execute(
-                'SELECT id FROM import_jobs WHERE kind=? AND (? IS NULL OR account_id=?) ORDER BY id DESC LIMIT ?',
-                (UPLOAD, account_id, account_id, limit))]
+                "SELECT id FROM import_jobs WHERE (kind=? OR kind IN ('imap','graph') AND account_id IS NOT NULL) "
+                'AND (? IS NULL OR account_id=?) ORDER BY id DESC LIMIT ?', (UPLOAD, account_id, account_id, limit))]
         return [self.summary(job_id) for job_id in ids]
 
     def set_status(self, job_id, status):
@@ -275,8 +276,10 @@ class ImportJobs:
             if self.importer is None:
                 raise ValueError('E-Mail-Aufträge benötigen den E-Mail-Import.')
             try:
+                if job.get('account_id') is not None:  # a server account's mailbox (phase 8, D-030)
+                    self._check_mail_owner(job)
                 with self.importer.job_handler(job) as handle:
-                    yield handle
+                    yield self._server_mail(job, handle) if job.get('account_id') is not None else handle
             except Exception:
                 self._set_job_status(job['id'], 'cancelled')  # e.g. login failed: job stays resumable
                 raise
@@ -294,6 +297,38 @@ class ImportJobs:
 
     def _cancelled(self, job_id):
         return self.job(job_id)['status'] == 'cancelled'
+
+    def _check_mail_owner(self, job):
+        """The account may still import and the mailbox still belongs to it; else the job stops (cancelled)."""
+        import accounts
+        account = accounts.account(self.store, job['account_id'])
+        mailbox = json.loads(job['root']).get('account_id')
+        with self.store.connect() as db:
+            row = db.execute('SELECT account_id FROM account_mailboxes WHERE mailbox_id=?', (mailbox,)).fetchone()
+        if account['disabled'] or account['role'] not in ('admin', 'editor') or row is None \
+                or row['account_id'] != account['id']:
+            raise PermissionError('Das Konto darf aus diesem Postfach nicht mehr importieren.')
+
+    def _server_mail(self, job, handle):
+        """A new e-mail or attachment document gets the owner grant of the job's account and an audit entry,
+        in one transaction with the item. An existing text stays without access (decision 10.11.2026)."""
+        import accounts
+        import audit
+
+        def wrapped(item, recovering):
+            status, document_id, data = handle(item, recovering)
+            if status == 'imported' and document_id is not None:
+                accounts.grant(self.store, job['account_id'], 'owner', document_id=document_id, end_sessions=False)
+                audit.record(self.store, 'document_created', job['account_id'], f'document:{document_id}', 'worker',
+                             {'job': job['id'], 'mail': True})
+            return status, document_id, data
+        wrapped.atomic = True
+        return wrapped
+
+    def assign(self, job_id, account_id):
+        """Mark a job as one of a server account (worker, pages and rights), e.g. an e-mail job of its mailbox."""
+        with self.store.connect() as db:
+            db.execute('UPDATE import_jobs SET account_id=? WHERE id=?', (account_id, job_id))
 
     def _upload_handler(self, job):
         """Import one uploaded item for the job's account: document, owner grant and audit entry together.

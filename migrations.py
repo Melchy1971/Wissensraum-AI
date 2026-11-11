@@ -9,7 +9,7 @@ import uuid
 from contextlib import closing, contextmanager
 from pathlib import Path
 
-CURRENT_SCHEMA_VERSION = 25
+CURRENT_SCHEMA_VERSION = 26
 # Unversioned PostgreSQL schemas predate schema_migrations and match version 4.
 POSTGRES_LEGACY_SCHEMA_VERSION = 4
 # ponytail: source_type is validated in application code (core.SOURCE_TYPES), not by a
@@ -367,6 +367,16 @@ SQLITE_MIGRATIONS = (
         "INSERT INTO account_favorites(account_id,document_id,created_at) SELECT a.id,f.document_id,f.created_at FROM favorites f JOIN (SELECT MIN(id) AS id FROM accounts WHERE role='admin') a ON a.id IS NOT NULL",
         "INSERT INTO account_saved_searches(account_id,name,normalized,query,mode,tag,created_at) SELECT a.id,s.name,s.normalized,s.query,s.mode,s.tag,s.created_at FROM saved_searches s JOIN (SELECT MIN(id) AS id FROM accounts WHERE role='admin') a ON a.id IS NOT NULL",
     )),
+    # Parity roadmap phase 8 (D-030): a server mailbox belongs to one account; its IMAP password or
+    # Microsoft refresh token is stored only as AES-256-GCM ciphertext, the key is a Docker secret.
+    (26, (
+        """CREATE TABLE IF NOT EXISTS account_mailboxes (
+            mailbox_id TEXT PRIMARY KEY REFERENCES email_accounts(id) ON DELETE CASCADE,
+            account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+            key_id TEXT NOT NULL, nonce BLOB NOT NULL, secret BLOB NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+    )),
 )
 
 
@@ -692,6 +702,15 @@ POSTGRES_MIGRATIONS = (
         "INSERT INTO account_favorites(account_id,document_id,created_at) SELECT a.id,f.document_id,f.created_at FROM favorites f JOIN (SELECT MIN(id) AS id FROM accounts WHERE role='admin') a ON a.id IS NOT NULL",
         "INSERT INTO account_saved_searches(account_id,name,normalized,query,mode,tag,created_at) SELECT a.id,s.name,s.normalized,s.query,s.mode,s.tag,s.created_at FROM saved_searches s JOIN (SELECT MIN(id) AS id FROM accounts WHERE role='admin') a ON a.id IS NOT NULL",
     )),
+    # Parity roadmap phase 8 (D-030), see the SQLite migration 26.
+    (26, (
+        """CREATE TABLE IF NOT EXISTS account_mailboxes (
+            mailbox_id TEXT PRIMARY KEY REFERENCES email_accounts(id) ON DELETE CASCADE,
+            account_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+            key_id TEXT NOT NULL, nonce BYTEA NOT NULL, secret BYTEA NOT NULL,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
+    )),
 )
 
 # Columns added to an existing table by a later migration: (table, column) -> version.
@@ -730,7 +749,7 @@ SQLITE_TABLE_VERSIONS = {
     'entity_types': 16, 'relation_types': 16, 'entities': 16, 'entity_mentions': 16, 'graph_relations': 16,
     'graph_changes': 16, 'ai_usage': 18, 'organizations': 19, 'accounts': 19, 'grants': 19,
     'web_sessions': 20, 'login_requests': 20, 'audit_log': 21,
-    'account_favorites': 25, 'account_saved_searches': 25,
+    'account_favorites': 25, 'account_saved_searches': 25, 'account_mailboxes': 26,
 }
 
 # Constant SQL list of all application tables, derived from the catalog so that
@@ -857,6 +876,9 @@ SQLITE_COLUMNS = {
     'account_saved_searches': (('id','INTEGER',0,None,1), ('account_id','INTEGER',1,None,0), ('name','TEXT',1,None,0),
                                ('normalized','TEXT',1,None,0), ('query','TEXT',1,None,0), ('mode','TEXT',0,None,0),
                                ('tag','TEXT',0,None,0), ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
+    'account_mailboxes': (('mailbox_id','TEXT',0,None,1), ('account_id','INTEGER',1,None,0), ('key_id','TEXT',1,None,0),
+                          ('nonce','BLOB',1,None,0), ('secret','BLOB',1,None,0),
+                          ('updated_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
 }
 
 SQLITE_UNIQUE_CONSTRAINTS = {
@@ -874,7 +896,7 @@ SQLITE_UNIQUE_CONSTRAINTS = {
     'entity_mentions': set(), 'graph_relations': set(), 'graph_changes': set(), 'ai_usage': set(),
     'organizations': set(), 'accounts': {('tenant_id', 'object_id')}, 'grants': set(),
     'web_sessions': set(), 'login_requests': set(), 'audit_log': set(),
-    'account_favorites': set(), 'account_saved_searches': {('account_id', 'normalized')},
+    'account_favorites': set(), 'account_saved_searches': {('account_id', 'normalized')}, 'account_mailboxes': set(),
 }
 
 SQLITE_FOREIGN_KEYS = {
@@ -928,6 +950,8 @@ SQLITE_FOREIGN_KEYS = {
     'account_favorites': {('account_id','accounts','id','NO ACTION','CASCADE'),
                           ('document_id','documents','id','NO ACTION','CASCADE')},
     'account_saved_searches': {('account_id','accounts','id','NO ACTION','CASCADE')},
+    'account_mailboxes': {('mailbox_id','email_accounts','id','NO ACTION','CASCADE'),
+                          ('account_id','accounts','id','NO ACTION','CASCADE')},
 }
 
 POSTGRES_LEGACY_COLUMNS = {
@@ -1174,6 +1198,12 @@ POSTGRES_LEGACY_COLUMNS = {
     ('account_saved_searches','mode','text','YES','NO',None,None),
     ('account_saved_searches','tag','text','YES','NO',None,None),
     ('account_saved_searches','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('account_mailboxes','mailbox_id','text','NO','NO',None,None),
+    ('account_mailboxes','account_id','bigint','NO','NO',None,None),
+    ('account_mailboxes','key_id','text','NO','NO',None,None),
+    ('account_mailboxes','nonce','bytea','NO','NO',None,None),
+    ('account_mailboxes','secret','bytea','NO','NO',None,None),
+    ('account_mailboxes','updated_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
 }
 
 POSTGRES_LEGACY_CONSTRAINTS = {
@@ -1265,6 +1295,9 @@ POSTGRES_LEGACY_CONSTRAINTS = {
     ('account_saved_searches', 'p', ('id',), None, (), ' '),
     ('account_saved_searches', 'f', ('account_id',), 'accounts', ('id',), 'c'),
     ('account_saved_searches', 'u', ('account_id', 'normalized'), None, (), ' '),
+    ('account_mailboxes', 'p', ('mailbox_id',), None, (), ' '),
+    ('account_mailboxes', 'f', ('mailbox_id',), 'email_accounts', ('id',), 'c'),
+    ('account_mailboxes', 'f', ('account_id',), 'accounts', ('id',), 'c'),
 }
 
 

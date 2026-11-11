@@ -415,7 +415,7 @@ class EvaluationStockBuilderTests(unittest.TestCase):
                 for table in ('metadata_changes', 'collections', 'collection_documents', 'favorites', 'saved_searches', 'document_relations',
                               'graph_changes', 'graph_relations', 'entity_mentions', 'entities', 'entity_types', 'relation_types',
                               'ai_usage', 'audit_log', 'web_sessions', 'login_requests', 'account_favorites',
-                              'account_saved_searches', 'grants', 'accounts', 'organizations'):  # version-11 base
+                              'account_saved_searches', 'account_mailboxes', 'grants', 'accounts', 'organizations'):  # version-11 base
                     db.execute(f'DROP TABLE {table}')
                 for column in ('status', 'owner', 'review_date', 'revision'):
                     db.execute(f'ALTER TABLE documents DROP COLUMN {column}')
@@ -425,7 +425,7 @@ class EvaluationStockBuilderTests(unittest.TestCase):
                 db.execute('PRAGMA user_version=11')
         before = builder.sha256_file(self.base)
         report = self.build()
-        self.assertEqual(report['schema_version'], 25)
+        self.assertEqual(report['schema_version'], 26)
         self.assertEqual(builder.sha256_file(self.base), before)
         with closing(sqlite3.connect(self.base)) as db:
             self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 11)

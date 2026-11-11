@@ -824,7 +824,11 @@ class Importer:
                 raise ValueError('Keine gültige E-Mail-Auswahl vorhanden.')
             if not message_id or len(locator)>2100 or any(ord(c)<32 for c in locator):
                 raise ValueError('Keine gültige E-Mail-Auswahl vorhanden.')
-        return jobs.create_entries(kind,root,'E-Mail · '+account['label'],entries)
+        job_id=jobs.create_entries(kind,root,'E-Mail · '+account['label'],entries)
+        owner=getattr(self.accounts,'owner_of',None)  # server mailboxes (phase 8): the job belongs to the account
+        if owner is not None:
+            jobs.assign(job_id,owner(account_id))
+        return job_id
 
     def create_pst_job(self,jobs,path,items,attachments=None):
         path=Path(path).resolve()

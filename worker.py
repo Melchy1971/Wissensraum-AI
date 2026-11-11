@@ -7,6 +7,8 @@ also imports uploaded files (``import_jobs.ImportJobs.create_uploads``), one job
 phase 5 it builds the installation export an administrator requested into ``WR_EXPORT_DIR``. Since phase 6
 the image carries Tesseract (deu, eng): uploaded images and scans are recognized here, never in the server.
 Since phase 7 it runs AI graph suggestions that an account with write access requested for a document.
+Since phase 8 (D-030) it imports the chosen e-mails of server mailboxes and runs the mailbox sync that an
+account switched on; it decrypts credentials with ``WR_MAIL_KEY_FILE`` and gets Graph tokens from the Entra app.
 
 Same database and runtime role as the server, no web port, no sign-in settings. Ollama address from
 ``WR_OLLAMA_URL``. After every round the worker touches a heartbeat file; the container health check
@@ -37,14 +39,33 @@ def run_once(store, should_stop=lambda: False):
     return sync.run(should_stop=should_stop)
 
 
-def import_once(store, stop, heartbeat=HEARTBEAT, beat=INTERVAL_SECONDS):
+def mail_importer(store, keys, provider):
+    """Importer over every server mailbox for the worker, or None without a mail key (then no mail jobs)."""
+    if keys[0] is None:
+        return None
+    from importer import Importer
+    from mail_vault import MailVault
+    from server_mail import GRAPH_SCOPE, ServerMailboxes
+    refresh = (lambda token: provider.refresh(token, GRAPH_SCOPE)) if provider is not None else None
+    return Importer(store, ServerMailboxes(store, MailVault(store, keys[0], keys[1]), refresh=refresh))
+
+
+def sync_once(store, importer, clock=time.time):
+    """Due mailbox syncs that their accounts switched on (D09); {} without importer."""
+    if importer is None:
+        return {}
+    from mail_sync import MailSync
+    return MailSync(store, importer, ImportJobs(store, importer), clock).run_due()
+
+
+def import_once(store, stop, heartbeat=HEARTBEAT, beat=INTERVAL_SECONDS, importer=None):
     """Run the oldest open upload job to its end (or until ``stop``); returns its summary or None.
 
     The heartbeat is touched after every item and every ``beat`` seconds while one item runs: a scan of many
     pages takes minutes in Tesseract. A hanging Tesseract call is ended by its own time limit per page
     (``ocr.OCR_PAGE_TIMEOUT_SECONDS``), so the worker does not hang for good behind a living heartbeat.
     """
-    jobs = ImportJobs(store)
+    jobs = ImportJobs(store, importer)
     jobs.drop_kept_uploads()  # bytes of uploads without text after 30 days (decision 11.11.2026)
     job_id = jobs.next_upload_job()
     if job_id is None:
@@ -95,7 +116,7 @@ def graph_once(store, model, now=None, suggest=None):
 
 
 def loop(store, stop, log, interval=INTERVAL_SECONDS, heartbeat=HEARTBEAT, rounds=None, export_folder=None,
-         graph_model=None):
+         graph_model=None, importer=None):
     """Rounds until ``stop`` is set (or ``rounds`` ran, for tests). A failed round never ends the loop."""
     done = 0
     while not stop.is_set() and (rounds is None or done < rounds):
@@ -104,7 +125,11 @@ def loop(store, stop, log, interval=INTERVAL_SECONDS, heartbeat=HEARTBEAT, round
             if state is not None:
                 log('vectors_embedded', 'WARNING' if state['failed'] else 'INFO', count=state['embedded'],
                     outcome='failed' if state['failed'] else 'ok')
-            summary = import_once(store, stop, heartbeat)
+            summary = import_once(store, stop, heartbeat, importer=importer)
+            with alive(heartbeat, interval):
+                synced = sync_once(store, importer)
+            if synced:
+                log('mail_synced', 'INFO', count=sum(state.get('imported', 0) for state in synced.values()))
             if summary is not None:
                 log('import_job_finished', 'INFO', count=summary['total'], status=summary['status'])
             with alive(heartbeat, interval):
@@ -143,7 +168,8 @@ def main():  # pragma: no cover - starts the real worker
     import ocr
     log('worker_started', status='ocr' if ocr.available() else 'ohne_ocr')
     loop(store, stop, log, int(os.environ.get('WR_WORKER_INTERVAL') or INTERVAL_SECONDS),
-         export_folder=os.environ.get('WR_EXPORT_DIR') or None, graph_model=server.graph_model(os.environ))
+         export_folder=os.environ.get('WR_EXPORT_DIR') or None, graph_model=server.graph_model(os.environ),
+         importer=mail_importer(store, server.mail_keys(os.environ), server.mail_provider(os.environ)))
     log('worker_stopped')
 
 

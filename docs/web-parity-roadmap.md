@@ -22,7 +22,7 @@ Stand: 10.11.2026, Commit `bf3b126`. Grundlage: `docs/desktop-web-parity.md` (Ma
 | 5 | Administration, Datenschutz, Betrieb (umgesetzt, Exportordner auf VPS einrichten) | P2 | 10 bis 15 PT | M | 1, 3 |
 | 6 | OCR im Server (umgesetzt, Image-Bau auf dem VPS offen) | P2 | 4 bis 6 PT | M | 3 |
 | 7 | Wissensgraph im Web (umgesetzt) | P3 | 10 bis 16 PT | M | 4 |
-| 8 | E-Mail- und PST-Import | P3 | 15 bis 25 PT | H | 3, ADR Geheimnisse |
+| 8 | E-Mail-Import (umgesetzt nach D-030, PST nur Desktop, Entra-Freigabe offen) | P3 | 15 bis 25 PT | H | 3, ADR Geheimnisse |
 | 9 | Oberfläche und Barrierefreiheit (umgesetzt außer Prüfung mit Screenreader) | P3 | 3 bis 6 PT | N | 4 |
 | Summe | | | 84 bis 136 PT | | |
 

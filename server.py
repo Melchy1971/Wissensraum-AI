@@ -148,12 +148,13 @@ class NewGrant(BaseModel):
 
 
 def create_app(store, provider, base_url, development=False, logger=None, clock=time.time, ai=None, limits=None,
-               secret_expires=None, export_dir=None, graph_model=None):
+               secret_expires=None, export_dir=None, graph_model=None, mail_keys=(None, None)):
     """``ai`` builds the answering component for a store (``core.AI``); None: questions answer 503.
 
     ``secret_expires`` is the expiry date of the Entra client secret (S-11); administrators see a warning.
     ``export_dir`` is the folder the worker writes the installation export to (``WR_EXPORT_DIR``).
     ``graph_model`` is the Ollama model for AI graph suggestions; None: suggestions are not offered (D-023).
+    ``mail_keys`` (current, previous) encrypt mailbox credentials (D-030); without a key there are no mailboxes.
 
     ``limits`` (``services.Limits``) replaces the default rate limits per account, for tests.
     """
@@ -576,7 +577,8 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
     web.register(app, SimpleNamespace(store=store, signed_in=signed_in, viewer=viewer, require_role=require_role,
                                       document=document, audited=audited, ai=ai, recorder=recorder, limited=limited,
                                       secret_expires=secret_expires, clock=clock, export_dir=export_dir,
-                                      graph_model=graph_model))
+                                      graph_model=graph_model, mail_keys=mail_keys, provider=provider,
+                                      base=base))
     return app
 
 
@@ -629,10 +631,26 @@ def settings_from_env(environ=None):
             'provider': Provider(authority, tenant, client_id, secret, base + '/auth/callback'),
             'ai': ai, 'secrets': tuple(value for value in (secret, password, ai_key) if value),
             'secret_expires': secret_expiry(environ), 'export_dir': environ.get('WR_EXPORT_DIR') or None,
-            'graph_model': graph_model(environ)}
+            'graph_model': graph_model(environ), 'mail_keys': mail_keys(environ)}
 
 
 SECRET_WARNING_DAYS = 30
+
+
+def mail_keys(environ):
+    """(current, previous) key for mailbox credentials from ``WR_MAIL_KEY_FILE`` and ``WR_MAIL_KEY_PREVIOUS_FILE``."""
+    import mail_vault
+    return mail_vault.load_key(environ), mail_vault.load_key(environ, 'WR_MAIL_KEY_PREVIOUS')
+
+
+def mail_provider(environ):
+    """The Entra app for the worker's Graph tokens (phase 8); None without sign-in settings."""
+    tenant, client_id = environ.get('WR_OIDC_TENANT_ID', '').strip(), environ.get('WR_OIDC_CLIENT_ID', '').strip()
+    secret = _secret(environ, 'WR_OIDC_CLIENT_SECRET')
+    if not (tenant and client_id and secret):
+        return None
+    authority = environ.get('WR_OIDC_AUTHORITY') or f'https://login.microsoftonline.com/{tenant}/v2.0'
+    return Provider(authority, tenant, client_id, secret, '')
 
 
 def graph_model(environ):
@@ -809,11 +827,15 @@ def main(argv=None):  # pragma: no cover - starts the real server
     if argv[:1] == ['account-add']:
         print(add_account(store, argv[1:]))
         return
+    if argv[:1] == ['mail-rewrap']:  # after a key change: every mailbox credential with the current key
+        from mail_vault import MailVault
+        print(f'{MailVault(store, *settings["mail_keys"]).rewrap()} Zugänge neu verschlüsselt.')
+        return
     logger = create_operational_logger(Path(os.environ.get('WR_LOG_DIR') or Path(__file__).resolve().parent),
                                        'server', known_secrets=settings['secrets'])
     app = create_app(store, settings['provider'], settings['base_url'], settings['development'], logger,
                      ai=settings['ai'], secret_expires=settings['secret_expires'], export_dir=settings['export_dir'],
-                     graph_model=settings['graph_model'])
+                     graph_model=settings['graph_model'], mail_keys=settings['mail_keys'])
     # Behind Traefik the client address comes from X-Forwarded-For, trusted only from the proxy.
     config = uvicorn.Config(app, host=os.environ.get('WR_HOST', '127.0.0.1'),
                             port=int(os.environ.get('WR_PORT', '8000')),

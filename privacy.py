@@ -24,6 +24,8 @@ from pathlib import Path
 DERIVED = {'chunks', 'chunk_vectors'}
 # Server sign-in state (step 10.3): short-lived, no user content, CSRF tokens must not leave the server.
 EPHEMERAL = {'web_sessions', 'login_requests'}
+# Encrypted mailbox credentials of the server (D-030): never part of an export, not even as ciphertext.
+SECRETS = {'account_mailboxes'}
 GRAPH_OBJECTS = {'entity': 'entities', 'mention': 'entity_mentions', 'relation': 'graph_relations'}
 
 
@@ -33,7 +35,7 @@ def _sqlite(store):
 
 def _tables():
     from migrations import SQLITE_TABLE_VERSIONS
-    return sorted(set(SQLITE_TABLE_VERSIONS) - DERIVED - EPHEMERAL)
+    return sorted(set(SQLITE_TABLE_VERSIONS) - DERIVED - EPHEMERAL - SECRETS)
 
 
 def _plain(value):

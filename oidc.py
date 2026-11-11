@@ -64,27 +64,43 @@ class Provider:
             self._config = config
         return self._config
 
-    def authorize_url(self, state, nonce, verifier):
+    def authorize_url(self, state, nonce, verifier, scope='openid profile', redirect_uri=None):
+        """Sign-in by default; phase 8 asks with another ``scope`` and ``redirect_uri`` for mailbox access."""
         query = urllib.parse.urlencode({
-            'client_id': self.client_id, 'response_type': 'code', 'redirect_uri': self.redirect_uri,
-            'response_mode': 'query', 'scope': 'openid profile', 'state': state, 'nonce': nonce,
+            'client_id': self.client_id, 'response_type': 'code', 'redirect_uri': redirect_uri or self.redirect_uri,
+            'response_mode': 'query', 'scope': scope, 'state': state, 'nonce': nonce,
             'code_challenge': challenge(verifier), 'code_challenge_method': 'S256'})
         return f"{self.config()['authorization_endpoint']}?{query}"
 
     def redeem(self, code, verifier):
         """Exchange the code for the ID token (confidential client with PKCE)."""
+        return self.redeem_tokens(code, verifier)['id_token']
+
+    def redeem_tokens(self, code, verifier, redirect_uri=None):
+        """The whole token response of a code; it always carries an ID token."""
         if not isinstance(code, str) or not 0 < len(code) <= 4096:
             raise SignInError('code')
         try:
             tokens = self.http(self.config()['token_endpoint'], {
-                'grant_type': 'authorization_code', 'code': code, 'redirect_uri': self.redirect_uri,
+                'grant_type': 'authorization_code', 'code': code, 'redirect_uri': redirect_uri or self.redirect_uri,
                 'client_id': self.client_id, 'client_secret': self._secret, 'code_verifier': verifier})
         except (OSError, ValueError):
             raise SignInError('token_endpoint') from None
-        token = tokens.get('id_token') if isinstance(tokens, dict) else None
-        if not isinstance(token, str):
+        if not isinstance(tokens, dict) or not isinstance(tokens.get('id_token'), str):
             raise SignInError('no_id_token')
-        return token
+        return tokens
+
+    def refresh(self, refresh_token, scope):
+        """New tokens for a stored refresh token (phase 8: Graph access for a connected mailbox)."""
+        try:
+            tokens = self.http(self.config()['token_endpoint'], {
+                'grant_type': 'refresh_token', 'refresh_token': refresh_token, 'scope': scope,
+                'client_id': self.client_id, 'client_secret': self._secret})
+        except (OSError, ValueError):
+            raise SignInError('token_endpoint') from None
+        if not isinstance(tokens, dict) or not isinstance(tokens.get('access_token'), str):
+            raise SignInError('no_access_token')
+        return tokens
 
     def verify(self, id_token, nonce_digest):
         """Checked claims of an ID token, or ``SignInError``."""
