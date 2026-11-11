@@ -1,7 +1,8 @@
 {% extends "base.html" %}
 {% block content %}
-<form hx-post="/fragen" hx-target="#answer">
-<textarea name="question" maxlength="4000" required rows="3"></textarea>
+<form hx-post="/fragen" hx-indicator="#laeuft" hx-disabled-elt="find button" hx-target="#answer">
+<label for="question">Frage</label>
+<textarea id="question" name="question" maxlength="4000" required rows="3"></textarea>
 <button type="submit">Fragen</button>
 </form>
 <div id="answer"></div>

@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 {% block content %}
-<form method="get" action="/suche"><input type="search" name="q" value="{{ q }}" maxlength="500" required> {% include "tag_filter.html" %} <button type="submit">Suchen</button></form>
+<form method="get" action="/suche"><label>Suchbegriff <input type="search" name="q" value="{{ q }}" maxlength="500" required></label> {% include "tag_filter.html" %} <button type="submit">Suchen</button></form>
 {% if q %}
 <form method="post" action="/suche/speichern"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="q" value="{{ q }}"><input type="hidden" name="tag" value="{{ tag }}"><label>Suche speichern als <input name="name" maxlength="100" required></label> <button type="submit">Speichern</button></form>
 <p class="status">{{ search_status }}</p>
 <ol>
 {% for hit in results %}
-<li><a href="/dokument/{{ hit.document_id }}">{{ hit.title }}</a> (Abschnitt {{ hit.ordinal }}{% if hit.method %}, gefunden über {{ hit.method }}{% endif %})<br><small>{{ hit.snippet }}</small></li>
+<li><a href="/dokument/{{ hit.document_id }}">{{ hit.title }}</a> (Abschnitt {{ hit.ordinal }}{% if hit.method %}, gefunden über {{ hit.method }}{% endif %}{% if hit.score %}, Score {{ hit.score }}{% endif %})<br><small>{{ hit.snippet }}</small></li>
 {% else %}
 <li>Keine Treffer.</li>
 {% endfor %}

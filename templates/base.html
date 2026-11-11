@@ -1,34 +1,35 @@
 <!doctype html>
-<html lang="de">
+<html lang="de"{% if theme != 'auto' %} data-theme="{{ theme }}"{% endif %}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="{{ 'light dark' if theme == 'auto' else theme }}">
 <meta name="htmx-config" content='{"includeIndicatorStyles": false, "allowEval": false, "allowScriptTags": false, "selfRequestsOnly": true, "responseHandling": [{"code": "204", "swap": false}, {"code": "[2345]..", "swap": true}]}'>
 <title>{{ title }} – Wissensraum</title>
 <link rel="stylesheet" href="/static/style.css">
 <script src="/static/htmx.min.js"></script>
 </head>
 <body{% if csrf %} hx-headers='{"X-CSRF-Token": {{ csrf|tojson }}}'{% endif %}>
+<a class="skip" href="#inhalt">Zum Inhalt springen</a>
 <header>
-  <strong>Wissensraum</strong>
+  {% if has_logo %}<img class="logo" src="/branding/logo.png" alt="Logo" height="32">{% endif %}<strong>Wissensraum</strong>
   {% if account %}
-  <nav>
-    <a href="/">Dokumente</a>
-    <a href="/suche">Suche</a>
-    <a href="/fragen">Fragen</a>
-    <a href="/sammlungen">Sammlungen</a>
-    <a href="/graph">Wissensgraph</a>
-    <a href="/wiedervorlagen">Wiedervorlagen</a>
-    {% if account.role in ('admin', 'editor') %}<a href="/notiz">Notiz</a> <a href="/hochladen">Hochladen</a> <a href="/importe">Importe</a>{% endif %}
-    {% if account.role == 'admin' %}<a href="/verwaltung">Verwaltung</a>{% endif %}
+  <nav aria-label="Hauptnavigation">
+    {% set links = [('/', 'Dokumente'), ('/suche', 'Suche'), ('/fragen', 'Fragen'), ('/sammlungen', 'Sammlungen'), ('/graph', 'Wissensgraph'), ('/wiedervorlagen', 'Wiedervorlagen')] %}
+    {% if account.role in ('admin', 'editor') %}{% set links = links + [('/notiz', 'Notiz'), ('/hochladen', 'Hochladen'), ('/importe', 'Importe')] %}{% endif %}
+    {% if account.role == 'admin' %}{% set links = links + [('/verwaltung', 'Verwaltung')] %}{% endif %}
+    {% for href, label in links %}<a href="{{ href }}"{% if path == href or (href != '/' and path.startswith(href + '/')) %} aria-current="page"{% endif %}>{{ label }}</a>
+    {% endfor %}
   </nav>
   <span class="who">Angemeldet als {{ account.display_name or account.object_id }} ({{ account.role }}) · <a href="/konto/auskunft">Meine Daten</a></span>
+  <form method="post" action="/darstellung" class="theme"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="back" value="{{ path }}"><label>Darstellung <select name="theme">{% for key, label in themes.items() %}<option value="{{ key }}"{% if key == theme %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label> <button type="submit">Ändern</button></form>
   <form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit">Abmelden</button></form>
   {% endif %}
 </header>
 <main>
-<h1>{{ title }}</h1>
-<div id="meldung" role="alert"></div>
+<h1 id="inhalt" tabindex="-1">{{ title }}</h1>
+<div id="meldung" role="alert" aria-live="assertive"></div>
+<p id="laeuft" class="htmx-indicator" role="status">Wird bearbeitet …</p>
 {% block content %}{% endblock %}
 </main>
 </body>

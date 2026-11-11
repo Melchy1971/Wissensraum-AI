@@ -23,7 +23,7 @@ Stand: 10.11.2026, Commit `bf3b126`. Grundlage: `docs/desktop-web-parity.md` (Ma
 | 6 | OCR im Server (umgesetzt, Image-Bau auf dem VPS offen) | P2 | 4 bis 6 PT | M | 3 |
 | 7 | Wissensgraph im Web (umgesetzt) | P3 | 10 bis 16 PT | M | 4 |
 | 8 | E-Mail- und PST-Import | P3 | 15 bis 25 PT | H | 3, ADR Geheimnisse |
-| 9 | Oberfläche und Barrierefreiheit | P3 | 3 bis 6 PT | N | 4 |
+| 9 | Oberfläche und Barrierefreiheit (umgesetzt außer Prüfung mit Screenreader) | P3 | 3 bis 6 PT | N | 4 |
 | Summe | | | 84 bis 136 PT | | |
 
 Ohne Phase 8 (E-Mail, PST): 69 bis 111 PT. Die Phasensummen ergeben sich aus den Aufwandsspalten der Matrix plus den Befunden S-xx. Enthalten sind Tests, Gate-Läufe und Doku, nicht die Wartezeit auf Entscheidungen. Zum Vergleich: Masterplan Phase 11 schätzt 49 bis 95 PT für ein erstes Web-Release ohne volle Parität.

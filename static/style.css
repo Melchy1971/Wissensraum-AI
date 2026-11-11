@@ -1,16 +1,70 @@
-body { font-family: system-ui, sans-serif; margin: 0; color: #1d2433; background: #fafbfc; }
-header { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; padding: .6rem 1rem; background: #1f3a5f; color: #fff; }
-header a { color: #fff; margin-right: .8rem; }
-header form { display: inline; margin-left: auto; }
+/* Colours of design.THEMES (desktop), as custom properties; dark follows the system unless chosen (H02). */
+:root {
+  --background: #f5f5f5; --surface: #ffffff; --input: #ffffff; --text: #1b1b1b; --muted: #5f5f5f;
+  --border: #a4a4a4; --accent: #c4005f; --accent-active: #bd0061; --danger: #b3262e; --success: #168044;
+  --header: #1f3a5f; --header-text: #ffffff; --notice: #fff4d6; --notice-border: #c9a227;
+  --error: #fde4e4; --error-border: #b3262e; --focus: #c4005f;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --background: #121212; --surface: #202020; --input: #2a2a2a; --text: #f5f5f5; --muted: #b8b8b8;
+    --border: #626262; --accent: #ff4fa8; --accent-active: #ff2494; --danger: #e2555d; --success: #57b881;
+    --header: #1a1a1a; --header-text: #f5f5f5; --notice: #3a3218; --notice-border: #a88a2e;
+    --error: #3b1c1e; --error-border: #e2555d; --focus: #ff4fa8;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --background: #121212; --surface: #202020; --input: #2a2a2a; --text: #f5f5f5; --muted: #b8b8b8;
+  --border: #626262; --accent: #ff4fa8; --accent-active: #ff2494; --danger: #e2555d; --success: #57b881;
+  --header: #1a1a1a; --header-text: #f5f5f5; --notice: #3a3218; --notice-border: #a88a2e;
+  --error: #3b1c1e; --error-border: #e2555d; --focus: #ff4fa8;
+  color-scheme: dark;
+}
+body { font-family: system-ui, sans-serif; margin: 0; color: var(--text); background: var(--background); line-height: 1.45; }
+a { color: var(--accent); }
+header { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; padding: .6rem 1rem; background: var(--header); color: var(--header-text); }
+header a { color: var(--header-text); margin-right: .8rem; }
+header a[aria-current="page"] { text-decoration-thickness: 3px; font-weight: 600; }
+header form { display: inline; }
+header form.theme { margin-left: auto; }
+header select, header button { font-size: .9rem; }
+img.logo { max-height: 32px; width: auto; background: #fff; border-radius: 2px; }
 main { max-width: 60rem; margin: 1rem auto; padding: 0 1rem; }
+h1:focus { outline: none; }
+input, select, textarea, button { font: inherit; color: var(--text); background: var(--input); border: 1px solid var(--border); border-radius: 3px; padding: .2rem .4rem; }
+button { cursor: pointer; }
+button:disabled { opacity: .6; cursor: wait; }
+/* Visible focus for keyboard use (H06). */
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible {
+  outline: 3px solid var(--focus); outline-offset: 2px;
+}
+.skip { position: absolute; left: -999px; top: 0; padding: .5rem 1rem; background: var(--surface); color: var(--text); z-index: 10; }
+.skip:focus { left: .5rem; top: .5rem; }
 table { border-collapse: collapse; width: 100%; }
-th, td { text-align: left; padding: .3rem .5rem; border-bottom: 1px solid #dde2ea; vertical-align: top; }
+th, td { text-align: left; padding: .3rem .5rem; border-bottom: 1px solid var(--border); vertical-align: top; }
 label { display: inline-block; margin: .2rem .6rem .2rem 0; }
-textarea { width: 100%; }
-pre.content { white-space: pre-wrap; background: #fff; border: 1px solid #dde2ea; padding: .8rem; }
-.notice { background: #fff4d6; padding: .5rem; border: 1px solid #e8c766; }
+textarea { width: 100%; box-sizing: border-box; }
+pre.content, pre.diff { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--surface); border: 1px solid var(--border); padding: .8rem; }
+.notice { background: var(--notice); padding: .5rem; border: 1px solid var(--notice-border); }
+.error { background: var(--error); padding: .5rem; border: 1px solid var(--error-border); }
 form.inline { display: inline; }
-.error { background: #fde4e4; padding: .5rem; border: 1px solid #d98080; }
 ul.plain { list-style: none; padding-left: 0; }
-svg.graph { border: 1px solid #ccc; max-width: 900px; background: #fff; }
-svg.graph text { fill: #222; }
+small, .status { color: var(--muted); }
+/* Progress of htmx requests (H04); htmx sets htmx-request on the indicator while a request runs. */
+.htmx-indicator { display: none; }
+.htmx-indicator.htmx-request { display: block; color: var(--muted); }
+svg.graph { border: 1px solid var(--border); max-width: 900px; background: var(--surface); }
+svg.graph text { fill: var(--text); }
+/* Narrow screens (W13): stacked header, scrolling tables, full-width fields. */
+@media (max-width: 40rem) {
+  header { flex-direction: column; align-items: flex-start; gap: .4rem; }
+  header form.theme { margin-left: 0; }
+  nav a { display: inline-block; padding: .25rem 0; }
+  main { padding: 0 .6rem; }
+  table { display: block; overflow-x: auto; }
+  input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select { max-width: 100%; box-sizing: border-box; }
+  label { display: block; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }

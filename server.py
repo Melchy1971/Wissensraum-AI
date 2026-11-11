@@ -217,8 +217,40 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
         referer = request.headers.get('referer', '')
         return referer.startswith(base + '/')
 
+    def failure(request, error):
+        """Unexpected error (H05, phase 9): logged with its class, an understandable answer instead of a bare 500.
+
+        A database that cannot be reached answers 503; nothing about the cause goes to the browser.
+        """
+        unavailable = type(error).__name__ in ('OperationalError', 'InterfaceError', 'PoolTimeout')
+        log('request_failed', 'ERROR', outcome=type(error).__name__, status=503 if unavailable else 500)
+        status = 503 if unavailable else 500
+        message = ('Die Datenbank ist gerade nicht erreichbar. Bitte in einigen Minuten erneut versuchen.' if unavailable
+                   else 'Ein unerwarteter Fehler ist aufgetreten. Er ist protokolliert. Bitte erneut versuchen.')
+        if request.url.path.startswith('/api/'):
+            return JSONResponse({'detail': message}, status_code=status)
+        if request.headers.get('hx-request') == 'true':
+            return HTMLResponse(f'<p class="error">{html.escape(message)}</p>', status_code=status,
+                                headers={'HX-Retarget': '#meldung', 'HX-Reswap': 'innerHTML'})
+        return _page('Fehler', f'<p>{html.escape(message)}</p><p><a href="/">Zur Startseite</a></p>', status)
+
     @app.middleware('http')
     async def protect(request: Request, call_next):
+        try:
+            response = await guarded(request, call_next)
+        except Exception as error:  # noqa: BLE001 - every unexpected error gets the same safe answer
+            response = failure(request, error)
+        headers = response.headers
+        headers['Content-Security-Policy'] = CSP
+        headers['X-Content-Type-Options'] = 'nosniff'
+        headers['Referrer-Policy'] = 'same-origin'
+        headers['X-Frame-Options'] = 'DENY'
+        headers['Cache-Control'] = 'no-store'
+        if base.startswith('https://'):
+            headers['Strict-Transport-Security'] = 'max-age=31536000'
+        return response
+
+    async def guarded(request, call_next):
         request.state.session = request.state.account = None
         session_id = request.cookies.get(SESSION_COOKIE)
         session = sessions.lookup(store, session_id, clock()) if session_id else None
@@ -238,14 +270,6 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
                 response = await call_next(request)
         else:
             response = await call_next(request)
-        headers = response.headers
-        headers['Content-Security-Policy'] = CSP
-        headers['X-Content-Type-Options'] = 'nosniff'
-        headers['Referrer-Policy'] = 'same-origin'
-        headers['X-Frame-Options'] = 'DENY'
-        headers['Cache-Control'] = 'no-store'
-        if base.startswith('https://'):
-            headers['Strict-Transport-Security'] = 'max-age=31536000'
         return response
 
     # Added last, so it runs first: requests for another host name never reach the application.

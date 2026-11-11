@@ -42,16 +42,16 @@ Gemeinsamer Kern: `core.py` (`Store`, `PostgresStore`, `AI`, `Embedder`, Extrakt
 
 | Status | Anzahl Desktop-Funktionen |
 |---|---:|
-| FULL | 54 |
-| PARTIAL | 5 |
-| MISSING | 8 |
+| FULL | 59 |
+| PARTIAL | 3 |
+| MISSING | 6 |
 | DIFFERENT | 2 |
 | NOT_APPLICABLE | 7 |
-| UNKNOWN | 2 |
+| UNKNOWN | 1 |
 | Summe Desktop-Funktionen | 78 |
 | WEB_ONLY (zusätzlich) | 13 |
 
-Funktionsparität = FULL / (FULL + PARTIAL + MISSING + DIFFERENT) = 54 / 69 = 78,3 % (Stand nach Paritäts-Roadmap Phase 7. Nach Phase 6: 48 / 69 = 69,6 %, nach Phase 5: 46 / 69 = 66,7 %, nach Phase 4b: 37 / 69 = 53,6 %, nach Phase 4a: 27 / 69 = 39,1 %, nach Phase 3: 18 / 69 = 26,1 %, nach Phase 2: 16 / 69 = 23,2 %, nach Phase 1: 12 / 69 = 17,4 %, nach Phase 0: 11 / 69 = 15,9 %, vor Phase 0: 10 / 69 = 14,5 %).
+Funktionsparität = FULL / (FULL + PARTIAL + MISSING + DIFFERENT) = 59 / 70 = 84,3 % (Stand nach Paritäts-Roadmap Phase 9. H06 ist seitdem bewertet und zählt mit, daher 70. Nach Phase 7: 54 / 69 = 78,3 %, nach Phase 6: 48 / 69 = 69,6 %, nach Phase 5: 46 / 69 = 66,7 %, nach Phase 4b: 37 / 69 = 53,6 %, nach Phase 4a: 27 / 69 = 39,1 %, nach Phase 3: 18 / 69 = 26,1 %, nach Phase 2: 16 / 69 = 23,2 %, nach Phase 1: 12 / 69 = 17,4 %, nach Phase 0: 11 / 69 = 15,9 %, vor Phase 0: 10 / 69 = 14,5 %).
 
 ## 5. Funktionsmatrix
 
@@ -78,7 +78,7 @@ Spalte Desktop: Status der Referenz (GUI oder CLI). Spalte Web: Status im Web. A
 | B02 | Suche | Semantische und hybride Suche (RRF) | FULL (GUI, CLI) | FULL | `Retriever`, `vector_search`, `Embedder` über `WR_OLLAMA_URL`, Einbettung im Dienst `worker` | test_worker (hybrid mit Rechtefilter) | erledigt, Modell auf VPS laden | 0 |
 | B03 | Suche | Fundstelle mit Abschnitt | FULL (GUI) | FULL | `retrieval.snippet` | test_web | erledigt | 0 |
 | B04 | Suche | Suchstatus (Modus, Fallback, Vektorstand) | FULL (GUI) | FULL | `Retrieval.status` auf der Suchseite und als `status` in `/api/search` | test_worker | erledigt | 0 |
-| B05 | Suche | Ränge und Score anzeigen | FULL (GUI) | PARTIAL | Rang über die Reihenfolge, Fundweg (Volltext, Bedeutung, beide) je Treffer. Kein Zahlenwert | test_document_care | P3 | 0,25 |
+| B05 | Suche | Ränge und Score anzeigen | FULL (GUI) | FULL | Score wie im Desktop (RRF-Wert mit Rang je Liste, `web.score_text`) und Fundweg je Treffer | test_interface | erledigt | 0 |
 | B06 | Suche | Tag-Filter | FULL (GUI, CLI) | FULL | Tag-Auswahl in Liste und Suche, `tag` in `/api/documents` und `/api/search`, `visible_tags` mit Rechtefilter | test_document_care (beide Backends) | erledigt | 0 |
 | B07 | Suche | Filter Sammlung und Favoriten | FULL (GUI, CLI) | FULL | Sammlungsseite `/sammlungen/{id}` listet sichtbare Dokumente, Favoritenfilter in der Dokumentliste und API | test_organization_web | erledigt | 0 |
 | B08 | Suche | Gespeicherte Suchen | FULL (GUI, CLI) | FULL | Tabelle `account_saved_searches` (Schema 25) je Konto, Speichern und Löschen auf `/suche`. Fremde Suche ergibt 404 | test_organization_web (beide Backends) | erledigt | 0 |
@@ -132,11 +132,11 @@ Spalte Desktop: Status der Referenz (GUI oder CLI). Spalte Web: Status im Web. A
 | G07 | Administration | Startdiagnose | FULL (GUI, CLI) | FULL | Diagnose auf `/verwaltung/betrieb` (Datenbank, KI-Anbieter, semantische Suche, Client-Geheimnis), `/healthz` | test_administration | erledigt | 0 |
 | G08 | Administration | Semantische Suche aktivieren, Vektorstand | FULL (GUI) | FULL | `services.set_semantic_search`, `/verwaltung/semantische-suche`, Audit `settings_changed`, `worker.py` | test_worker | erledigt | 0 |
 | H01 | Oberfläche | Hauptnavigation | FULL | FULL | `base.html` | test_web | erledigt | 0 |
-| H02 | Oberfläche | Hell- und Dunkelmodus | FULL | MISSING | `design.py` | keine | P3 | 0,5 bis 1 |
-| H03 | Oberfläche | Logo und Branding | FULL | MISSING | `design.py` | keine | P3 | 0,5 |
-| H04 | Oberfläche | Fortschritts- und Statusanzeigen | FULL | PARTIAL | kein htmx-Indikator, keine Statuszeile | keine | P2 | 0,5 bis 1 |
-| H05 | Oberfläche | Verständliche Fehlermeldungen | FULL | PARTIAL | KI-Fehler, 409, 422, 429 erscheinen im Meldungsbereich `#meldung` (htmx `responseHandling`). Datenbankfehler bleiben 500 | test_services s08 | P2 | 0,5 |
-| H06 | Oberfläche | Tastaturbedienung und Barrierefreiheit | teilweise (Enter-Bindungen) | UNKNOWN | keine Prüfung | keine | P3 | 1 bis 2 |
+| H02 | Oberfläche | Hell- und Dunkelmodus | FULL | FULL | Farben aus `design.THEMES` als CSS-Variablen, folgt dem System oder der Wahl im Kopf der Seite (Cookie je Browser, ohne JavaScript) | test_interface | erledigt | 0 |
+| H03 | Oberfläche | Logo und Branding | FULL | FULL | Admin lädt PNG, JPG oder WebP hoch, der Server speichert ein neu kodiertes PNG (`design.normalize_logo`), Audit | test_interface | erledigt | 0 |
+| H04 | Oberfläche | Fortschritts- und Statusanzeigen | FULL | FULL | htmx-Anzeige „Wird bearbeitet“ (`role=status`) und gesperrter Knopf bei jedem htmx-Formular, Fortschritt der Importe per Abfrage | test_interface | erledigt | 0 |
+| H05 | Oberfläche | Verständliche Fehlermeldungen | FULL | FULL | Unerwartete Fehler ergeben eine Seite oder Meldung ohne Details, Datenbank nicht erreichbar 503, protokolliert mit Fehlerklasse | test_interface, test_services | erledigt | 0 |
+| H06 | Oberfläche | Tastaturbedienung und Barrierefreiheit | teilweise (Enter-Bindungen) | PARTIAL | Sprunglink, sichtbarer Fokus, `aria-current`, Namen für alle Formularfelder automatisch geprüft, Meldungen als `alert` und `status` | test_interface | P3 | 0,5 bis 1 (Prüfung mit Screenreader und Kontrastmessung) |
 
 ## 6. Nachweise und fehlende Bestandteile
 
@@ -179,7 +179,7 @@ Spalte Desktop: Status der Referenz (GUI oder CLI). Spalte Web: Status im Web. A
 | W10 | Verwaltungsseite für Konten und Freigaben | `web.admin_*` | test_web |
 | W11 | Healthcheck | `/healthz` | test_rights |
 | W12 | Laufzeitrolle ohne DDL, Audit nur Einfügen | `grant_runtime_role` | test_postgres (bestanden auf PG 16) |
-| W13 | Responsives Layout | `meta viewport` vorhanden, `style.css` ohne Media Queries | keine |
+| W13 | Responsives Layout | `meta viewport`, Media Queries für schmale Bildschirme (Phase 9) | test_interface |
 
 ## 8. Abgleich Masterplan und tatsächlicher Stand
 

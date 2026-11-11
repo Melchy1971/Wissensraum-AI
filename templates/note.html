@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<form hx-post="/notiz">
+<form hx-post="/notiz" hx-indicator="#laeuft" hx-disabled-elt="find button">
 <label>Titel <input name="title" maxlength="300" required></label>
 <label>Bereich <input name="category" value="Allgemein" maxlength="100" required></label>
 <label>Text <textarea name="content" rows="12" required></textarea></label>

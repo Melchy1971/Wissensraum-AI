@@ -1,3 +1,3 @@
-<form id="metadata" hx-post="/dokument/{{ doc.id }}/metadaten" hx-target="#metadata" hx-swap="outerHTML">
+<form id="metadata" hx-post="/dokument/{{ doc.id }}/metadaten" hx-indicator="#laeuft" hx-disabled-elt="find button" hx-target="#metadata" hx-swap="outerHTML">
 {% include "metadata_form.html" %}
 </form>

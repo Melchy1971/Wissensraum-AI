@@ -92,12 +92,10 @@ class ServiceEndpointTests(test_rights.EndpointTests):
         editor, note = self.clients['oid-editor'], {'title': 'Notiz', 'content': 'Notiz zur Lüftung der Halle.'}
         before, grants, entries = self.documents(), self.owner_grants(), audit.verify(self.store)['entries']
         with mock.patch('audit.record', side_effect=RuntimeError('Audit ausgefallen')):
-            with self.assertRaisesRegex(RuntimeError, 'Audit ausgefallen'):
-                editor.post('/api/documents', json=note)
+            self.assertEqual(editor.post('/api/documents', json=note).status_code, 500)  # phase 9: answered, not raised
         self.assertEqual((self.documents(), self.owner_grants()), (before, grants))
         with mock.patch('accounts.grant', side_effect=RuntimeError('Freigabe ausgefallen')):
-            with self.assertRaisesRegex(RuntimeError, 'Freigabe ausgefallen'):
-                editor.post('/api/documents', json=note)
+            self.assertEqual(editor.post('/api/documents', json=note).status_code, 500)
         self.assertEqual(self.documents(), before)  # no document without owner
         created = editor.post('/api/documents', json=note)
         self.assertEqual(created.status_code, 201)
@@ -109,11 +107,10 @@ class ServiceEndpointTests(test_rights.EndpointTests):
         admin, doc = self.clients['oid-admin'], self.ids['granted']
         revision = self.store.get(doc)['revision']
         with mock.patch('audit.record', side_effect=RuntimeError('Audit ausgefallen')):
-            with self.assertRaises(RuntimeError):
-                admin.patch(f'/api/documents/{doc}', json={'title': 'Ohne Audit', 'revision': revision})
-            with self.assertRaises(RuntimeError):
-                admin.post('/api/grants', json={'account_id': self.reader, 'access': 'read',
-                                                'document_id': self.ids['secret']})
+            self.assertEqual(admin.patch(f'/api/documents/{doc}', json={'title': 'Ohne Audit', 'revision': revision})
+                             .status_code, 500)
+            self.assertEqual(admin.post('/api/grants', json={'account_id': self.reader, 'access': 'read',
+                                                             'document_id': self.ids['secret']}).status_code, 500)
         row = self.store.get(doc)
         self.assertEqual((row['title'], row['revision']), ('Freigegeben', revision))
         self.assertNotIn(self.ids['secret'], [g['document_id'] for g in accounts.grants(self.store, self.reader)])

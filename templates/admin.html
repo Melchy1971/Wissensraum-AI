@@ -13,7 +13,7 @@
 <td colspan="3">
 <form method="post" action="/verwaltung/konten/{{ a.id }}" class="inline">
 <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="version" value="{{ a.version }}">
-<select name="role">{% for r in roles %}<option value="{{ r }}"{% if r == a.role %} selected{% endif %}>{{ r }}</option>{% endfor %}</select>
+<select name="role" aria-label="Rolle von {{ a.display_name or a.object_id }}">{% for r in roles %}<option value="{{ r }}"{% if r == a.role %} selected{% endif %}>{{ r }}</option>{% endfor %}</select>
 <label><input type="checkbox" name="disabled" value="1"{% if a.disabled %} checked{% endif %}> gesperrt</label>
 <button type="submit">Ändern</button>
 </form>
@@ -28,7 +28,7 @@
 <label>Mandanten-ID <input name="tenant_id" required maxlength="200"></label>
 <label>Objekt-ID <input name="object_id" required maxlength="200"></label>
 <label>Name <input name="display_name" maxlength="200"></label>
-<select name="role">{% for r in roles %}<option value="{{ r }}">{{ r }}</option>{% endfor %}</select>
+<select name="role" aria-label="Rolle">{% for r in roles %}<option value="{{ r }}">{{ r }}</option>{% endfor %}</select>
 <button type="submit">Anlegen</button>
 </form>
 <h2>KI-Antworten</h2>
@@ -54,7 +54,7 @@
 {% for d in documents %}<option value="document:{{ d.id }}">Dokument: {{ d.title }}</option>{% endfor %}
 {% for c in collections %}<option value="collection:{{ c.id }}">Sammlung: {{ c.name }}</option>{% endfor %}
 </select></label>
-<select name="access">{% for x in access %}<option value="{{ x }}">{{ x }}</option>{% endfor %}</select>
+<select name="access" aria-label="Zugriff">{% for x in access %}<option value="{{ x }}">{{ x }}</option>{% endfor %}</select>
 <button type="submit">Freigeben</button>
 </form>
 <table>

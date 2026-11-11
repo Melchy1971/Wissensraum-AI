@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
-<form hx-post="/hochladen" hx-encoding="multipart/form-data" hx-target="#upload-result">
-<input type="file" name="file" multiple required>
+<form hx-post="/hochladen" hx-indicator="#laeuft" hx-disabled-elt="find button" hx-encoding="multipart/form-data" hx-target="#upload-result">
+<label>Dateien oder ZIP-Archive <input type="file" name="file" multiple required></label>
 <label>Bereich <input name="category" value="Allgemein" maxlength="100" required></label>
 <button type="submit">Hochladen</button>
 </form>

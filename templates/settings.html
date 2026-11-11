@@ -2,6 +2,10 @@
 {% block content %}
 <p><a href="/verwaltung">Zurück zur Verwaltung</a> · <a href="/verwaltung/betrieb">Betrieb</a> · <a href="/verwaltung/datenschutz">Datenschutz</a></p>
 {% if notice %}<p class="notice">{{ notice }}</p>{% endif %}
+<h2>Logo</h2>
+<p>{% if has_logo %}<img class="logo" src="/branding/logo.png" alt="Aktuelles Logo" height="32">{% else %}Kein Logo hinterlegt.{% endif %}</p>
+<form hx-post="/verwaltung/einstellungen/logo" hx-encoding="multipart/form-data" hx-target="main" hx-select="main" hx-swap="outerHTML" hx-indicator="#laeuft" hx-disabled-elt="find button"><label>PNG, JPG oder WebP, höchstens 5 MB <input type="file" name="logo" accept="image/png,image/jpeg,image/webp" required></label> <button type="submit">Hochladen</button></form>
+{% if has_logo %}<form method="post" action="/verwaltung/einstellungen/logo"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="remove" value="1"><button type="submit">Logo entfernen</button></form>{% endif %}
 <h2>KI-Budgets im laufenden Monat</h2>
 <table>
 <thead><tr><th>Anbieter</th><th>Verbrauch</th><th>Budget (0 = ohne Grenze)</th></tr></thead>
@@ -19,7 +23,7 @@
 <table>
 <thead><tr><th>Kategorie</th><th>Tage (0 = unbegrenzt)</th></tr></thead>
 <tbody>{% for r in retention %}
-<tr><td>{{ r.label }}</td><td><form method="post" action="/verwaltung/einstellungen/aufbewahrung" class="inline"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="category" value="{{ r.key }}"><input name="days" value="{{ r.days }}" size="6" inputmode="numeric"> <button type="submit">Speichern</button></form></td></tr>
+<tr><td>{{ r.label }}</td><td><form method="post" action="/verwaltung/einstellungen/aufbewahrung" class="inline"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="category" value="{{ r.key }}"><input name="days" aria-label="Tage für {{ r.label }}" value="{{ r.days }}" size="6" inputmode="numeric"> <button type="submit">Speichern</button></form></td></tr>
 {% endfor %}</tbody>
 </table>
 <p>Vorschau: {{ retention_preview }}</p>

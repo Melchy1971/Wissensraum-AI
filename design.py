@@ -105,3 +105,33 @@ class DesignSettings:
         except FileNotFoundError:
             pass
 
+
+def normalize_logo(data):
+    """PNG bytes of a logo scaled into 320 x 96 pixels, with the limits of ``DesignSettings.save_logo`` (server, phase 9).
+
+    Any readable PNG, JPG or WebP; the result is always a freshly encoded PNG, never the uploaded bytes.
+    """
+    import io
+    try:
+        from PIL import Image, UnidentifiedImageError
+    except Exception:
+        raise ValueError('Die Bildbibliothek ist beschädigt. Anwendung über start_windows.bat neu starten, damit die Umgebung repariert wird.') from None
+    if len(data) > DesignSettings.MAX_LOGO_BYTES:
+        raise ValueError('Das Logo darf maximal 5 MB groß sein.')
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            if image.format not in ('PNG','JPEG','WEBP'):
+                raise ValueError('Die Datei ist kein lesbares PNG-, JPG- oder WebP-Bild.')
+            width,height=image.size
+            if not width or not height or width*height > DesignSettings.MAX_SOURCE_PIXELS:
+                raise ValueError('Das Logo darf maximal 20 Millionen Bildpunkte enthalten.')
+            image.load()
+            normalized=image.convert('RGBA')
+            normalized.thumbnail(DesignSettings.LOGO_SIZE,Image.Resampling.LANCZOS)
+    except ValueError:
+        raise
+    except (OSError,UnidentifiedImageError,Image.DecompressionBombError):
+        raise ValueError('Die Datei ist kein lesbares PNG-, JPG- oder WebP-Bild.') from None
+    output=io.BytesIO()
+    normalized.save(output,format='PNG',optimize=True)
+    return output.getvalue()

@@ -21,7 +21,17 @@ import audit
 import services
 from core import Conflict
 
+
+def score_text(hit):
+    """RRF score with the ranks in both lists, as on the desktop (B05, ``app.score_text``, D-019)."""
+    ranks = ', '.join(f'{name} {hit[key]}' for name, key in (('Volltext', 'fulltext_rank'), ('Vektor', 'vector_rank'))
+                      if hit.get(key))
+    return f'{hit["rrf_score"]:.4f} ({ranks})' if 'rrf_score' in hit else ranks
+
 ROOT = Path(__file__).resolve().parent
+THEME_COOKIE = 'wr_theme'
+THEMES = {'auto': 'wie System', 'light': 'hell', 'dark': 'dunkel'}
+LOGO_SETTING = 'branding.logo'
 PAGE_SIZE = 50
 STATUS_LABELS = {'new': 'neu', 'reviewed': 'geprüft', 'outdated': 'veraltet', 'archived': 'archiviert'}  # app.py
 FIELD_LABELS = {'title': 'Titel', 'category': 'Bereich', 'tag': 'Tag', 'status': 'Status', 'owner': 'Verantwortlich',
@@ -48,9 +58,44 @@ def register(app, ctx):
 
     def render(request, name, title, status=200, **values):
         account, session = request.state.account, request.state.session
+        theme = request.cookies.get(THEME_COOKIE)
         return templates.TemplateResponse(request, name, {
-            'title': title, 'account': account, 'csrf': session['csrf_token'] if session else '', **values},
-            status_code=status)
+            'title': title, 'account': account, 'csrf': session['csrf_token'] if session else '',
+            'theme': theme if theme in THEMES else 'auto', 'themes': THEMES, 'has_logo': logo() is not None,
+            'path': request.url.path, **values}, status_code=status)
+
+    def logo():
+        """PNG bytes of the installation's logo (H03), normalized on upload, or None."""
+        import base64
+        with store.connect() as db:
+            row = db.execute('SELECT value FROM settings WHERE name=?', (LOGO_SETTING,)).fetchone()
+        return base64.b64decode(row['value']) if row else None
+
+    @app.get('/branding/logo.png')
+    def logo_file():
+        from fastapi.responses import Response
+        data = logo()
+        if data is None:
+            raise HTTPException(404, 'Nicht gefunden.')
+        return Response(data, media_type='image/png')
+
+    @app.post('/darstellung', response_class=HTMLResponse)
+    async def appearance(request: Request):
+        """Light, dark or the system setting (H02); a cookie of this browser, no account setting."""
+        ctx.signed_in(request)
+        values = await form(request)
+        theme = values.get('theme', 'auto')
+        if theme not in THEMES:
+            raise HTTPException(422, 'Darstellung: auto, light oder dark.')
+        back = values.get('back', '/')
+        back = back if back.startswith('/') and not back.startswith('//') else '/'
+        response = RedirectResponse(back, status_code=303)
+        if theme == 'auto':
+            response.delete_cookie(THEME_COOKIE, path='/', secure=True, httponly=True, samesite='lax')
+        else:
+            response.set_cookie(THEME_COOKIE, theme, max_age=365 * 86400, path='/', secure=True, httponly=True,
+                                samesite='lax')
+        return response
 
     @app.exception_handler(StarletteHTTPException)
     async def errors(request: Request, error: StarletteHTTPException):
@@ -63,7 +108,7 @@ def register(app, ctx):
             return HTMLResponse(f'<p class="notice">{html.escape(str(message))}</p>', status_code=error.status_code,
                                 headers={'HX-Retarget': '#meldung', 'HX-Reswap': 'innerHTML'})
         return render(request, 'message.html', 'Hinweis', error.status_code, message=message,
-                      link='/', link_text='Zur Startseite')
+                      link='/', link_text='Zur Startseite', path='/')  # path='/': same page for every id (I3)
 
     async def form(request, **limits):
         try:
@@ -98,7 +143,8 @@ def register(app, ctx):
             ctx.limited(request, 'search')
             found = Retriever(scoped).search(q, limit=20, tag=tag or None)
             results = [{'document_id': r['document_id'], 'title': r['title'], 'ordinal': r['ordinal'],
-                        'snippet': snippet(r['content'], q), 'method': METHOD_LABELS.get(r.get('retrieval_method'), '')}
+                        'snippet': snippet(r['content'], q), 'method': METHOD_LABELS.get(r.get('retrieval_method'), ''),
+                        'score': score_text(r)}
                        for r in found.results]
             search_status = found.status
         return render(request, 'search.html', 'Suche', q=q, results=results, search_status=search_status, tag=tag,
@@ -793,6 +839,36 @@ def register(app, ctx):
     def settings_view(request: Request):
         ctx.require_role(request, 'admin')
         return settings_page(request)
+
+    @app.post('/verwaltung/einstellungen/logo', response_class=HTMLResponse)
+    async def settings_logo(request: Request):
+        """Logo of the installation (H03): normalized to a fresh PNG, kept in the settings, with audit."""
+        import base64
+        import design
+        admin_account = ctx.require_role(request, 'admin')
+        values = await form(request, max_part_size=6 * 1024 * 1024)
+        upload, remove = values.get('logo'), values.get('remove') == '1'
+
+        async def change():
+            data = None
+            if not remove:
+                if not hasattr(upload, 'read'):
+                    raise ValueError('Bitte eine Bilddatei auswählen.')
+                data = design.normalize_logo(await upload.read(design.DesignSettings.MAX_LOGO_BYTES + 1))
+            with store.transaction():
+                with store.connect() as db:
+                    db.execute('DELETE FROM settings WHERE name=?', (LOGO_SETTING,))
+                    if data is not None:
+                        db.execute('INSERT INTO settings(name,value) VALUES(?,?)',
+                                   (LOGO_SETTING, base64.b64encode(data).decode('ascii')))
+                ctx.audited(request, 'settings_changed', admin_account['id'], 'settings:logo', removed=remove)
+        try:
+            await change()
+        except ValueError as error:
+            return settings_page(request, str(error), 422)
+        finally:
+            await values.close()
+        return settings_page(request, 'Logo entfernt.' if remove else 'Logo gespeichert.')
 
     @app.post('/verwaltung/einstellungen/budget', response_class=HTMLResponse)
     async def settings_budget(request: Request):
