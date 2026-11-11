@@ -42,16 +42,16 @@ Gemeinsamer Kern: `core.py` (`Store`, `PostgresStore`, `AI`, `Embedder`, Extrakt
 
 | Status | Anzahl Desktop-Funktionen |
 |---|---:|
-| FULL | 37 |
-| PARTIAL | 11 |
-| MISSING | 19 |
+| FULL | 46 |
+| PARTIAL | 7 |
+| MISSING | 14 |
 | DIFFERENT | 2 |
 | NOT_APPLICABLE | 7 |
 | UNKNOWN | 2 |
 | Summe Desktop-Funktionen | 78 |
 | WEB_ONLY (zusätzlich) | 13 |
 
-Funktionsparität = FULL / (FULL + PARTIAL + MISSING + DIFFERENT) = 37 / 69 = 53,6 % (Stand nach Paritäts-Roadmap Phase 4b. Nach Phase 4a: 27 / 69 = 39,1 %, nach Phase 3: 18 / 69 = 26,1 %, nach Phase 2: 16 / 69 = 23,2 %, nach Phase 1: 12 / 69 = 17,4 %, nach Phase 0: 11 / 69 = 15,9 %, vor Phase 0: 10 / 69 = 14,5 %).
+Funktionsparität = FULL / (FULL + PARTIAL + MISSING + DIFFERENT) = 46 / 69 = 66,7 % (Stand nach Paritäts-Roadmap Phase 5. Nach Phase 4b: 37 / 69 = 53,6 %, nach Phase 4a: 27 / 69 = 39,1 %, nach Phase 3: 18 / 69 = 26,1 %, nach Phase 2: 16 / 69 = 23,2 %, nach Phase 1: 12 / 69 = 17,4 %, nach Phase 0: 11 / 69 = 15,9 %, vor Phase 0: 10 / 69 = 14,5 %).
 
 ## 5. Funktionsmatrix
 
@@ -88,7 +88,7 @@ Spalte Desktop: Status der Referenz (GUI oder CLI). Spalte Web: Status im Web. A
 | C02 | KI | Quellenlage und Ablehnungsgrund anzeigen | FULL (GUI) | FULL | `AnswerResult.label` in `answer.html`, ohne Antwort Treffer nur als Suchhinweise | test_worker | erledigt | 0 |
 | C03 | KI | KI-Verlauf | FULL (GUI) | FULL | Eigener Verlauf mit verlinkten Quellen (`core.run_sources`) | test_document_care | erledigt | 0 |
 | C04 | KI | Dokument zusammenfassen | FULL (GUI) | FULL | `POST /dokument/{id}/zusammenfassung`, `services.summarize`, Audit `ai_question` mit Status summary, 503 ohne Anbieter | test_organization_web | erledigt | 0 |
-| C05 | KI | Monatsbudget je Anbieter | FULL (GUI, CLI) | PARTIAL | `budgets.check` wirkt, keine Verwaltung | keine Web-Tests | P2 | 1 |
+| C05 | KI | Monatsbudget je Anbieter | FULL (GUI, CLI) | FULL | `/verwaltung/einstellungen`, `services.set_budget`, Audit `settings_changed` | test_administration (beide Backends) | erledigt | 0 |
 | C06 | KI | Veraltete Dokumente aus Antworten ausschließen | FULL (CLI) | FULL | Schalter unter Verwaltung, Audit `settings_changed` | test_document_care | erledigt | 0 |
 | C07 | KI | Graphkontext in Antworten | aus (D-025) | NOT_APPLICABLE | `set_graph_context` | test_graph_context | keine | 0 |
 | C08 | KI | Fehler bei KI-Ausfall oder Budgetgrenze | FULL (GUI) | FULL | `services.ask` übersetzt `ProviderError` in 503 mit Meldung und Audit `unavailable` | test_services s08 | erledigt | 0 |
@@ -104,13 +104,13 @@ Spalte Desktop: Status der Referenz (GUI oder CLI). Spalte Web: Status im Web. A
 | D08 | Import | Microsoft-Graph-Mailimport | FULL (GUI) | MISSING | `begin_microsoft`, `import_microsoft_ids` | keine Web-Tests | P3 | 3 bis 5 |
 | D09 | Import | Postfachsynchronisation im Intervall | FULL (GUI) | MISSING | `mail_sync.MailSync` | keine Web-Tests | P3 | 2 bis 3 |
 | D10 | Import | E-Mail-Konten verwalten | FULL (GUI) | MISSING | `MailAccounts`, Geheimnis im OS-Schlüsselspeicher | keine Web-Tests | P3 | 2 bis 4 |
-| D11 | Import | Regeln für Bereich und Tags | FULL (GUI, CLI) | PARTIAL | Regeln wirken in `_insert_document`, keine Verwaltung | keine Web-Tests | P2 | 2 bis 3 |
+| D11 | Import | Regeln für Bereich und Tags | FULL (GUI, CLI) | FULL | Regeln anlegen, ordnen, löschen, auf Bestand anwenden und Lauf zurücknehmen unter `/verwaltung/einstellungen`, Audit | test_administration | erledigt | 0 |
 | D12 | Import | Anhänge alter E-Mails entfernen | FULL (GUI) | MISSING | `mail_cleanup` | keine Web-Tests | P3 | 1 |
-| D13 | Import | Chunk-Strategie je Dokumenttyp | FULL (CLI) | PARTIAL | Standardwerte wirken, keine Verwaltung | keine Web-Tests | P3 | 0,5 |
+| D13 | Import | Chunk-Strategie je Dokumenttyp | FULL (CLI) | FULL | Abschnittslänge je Typ unter `/verwaltung/einstellungen`, Neuzerlegung sofort, Einbettung im Worker | test_administration | erledigt | 0 |
 | E01 | Sicherheit | Geheimnisse im OS-Schlüsselspeicher | FULL | NOT_APPLICABLE | Server: Docker-Secrets über `_secret()` | test_server | keine | 0 |
-| E02 | Datenschutz | Datenschutzexport aller Daten | FULL (GUI, CLI) | MISSING | `privacy.py` | keine Web-Tests | P2 | 1,5 bis 2,5 |
-| E03 | Datenschutz | Selektive Löschung mit allem Abgeleiteten | FULL (GUI, CLI) | MISSING | `privacy.erase`, Audit `privacy_erase` | keine Web-Tests | P1 | 1,5 bis 2,5 |
-| E04 | Datenschutz | Aufbewahrungsregeln | FULL (GUI, CLI) | MISSING | `retention.py` | keine Web-Tests | P2 | 1 bis 2 |
+| E02 | Datenschutz | Datenschutzexport aller Daten | FULL (GUI, CLI) | FULL | Installationsexport als Worker-Auftrag (`privacy.run_export`, Volume `exports`, einen Tag gehalten), Auskunft je Konto `/konto/auskunft` (Entscheidung 11.11.2026), Audit `privacy_export` | test_administration (beide Backends) | erledigt | 0 |
+| E03 | Datenschutz | Selektive Löschung mit allem Abgeleiteten | FULL (GUI, CLI) | FULL | `/verwaltung/datenschutz`, nur Admin, Vorschau, Bestätigungswort, `services.erase_documents` mit Audit `privacy_erase` in einer Transaktion | test_administration (beide Backends) | erledigt | 0 |
+| E04 | Datenschutz | Aufbewahrungsregeln | FULL (GUI, CLI) | FULL | Regeln, Vorschau und Anwenden unter `/verwaltung/einstellungen`, Audit | test_administration | erledigt | 0 |
 | E05 | Betrieb | Strukturiertes Protokoll mit Geheimnismaskierung | FULL | FULL | `local_logging`, Uvicorn-Zugriffsprotokoll nur mit Pfad (`server.PathOnlyAccessLog`, Paritäts-Roadmap Phase 0) | test_server AccessLogTests | erledigt, Einsatz auf VPS offen | 0 |
 | F01 | Wissensstruktur | Sammlungen anzeigen und exportieren | FULL (GUI, CLI) | FULL | `collections`, `export_collection`, `GET /api/collections/{id}/export` | test_web, test_rights, test_audit | erledigt | 0 |
 | F02 | Wissensstruktur | Sammlung anlegen und löschen | FULL (GUI, CLI) | FULL | `POST /sammlungen` (admin, editor) mit Besitzerfreigabe, Löschen nur Besitzer oder Admin (`can_delete_collection`), Audit `collection_changed` | test_organization_web | erledigt | 0 |
@@ -123,13 +123,13 @@ Spalte Desktop: Status der Referenz (GUI oder CLI). Spalte Web: Status im Web. A
 | F09 | Wissensgraph | KI-Vorschläge prüfen und bestätigen | FULL (GUI, CLI) | MISSING | `graph_suggest.py`, `confirm_graph_item` | keine Web-Tests | P3 | 2 bis 3 |
 | F10 | Wissensgraph | Graphansicht | FULL (GUI) | PARTIAL | `GET /api/graph` liefert JSON, keine Darstellung | test_rights | P3 | 2 bis 4 |
 | F11 | Wissensgraph | Entitäts- und Relationsarten verwalten | FULL (CLI) | MISSING | `add_entity_type`, `add_relation_type` | keine Web-Tests | P3 | 1 |
-| G01 | Administration | Betriebsübersicht | FULL (GUI, CLI) | MISSING | `operations.overview` | keine Web-Tests | P2 | 1 bis 1,5 |
-| G02 | Administration | Integritätsprüfung | FULL (GUI, CLI) | MISSING | `backups.integrity` (SQLite-lastig) | keine Web-Tests | P2 | 1 bis 2 |
+| G01 | Administration | Betriebsübersicht | FULL (GUI, CLI) | FULL | `/verwaltung/betrieb` mit `operations.overview`, nur Zahlen und Codes | test_administration | erledigt | 0 |
+| G02 | Administration | Integritätsprüfung | FULL (GUI, CLI) | FULL | Schema, Prüfsummen und Audit-Kette per Knopf auf `/verwaltung/betrieb` | test_administration | erledigt | 0 |
 | G03 | Administration | Sicherung und Wiederherstellungsübung | FULL (GUI, CLI, SQLite) | PARTIAL | `deploy/backup.sh`, `backup-pull.sh`, `restore-drill.sh`, `server.audit_check` (Paritäts-Roadmap Phase 0) | test_audit ServerAuditCheckTests, manuelle Probe PG 16 | P0 | 0,5 (Einrichtung, Erstlauf) |
 | G04 | Administration | Geführte Wiederherstellung | FULL (GUI, SQLite) | NOT_APPLICABLE | Betriebsprozess statt Web-Funktion | test_backups | keine | 0 |
 | G05 | Administration | Datenbankprofil, Verbindungstest, Schema-Reset | FULL (GUI) | NOT_APPLICABLE | Server: Umgebung und Migrationsdienst | test_database | keine | 0 |
 | G06 | Administration | Konfigurationstransfer | FULL (GUI) | NOT_APPLICABLE | `configuration.py` | test_configuration | keine | 0 |
-| G07 | Administration | Startdiagnose | FULL (GUI, CLI) | PARTIAL | `/healthz`, `check_postgres_current` | test_rights | P2 | 1 |
+| G07 | Administration | Startdiagnose | FULL (GUI, CLI) | FULL | Diagnose auf `/verwaltung/betrieb` (Datenbank, KI-Anbieter, semantische Suche, Client-Geheimnis), `/healthz` | test_administration | erledigt | 0 |
 | G08 | Administration | Semantische Suche aktivieren, Vektorstand | FULL (GUI) | FULL | `services.set_semantic_search`, `/verwaltung/semantische-suche`, Audit `settings_changed`, `worker.py` | test_worker | erledigt | 0 |
 | H01 | Oberfläche | Hauptnavigation | FULL | FULL | `base.html` | test_web | erledigt | 0 |
 | H02 | Oberfläche | Hell- und Dunkelmodus | FULL | MISSING | `design.py` | keine | P3 | 0,5 bis 1 |

@@ -13,6 +13,7 @@ contract tests can also run on SQLite.
 Start: ``python server.py`` with the environment described in ``settings_from_env``.
 """
 import collections
+import datetime
 import html
 import os
 import secrets
@@ -146,8 +147,12 @@ class NewGrant(BaseModel):
     revision: int | None = None  # of the grant read; 0 when none was there
 
 
-def create_app(store, provider, base_url, development=False, logger=None, clock=time.time, ai=None, limits=None):
+def create_app(store, provider, base_url, development=False, logger=None, clock=time.time, ai=None, limits=None,
+               secret_expires=None, export_dir=None):
     """``ai`` builds the answering component for a store (``core.AI``); None: questions answer 503.
+
+    ``secret_expires`` is the expiry date of the Entra client secret (S-11); administrators see a warning.
+    ``export_dir`` is the folder the worker writes the installation export to (``WR_EXPORT_DIR``).
 
     ``limits`` (``services.Limits``) replaces the default rate limits per account, for tests.
     """
@@ -540,8 +545,12 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
         return {'status': 'ok'}
 
     import web  # the pages of step 10.7, with the same helpers as the API
+    warning = secret_warning(secret_expires, datetime.date.fromtimestamp(clock()))
+    if warning:
+        log('client_secret', 'WARNING', status=warning[0])
     web.register(app, SimpleNamespace(store=store, signed_in=signed_in, viewer=viewer, require_role=require_role,
-                                      document=document, audited=audited, ai=ai, recorder=recorder, limited=limited))
+                                      document=document, audited=audited, ai=ai, recorder=recorder, limited=limited,
+                                      secret_expires=secret_expires, clock=clock, export_dir=export_dir))
     return app
 
 
@@ -592,7 +601,36 @@ def settings_from_env(environ=None):
         ai = lambda scoped: AI(scoped, ai_key, model, provider=ai_provider, endpoint=endpoint)  # noqa: E731
     return {'base_url': base, 'development': development, 'database': database, 'db_password': password,
             'provider': Provider(authority, tenant, client_id, secret, base + '/auth/callback'),
-            'ai': ai, 'secrets': tuple(value for value in (secret, password, ai_key) if value)}
+            'ai': ai, 'secrets': tuple(value for value in (secret, password, ai_key) if value),
+            'secret_expires': secret_expiry(environ), 'export_dir': environ.get('WR_EXPORT_DIR') or None}
+
+
+SECRET_WARNING_DAYS = 30
+
+
+def secret_expiry(environ):
+    """``WR_OIDC_CLIENT_SECRET_EXPIRES`` (YYYY-MM-DD) as a date, None when not set (S-11)."""
+    raw = environ.get('WR_OIDC_CLIENT_SECRET_EXPIRES', '').strip()
+    if not raw:
+        return None
+    try:
+        return datetime.date.fromisoformat(raw)
+    except ValueError:
+        raise ValueError('WR_OIDC_CLIENT_SECRET_EXPIRES braucht die Form JJJJ-MM-TT.') from None
+
+
+def secret_warning(expires, today):
+    """``(status, text)`` when the client secret is unknown, expires within 30 days or has expired."""
+    if expires is None:
+        return ('unbekannt', 'Ablaufdatum des Client-Geheimnisses ist nicht hinterlegt (WR_OIDC_CLIENT_SECRET_EXPIRES).')
+    days = (expires - today).days
+    if days < 0:
+        return ('abgelaufen', f'Das Client-Geheimnis ist am {expires.strftime("%d.%m.%Y")} abgelaufen. '
+                              'Anmeldungen schlagen fehl, bis ein neues hinterlegt ist.')
+    if days <= SECRET_WARNING_DAYS:
+        return ('bald', f'Das Client-Geheimnis läuft in {days} Tagen ab ({expires.strftime("%d.%m.%Y")}). '
+                        'Neues Geheimnis in Entra ID anlegen und hinterlegen.')
+    return None
 
 
 def configure_ollama(environ):
@@ -739,7 +777,7 @@ def main(argv=None):  # pragma: no cover - starts the real server
     logger = create_operational_logger(Path(os.environ.get('WR_LOG_DIR') or Path(__file__).resolve().parent),
                                        'server', known_secrets=settings['secrets'])
     app = create_app(store, settings['provider'], settings['base_url'], settings['development'], logger,
-                     ai=settings['ai'])
+                     ai=settings['ai'], secret_expires=settings['secret_expires'], export_dir=settings['export_dir'])
     # Behind Traefik the client address comes from X-Forwarded-For, trusted only from the proxy.
     config = uvicorn.Config(app, host=os.environ.get('WR_HOST', '127.0.0.1'),
                             port=int(os.environ.get('WR_PORT', '8000')),

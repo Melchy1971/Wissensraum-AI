@@ -17,6 +17,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 import html
 
 import accounts
+import audit
 import services
 from core import Conflict
 
@@ -316,17 +317,8 @@ def register(app, ctx):
 
     @app.get('/fragen', response_class=HTMLResponse)
     def questions(request: Request):
-        from core import run_sources
-        history = []
-        for run in ctx.viewer(request).history():
-            try:
-                cited, _ = run_sources(run.get('sources_json') or '[]')
-            except (ValueError, AttributeError):
-                cited = []
-            # Titles and numbers as recorded with the answer; the link answers 404 if access was revoked since.
-            sources = [s for s in cited if isinstance(s, dict) and s.get('document_id') is not None]
-            history.append({**run, 'sources': sources})
-        return render(request, 'questions.html', 'Fragen', history=history)
+        # S-10: answers citing documents the account no longer sees are withheld (decision 11.11.2026).
+        return render(request, 'questions.html', 'Fragen', history=ctx.viewer(request).visible_history())
 
     @app.post('/fragen', response_class=HTMLResponse)
     async def ask(request: Request):
@@ -502,6 +494,7 @@ def register(app, ctx):
         sync = VectorSync(store)
         vectors = {**sync.config(), 'progress': sync.progress()}
         return render(request, 'admin.html', 'Verwaltung', status, notice=notice, vectors=vectors,
+                      secret=secret_notice(),
                       exclude_retired=store.exclude_retired(),
                       accounts=accounts.accounts(store),
                       roles=accounts.ROLES, access=accounts.ACCESS, grants=grants,
@@ -513,6 +506,252 @@ def register(app, ctx):
         if kind not in ('document', 'collection'):
             raise HTTPException(422, 'Ungültiges Ziel.')
         return {'document_id': number(raw)} if kind == 'document' else {'collection_id': number(raw)}
+
+    def secret_notice():
+        import datetime
+        import server
+        return server.secret_warning(ctx.secret_expires, datetime.date.fromtimestamp(ctx.clock()))
+
+    def operations_page(request, check=None, days=30):
+        """Overview without content (counts, states, codes), diagnosis and the last integrity check (G01, G02, G07)."""
+        import diagnostics
+        import operations
+        from vector_sync import VectorSync
+        health = diagnostics.check_store_health(store)
+        sync = VectorSync(store)
+        diagnosis = [(health.status, health.message),
+                     ('PASS' if ctx.ai is not None else 'WARN',
+                      'KI-Anbieter eingerichtet.' if ctx.ai is not None else 'Kein KI-Anbieter eingerichtet, Fragen antworten 503.'),
+                     ('PASS' if sync.config().get('enabled') else 'INFO',
+                      'Semantische Suche eingeschaltet.' if sync.config().get('enabled') else 'Semantische Suche ausgeschaltet.')]
+        warning = secret_notice()
+        diagnosis.append(('PASS', 'Client-Geheimnis gültig bis ' + ctx.secret_expires.strftime('%d.%m.%Y') + '.')
+                         if warning is None else ('WARN' if warning[0] != 'abgelaufen' else 'FAIL', warning[1]))
+        overview = operations.report(operations.overview(store, days)).split('\n')
+        return render(request, 'operations.html', 'Betrieb', overview=overview, diagnosis=diagnosis, check=check,
+                      days=days)
+
+    @app.get('/verwaltung/betrieb', response_class=HTMLResponse)
+    def operations_view(request: Request, tage: int = 30):
+        ctx.require_role(request, 'admin')
+        return operations_page(request, days=max(1, min(tage, 3650)))
+
+    @app.post('/verwaltung/betrieb/pruefen', response_class=HTMLResponse)
+    def operations_check(request: Request):
+        """Integrity of schema and document checksums plus the audit chain; reads only."""
+        ctx.require_role(request, 'admin')
+        import backups
+        result = backups.integrity(store)
+        chain = audit.verify(store)
+        problems = list(result['probleme'])
+        if not chain['ok']:
+            problems.append(f"Audit-Kette unterbrochen bei Eintrag {chain['id']} ({chain['reason']})")
+        check = {'ok': not problems, 'problems': problems, 'documents': result['dokumente'],
+                 'entries': chain['entries'], 'head': chain['head'][:16], 'seconds': result['sekunden']}
+        return operations_page(request, check)
+
+    def settings_page(request, notice='', status=200):
+        """Budgets (C05), retention (E04), import rules (D11) and section lengths (D13)."""
+        import budgets
+        import retention
+        import rules
+        from core import DEFAULT_CHUNKING
+        from settings import PROVIDERS
+        with store.connect() as db:
+            rule_rows, preview, runs = rules.list_rules(db), rules.preview(db), rules.runs(db)
+        return render(request, 'settings.html', 'Einstellungen', status, notice=notice,
+                      budgets=[{**budgets.status(store, key), 'name': value['name']} for key, value in PROVIDERS.items()],
+                      retention=[{'key': key, 'label': label, 'days': retention.rules(store)[key]}
+                                 for key, (label, _) in retention.CATEGORIES.items()],
+                      retention_preview=retention.report(retention.preview(store)),
+                      default_chunking=DEFAULT_CHUNKING, chunking=store.chunk_strategies(),
+                      rules=rule_rows, rule_preview=preview, rule_runs=runs[:20], sources=rules.SOURCE_LABELS)
+
+    def settings_action(request, action):
+        """Run ``action`` and show the page again; a refused value answers 422 with its message."""
+        try:
+            notice = action() or 'Gespeichert.'
+        except ValueError as error:
+            return settings_page(request, str(error), 422)
+        return settings_page(request, notice)
+
+    @app.get('/verwaltung/einstellungen', response_class=HTMLResponse)
+    def settings_view(request: Request):
+        ctx.require_role(request, 'admin')
+        return settings_page(request)
+
+    @app.post('/verwaltung/einstellungen/budget', response_class=HTMLResponse)
+    async def settings_budget(request: Request):
+        admin_account = ctx.require_role(request, 'admin')
+        values = await form(request)
+        def change():
+            fields = {}
+            for field in ('tokens', 'eur', 'price_in', 'price_out'):
+                raw = (values.get(field) or '').strip().replace(',', '.')
+                if raw:
+                    try:
+                        fields[field] = float(raw)
+                    except ValueError:
+                        raise ValueError('Budget und Preise als Zahl angeben.') from None
+            services.set_budget(store, ctx.recorder(request), admin_account, values.get('provider', ''), **fields)
+        return settings_action(request, change)
+
+    @app.post('/verwaltung/einstellungen/aufbewahrung', response_class=HTMLResponse)
+    async def settings_retention(request: Request):
+        admin_account = ctx.require_role(request, 'admin')
+        values = await form(request)
+        return settings_action(request, lambda: services.set_retention(
+            store, ctx.recorder(request), admin_account, values.get('category', ''), number(values.get('days'))) and None)
+
+    @app.post('/verwaltung/einstellungen/aufbewahrung/anwenden', response_class=HTMLResponse)
+    async def settings_retention_apply(request: Request):
+        admin_account = ctx.require_role(request, 'admin')
+        import retention
+        return settings_action(request, lambda: 'Entfernt: ' + retention.report(
+            services.apply_retention(store, ctx.recorder(request), admin_account)))
+
+    @app.post('/verwaltung/einstellungen/abschnitte', response_class=HTMLResponse)
+    async def settings_chunking(request: Request):
+        admin_account = ctx.require_role(request, 'admin')
+        values = await form(request)
+        reset = values.get('reset') == '1'
+        def change():
+            size = None if reset else number(values.get('size'))
+            changed = services.set_chunk_strategy(store, ctx.recorder(request), admin_account, values.get('type', ''),
+                                                  size, None if reset else number(values.get('overlap') or '0'))
+            return f'Gespeichert. {changed} Dokumente neu zerlegt.'
+        return settings_action(request, change)
+
+    @app.post('/verwaltung/einstellungen/regeln', response_class=HTMLResponse)
+    async def settings_rule(request: Request):
+        admin_account = ctx.require_role(request, 'admin')
+        values = await form(request)
+        data = {key: values.get(key, '') for key in ('name', 'source_type', 'path_pattern', 'sender_domain',
+                                                     'extension', 'keyword', 'category', 'tags')}
+        data['enabled'] = values.get('enabled') == '1'
+        rule_id = number(values.get('rule_id')) if values.get('rule_id') else None
+        return settings_action(request, lambda: services.save_rule(store, ctx.recorder(request), admin_account,
+                                                                   data, rule_id) and None)
+
+    @app.post('/verwaltung/einstellungen/regeln/{rule_id}/{action}', response_class=HTMLResponse)
+    def settings_rule_action(request: Request, rule_id: int, action: str):
+        admin_account = ctx.require_role(request, 'admin')
+        actions = {'loeschen': 'delete', 'hoch': 'up', 'runter': 'down'}
+        if action not in actions:
+            raise HTTPException(404, 'Nicht gefunden.')
+        return settings_action(request, lambda: services.change_rule(store, ctx.recorder(request), admin_account,
+                                                                     rule_id, actions[action]))
+
+    @app.post('/verwaltung/einstellungen/regeln-anwenden', response_class=HTMLResponse)
+    def settings_rules_apply(request: Request):
+        admin_account = ctx.require_role(request, 'admin')
+        def run():
+            result = services.apply_rules(store, ctx.recorder(request), admin_account)
+            return f"{result['changed']} Dokumente geändert, {result['skipped']} übersprungen."
+        return settings_action(request, run)
+
+    @app.post('/verwaltung/einstellungen/regellauf/{run_id}/zuruecknehmen', response_class=HTMLResponse)
+    def settings_rules_revert(request: Request, run_id: int):
+        admin_account = ctx.require_role(request, 'admin')
+        def run():
+            result = services.revert_rules(store, ctx.recorder(request), admin_account, run_id)
+            return f"{result['restored']} Dokumente zurückgesetzt, {result['conflicts']} Bereiche inzwischen geändert."
+        return settings_action(request, run)
+
+    def privacy_page(request, search='', selected=(), notice='', status=200):
+        """Selective erasure (E03) and installation export, administrators only (decision 11.11.2026)."""
+        import privacy
+        found, impact = [], None
+        if search:
+            try:
+                found = privacy.find(store, search)
+            except ValueError as error:
+                notice, status = str(error), 422
+        chosen = []
+        if selected:
+            marks = ','.join('?' * len(set(selected)))
+            with store.connect() as db:
+                rows = [dict(r) for r in db.execute(f'SELECT id,title,category FROM documents WHERE id IN ({marks}) '
+                                                    'ORDER BY id', tuple(sorted(set(selected))))]
+            chosen = [r['id'] for r in rows]
+            known = {d['id'] for d in found}
+            found += [r for r in rows if r['id'] not in known]
+        if chosen:
+            impact = privacy.impact(store, chosen)
+        return render(request, 'privacy.html', 'Datenschutz', status, notice=notice, search=search, found=found,
+                      chosen=chosen, impact=impact, export=privacy.export_state(store),
+                      export_ready=ctx.export_dir is not None, confirmation=services.ERASE_CONFIRMATION)
+
+    @app.get('/verwaltung/datenschutz', response_class=HTMLResponse)
+    def privacy_view(request: Request, suche: str = ''):
+        ctx.require_role(request, 'admin')
+        selected = [number(v) for v in request.query_params.getlist('id')]
+        return privacy_page(request, suche.strip()[:200], selected)
+
+    @app.post('/verwaltung/datenschutz/loeschen', response_class=HTMLResponse)
+    async def privacy_erase(request: Request):
+        admin_account = ctx.require_role(request, 'admin')
+        values = await form(request)
+        ids = [number(v) for v in values.getlist('id')]
+        if not ids:
+            raise HTTPException(422, 'Keine Dokumente ausgewählt.')
+        try:
+            counts = services.erase_documents(store, ctx.recorder(request), admin_account, ids,
+                                              values.get('confirmation', ''))
+        except ValueError as error:
+            return privacy_page(request, values.get('suche', ''), ids, str(error), 422)
+        notice = (f"Gelöscht: {counts['dokumente']} Dokumente, {counts['ki_verlauf']} KI-Antworten, "
+                  f"{counts['erwaehnungen']} Erwähnungen, {counts['relationen']} Relationen.")
+        if counts.get('sicherungen_mit_daten'):
+            notice += f" {counts['sicherungen_mit_daten']} Sicherungen enthalten die Daten weiter."
+        return privacy_page(request, notice=notice + ' Sicherungen außerhalb des Servers enthalten sie weiter.')
+
+    @app.post('/verwaltung/datenschutz/export', response_class=HTMLResponse)
+    def privacy_export(request: Request):
+        admin_account = ctx.require_role(request, 'admin')
+        if ctx.export_dir is None:
+            raise HTTPException(503, 'Kein Exportordner eingerichtet (WR_EXPORT_DIR).')
+        try:
+            services.request_export(store, ctx.recorder(request), admin_account, ctx.clock())
+        except ValueError as error:
+            return privacy_page(request, notice=str(error), status=409)
+        return privacy_page(request, notice='Export angefordert. Der Worker erstellt ihn im Hintergrund.')
+
+    @app.get('/verwaltung/datenschutz/export/datei')
+    def privacy_export_file(request: Request):
+        admin_account = ctx.require_role(request, 'admin')
+        import privacy
+        from fastapi.responses import FileResponse
+        path = privacy.export_file(store, ctx.export_dir) if ctx.export_dir else None
+        if path is None:
+            raise HTTPException(404, 'Nicht gefunden.')
+        ctx.audited(request, 'privacy_export', admin_account['id'], 'installation', status='downloaded')
+        return FileResponse(path, media_type='application/zip', filename=path.name)
+
+    @app.post('/verwaltung/datenschutz/export/loeschen', response_class=HTMLResponse)
+    def privacy_export_discard(request: Request):
+        admin_account = ctx.require_role(request, 'admin')
+        import privacy
+        try:
+            with store.transaction():
+                privacy.discard_export(store, ctx.export_dir or '.')
+                ctx.audited(request, 'privacy_export', admin_account['id'], 'installation', status='discarded')
+        except ValueError as error:
+            return privacy_page(request, notice=str(error), status=409)
+        return privacy_page(request, notice='Export gelöscht.')
+
+    @app.get('/konto/auskunft')
+    def disclosure(request: Request):
+        """What the server stores about the signed-in account, as JSON (decision 11.11.2026)."""
+        account = ctx.signed_in(request)
+        import json
+        import privacy
+        from fastapi.responses import Response
+        report = privacy.account_report(store, account)
+        ctx.audited(request, 'privacy_export', account['id'], f"account:{account['id']}", status='disclosure')
+        return Response(json.dumps(report, ensure_ascii=False, indent=1, default=str), media_type='application/json',
+                        headers={'Content-Disposition': 'attachment; filename="auskunft.json"',
+                                 'Cache-Control': 'no-store'})
 
     @app.get('/verwaltung', response_class=HTMLResponse)
     def admin(request: Request):

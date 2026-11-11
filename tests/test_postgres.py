@@ -492,6 +492,11 @@ class PostgresStoreTests(unittest.TestCase):
         from test_document_care import check_care_contract
         check_care_contract(self, PostgresStore(self.profile, self.password))
 
+    def test_administration_on_real_postgresql(self):
+        from test_administration import check_administration_contract
+        with tempfile.TemporaryDirectory() as folder:
+            check_administration_contract(self, PostgresStore(self.profile, self.password), Path(folder))
+
     def test_account_organization_on_real_postgresql(self):
         from test_organization_web import check_organization_contract
         check_organization_contract(self, PostgresStore(self.profile, self.password))

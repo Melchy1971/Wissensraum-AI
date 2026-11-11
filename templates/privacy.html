@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+<p><a href="/verwaltung">Zurück zur Verwaltung</a> · <a href="/verwaltung/betrieb">Betrieb</a> · <a href="/verwaltung/einstellungen">Einstellungen</a></p>
+{% if notice %}<p class="notice">{{ notice }}</p>{% endif %}
+<h2>Dokumente endgültig löschen</h2>
+<p>Löscht Dokumente mit Abschnitten, Vektoren, Fassungen, Tags, Beziehungen, Graph-Erwähnungen und den KI-Antworten aller Konten, die sie zitieren. Der Audit-Verlauf bleibt.</p>
+<form method="get" action="/verwaltung/datenschutz"><label>Text in Titel, Dateiname oder Inhalt <input name="suche" value="{{ search }}" maxlength="200" required></label> <button type="submit">Suchen</button></form>
+{% if found %}
+<form method="get" action="/verwaltung/datenschutz"><input type="hidden" name="suche" value="{{ search }}">
+<ul class="plain">{% for d in found %}<li><label><input type="checkbox" name="id" value="{{ d.id }}"{% if d.id in chosen %} checked{% endif %}> {{ d.id }}: {{ d.title }} ({{ d.category }})</label></li>{% endfor %}</ul>
+<button type="submit">Folgen anzeigen</button></form>
+{% elif search %}<p>Keine Dokumente gefunden.</p>{% endif %}
+{% if impact %}
+<p class="error">Betroffen: {{ impact.dokumente }} Dokumente, {{ impact.ki_verlauf }} KI-Antworten, {{ impact.erwaehnungen }} Erwähnungen, {{ impact.relationen }} Relationen, {{ impact.importeintraege }} Importeinträge.</p>
+<form method="post" action="/verwaltung/datenschutz/loeschen"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="suche" value="{{ search }}">
+{% for i in chosen %}<input type="hidden" name="id" value="{{ i }}">{% endfor %}
+<label>Zur Bestätigung {{ confirmation }} eingeben <input name="confirmation" required autocomplete="off"></label> <button type="submit">Endgültig löschen</button></form>
+{% endif %}
+<h2>Installationsexport</h2>
+{% if not export_ready %}<p>Kein Exportordner eingerichtet (WR_EXPORT_DIR in Server und Worker).</p>
+{% elif not export %}<p>Alle Tabellen als JSON und Originale als Dateien in einem ZIP. Der Worker erstellt es, die Datei bleibt einen Tag.</p>
+<form method="post" action="/verwaltung/datenschutz/export"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit">Export anfordern</button></form>
+{% elif export.status in ('pending', 'running') %}<p>Export {{ 'wartet auf den Worker' if export.status == 'pending' else 'läuft' }}.</p>
+{% else %}
+{% if export.status == 'done' %}<p>Export fertig: <a href="/verwaltung/datenschutz/export/datei">{{ export.file }}</a> ({{ export.bytes }} Bytes).</p>
+{% else %}<p class="error">Export fehlgeschlagen ({{ export.error }}).</p>{% endif %}
+<form method="post" action="/verwaltung/datenschutz/export/loeschen"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit">Export löschen</button></form>
+{% endif %}
+<p><small>Jedes Konto lädt seine eigene Auskunft über „Meine Daten“ im Kopf der Seite.</small></p>
+{% endblock %}

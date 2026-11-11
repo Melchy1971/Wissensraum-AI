@@ -84,8 +84,11 @@ def preview(store, now=None):
                 for key, days in active.items()}
 
 
-def apply(store, now=None):
-    """Remove what the rules allow, in one transaction; returns the counts like ``preview``."""
+def apply(store, now=None, maintenance=True):
+    """Remove what the rules allow, in one transaction; returns the counts like ``preview``.
+
+    ``maintenance`` False leaves out emptying the SQLite WAL, for a caller inside its own transaction.
+    """
     now = now or datetime.now(timezone.utc)
     active = {key: days for key, days in rules(store).items() if days}
     sqlite = getattr(store, 'backend', 'sqlite') != 'postgresql'
@@ -99,7 +102,7 @@ def apply(store, now=None):
                 if ids:
                     db.executemany(f'DELETE FROM {table} WHERE id=?', [(i,) for i in ids])
                 removed[key][table] = len(ids)
-    if sqlite and any(n for counts in removed.values() for n in counts.values()):
+    if sqlite and maintenance and any(n for counts in removed.values() for n in counts.values()):
         with store.connect() as db:
             db.execute('PRAGMA wal_checkpoint(TRUNCATE)')
     return removed

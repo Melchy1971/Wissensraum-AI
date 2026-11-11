@@ -126,8 +126,12 @@ def impact(store, ids):
                 'importeintraege': len(_ids_in(db, 'SELECT id FROM import_items WHERE document_id IN ({marks})', ids))}
 
 
-def erase(store, ids):
-    """Remove the documents and everything derived from them, in one transaction."""
+def erase(store, ids, maintenance=True):
+    """Remove the documents and everything derived from them, in one transaction.
+
+    ``maintenance`` False leaves out the SQLite clean-up after the commit (index rebuild, empty WAL), for a
+    caller that erases inside its own transaction and runs ``maintain`` afterwards.
+    """
     from core import _bump_vector_generation
     ids = sorted({int(i) for i in ids})
     if not ids:
@@ -159,11 +163,152 @@ def erase(store, ids):
         db.executemany('DELETE FROM graph_changes WHERE id=?', [(i,) for i in stale])
         _bump_vector_generation(db)
         counts.update(dokumente=len(ids), ki_verlauf=len(runs), entitaeten=len(orphans), protokoll=len(stale))
-    if sqlite:
-        with store.connect() as db:
-            db.execute("INSERT INTO search_index(search_index) VALUES('optimize')")
-        with store.connect() as db:
-            db.execute('PRAGMA wal_checkpoint(TRUNCATE)')
-        import backups
-        counts['sicherungen_mit_daten'] = len(backups.existing(backups.folder(store)))
+    if sqlite and maintenance:
+        counts.update(maintain(store))
     return counts
+
+
+def maintain(store):
+    """SQLite after an erasure: rebuild the full text index, empty the WAL, count backups that still hold data."""
+    if not _sqlite(store):
+        return {}
+    with store.connect() as db:
+        db.execute("INSERT INTO search_index(search_index) VALUES('optimize')")
+    with store.connect() as db:
+        db.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+    import backups
+    return {'sicherungen_mit_daten': len(backups.existing(backups.folder(store)))}
+
+
+# --- server (parity roadmap phase 5, decision 11.11.2026) -------------------------------------------
+def account_report(store, account):
+    """What the server stores about one account, as it may see it: the data protection disclosure.
+
+    Titles only of documents the account still sees; AI answers that cite documents it no longer sees
+    are withheld as on its own history page (S-10). Other accounts appear by id only.
+    """
+    from import_jobs import ImportJobs
+    scoped = store.as_viewer(account)
+    visible = {d['id']: d['title'] for d in scoped.list(all_versions=True)}
+    collections = {c['id']: c['name'] for c in scoped.collections()}
+    with store.connect() as db:
+        grants = [dict(r) for r in db.execute('SELECT document_id,collection_id,access,created_at FROM grants '
+                                              'WHERE account_id=? ORDER BY id', (account['id'],))]
+        favorites = [r['document_id'] for r in db.execute(
+            'SELECT document_id FROM account_favorites WHERE account_id=? ORDER BY document_id', (account['id'],))]
+        sessions = int(db.execute('SELECT count(*) AS n FROM web_sessions WHERE account_id=?',
+                                  (account['id'],)).fetchone()['n'])
+        trail = [dict(r) for r in db.execute('SELECT id,created_at,event,target,source,details FROM audit_log '
+                                             'WHERE account_id=? ORDER BY id', (account['id'],))]
+    for grant in grants:
+        grant['titel'] = (visible.get(grant['document_id']) if grant['document_id'] is not None
+                          else collections.get(grant['collection_id']))
+    history = [{'zeit': _plain(run['created_at']), 'frage': run['question'],
+                'antwort': None if run['withheld'] else run['answer'], 'ausgeblendet': run['withheld'],
+                'quellen': [s.get('title') for s in run['sources']]} for run in scoped.visible_history()]
+    return {'format': 'wissensraum-auskunft', 'format_version': 1,
+            'erstellt': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+            'konto': {key: _plain(account.get(key)) for key in
+                      ('id', 'tenant_id', 'object_id', 'display_name', 'role', 'disabled', 'created_at')},
+            'freigaben': [{k: _plain(v) for k, v in g.items()} for g in grants],
+            'favoriten': [{'dokument': i, 'titel': visible.get(i)} for i in favorites],
+            'gespeicherte_suchen': scoped.saved_searches(),
+            'ki_verlauf': history,
+            'importauftraege': [{k: _plain(v) for k, v in job.items()}
+                                for job in ImportJobs(store).upload_jobs(account['id'], limit=1000)],
+            'aktive_sitzungen': sessions,
+            'audit': [{k: _plain(v) for k, v in entry.items()} for entry in trail],
+            'hinweis': 'Dokumentinhalte stehen nicht in der Auskunft. Titel erscheinen nur für Dokumente, '
+                       'die das Konto heute sehen darf.'}
+
+
+EXPORT_SETTING = 'privacy.export'
+EXPORT_KEEP = 24 * 3600  # seconds a finished installation export stays on the server
+EXPORT_STALE = 6 * 3600  # a running export older than this lost its worker (restart) and counts as failed
+
+
+def export_state(store):
+    """State of the installation export job: {} or status, account, times, file, size, error."""
+    with store.connect() as db:
+        row = db.execute('SELECT value FROM settings WHERE name=?', (EXPORT_SETTING,)).fetchone()
+    try:
+        value = json.loads(row['value']) if row else {}
+    except ValueError:
+        value = {}
+    return value if isinstance(value, dict) else {}
+
+
+def _swap_state(db, old, new):
+    """Compare and set: only one caller wins a change of the job state."""
+    if old is None:
+        if db.execute('SELECT 1 FROM settings WHERE name=?', (EXPORT_SETTING,)).fetchone():
+            return False
+        db.execute('INSERT INTO settings(name,value) VALUES(?,?)', (EXPORT_SETTING, json.dumps(new)))
+        return True
+    if new is None:
+        return db.execute('DELETE FROM settings WHERE name=? AND value=?', (EXPORT_SETTING, json.dumps(old))).rowcount == 1
+    return db.execute('UPDATE settings SET value=? WHERE name=? AND value=?',
+                      (json.dumps(new), EXPORT_SETTING, json.dumps(old))).rowcount == 1
+
+
+def request_export(store, account_id, now):
+    """Ask the worker for an installation export; refused while one is open or still kept."""
+    current = export_state(store)
+    if current:
+        raise ValueError('Es gibt schon einen Export. Erst herunterladen oder löschen.')
+    with store.connect() as db:
+        if not _swap_state(db, None, {'status': 'pending', 'account_id': account_id, 'requested': int(now)}):
+            raise ValueError('Es gibt schon einen Export. Erst herunterladen oder löschen.')
+
+
+def run_export(store, folder, now):
+    """Worker: build a requested export in ``folder``, remove one kept longer than a day. Returns the state."""
+    current = export_state(store)
+    folder = Path(folder)
+    if current.get('status') == 'done' and now - current.get('finished', now) >= EXPORT_KEEP:
+        discard_export(store, folder)
+        return {}
+    if current.get('status') == 'running' and now - current.get('started', now) >= EXPORT_STALE:
+        with store.connect() as db:
+            _swap_state(db, current, {**current, 'status': 'failed', 'error': 'abgebrochen', 'finished': int(now)})
+        return export_state(store)
+    if current.get('status') != 'pending':
+        return current
+    running = {**current, 'status': 'running', 'started': int(now)}
+    with store.connect() as db:
+        if not _swap_state(db, current, running):
+            return export_state(store)
+    name = f'datenexport-{datetime.fromtimestamp(now, timezone.utc).strftime("%Y%m%d-%H%M%S")}.zip'
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        export(store, folder / name, overwrite=True)
+        finished = {**running, 'status': 'done', 'file': name, 'bytes': (folder / name).stat().st_size,
+                    'finished': int(now)}
+    except Exception as error:  # the state shows the class, never a path or content
+        (folder / name).unlink(missing_ok=True)
+        finished = {**running, 'status': 'failed', 'error': type(error).__name__, 'finished': int(now)}
+    with store.connect() as db:
+        _swap_state(db, running, finished)
+    return finished
+
+
+def export_file(store, folder):
+    """Path of the finished export, or None."""
+    current = export_state(store)
+    if current.get('status') != 'done' or not re.fullmatch(r'datenexport-\d{8}-\d{6}\.zip', current.get('file', '')):
+        return None
+    path = Path(folder) / current['file']
+    return path if path.is_file() else None
+
+
+def discard_export(store, folder):
+    """Delete the file of a finished or failed export and forget the job; an open job stays."""
+    current = export_state(store)
+    if current.get('status') in ('pending', 'running'):
+        raise ValueError('Der Export läuft noch.')
+    path = export_file(store, folder)
+    if path is not None:
+        path.unlink(missing_ok=True)
+    if current:
+        with store.connect() as db:
+            _swap_state(db, current, None)

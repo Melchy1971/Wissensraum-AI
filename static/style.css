@@ -10,3 +10,5 @@ textarea { width: 100%; }
 pre.content { white-space: pre-wrap; background: #fff; border: 1px solid #dde2ea; padding: .8rem; }
 .notice { background: #fff4d6; padding: .5rem; border: 1px solid #e8c766; }
 form.inline { display: inline; }
+.error { background: #fde4e4; padding: .5rem; border: 1px solid #d98080; }
+ul.plain { list-style: none; padding-left: 0; }

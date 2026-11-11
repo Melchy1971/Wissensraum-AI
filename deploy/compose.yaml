@@ -25,6 +25,7 @@ services:
     secrets: [db_app, oidc_client_secret]
     volumes:
       - logs:/data/logs
+      - exports:/data/exports
     networks: [datenbank, proxy]
     read_only: true
     tmpfs: ["/tmp"]
@@ -60,6 +61,7 @@ services:
     secrets: [db_app]
     volumes:
       - worker-logs:/data/logs
+      - exports:/data/exports
     # Der Worker braucht PostgreSQL und Ollama. Liegt Ollama in einem anderen Netz als datenbank, dieses
     # Netz hier ergänzen. Nicht das Proxy-Netz: der Worker bietet nichts an.
     networks: [datenbank]
@@ -90,6 +92,7 @@ secrets:
 volumes:
   logs:
   worker-logs:
+  exports:  # Installationsexport des Workers, Server liefert ihn an Admins aus, gelöscht nach einem Tag
 
 networks:
   datenbank: {external: true, name: <netz-des-postgres-containers>}

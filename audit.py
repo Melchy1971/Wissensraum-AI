@@ -18,7 +18,7 @@ EVENTS = {
     'sign_in', 'sign_in_refused', 'sign_out', 'account_created', 'account_changed', 'grant_created',
     'grant_revoked', 'document_created', 'document_changed', 'document_deleted', 'collection_export',
     'collection_changed', 'graph_changed',
-    'original_download', 'privacy_erase', 'settings_changed', 'ai_question', 'import_started',
+    'original_download', 'privacy_erase', 'privacy_export', 'settings_changed', 'ai_question', 'import_started',
 }
 FIELDS = ('id', 'created_at', 'account_id', 'event', 'target', 'source', 'details', 'previous_hash')
 MAX_TEXT = 100

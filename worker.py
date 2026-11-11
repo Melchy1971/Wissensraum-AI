@@ -3,7 +3,8 @@
 Runs as its own container from the server image (``python worker.py``), next to the web server. For now
 it embeds sections without a vector while semantic search is switched on (``vector_sync.VectorSync``),
 so new uploads become findable by meaning without a web request waiting for Ollama. Since phase 3 it
-also imports uploaded files (``import_jobs.ImportJobs.create_uploads``), one job after the other.
+also imports uploaded files (``import_jobs.ImportJobs.create_uploads``), one job after the other. Since
+phase 5 it builds the installation export an administrator requested into ``WR_EXPORT_DIR``.
 
 Same database and runtime role as the server, no web port, no sign-in settings. Ollama address from
 ``WR_OLLAMA_URL``. After every round the worker touches a heartbeat file; the container health check
@@ -15,6 +16,7 @@ Upgrade path with phase 3: a job table read with ``FOR UPDATE SKIP LOCKED``.
 import os
 import signal
 import threading
+import time
 from pathlib import Path
 
 from import_jobs import ImportJobs
@@ -44,7 +46,15 @@ def import_once(store, stop, heartbeat=HEARTBEAT):
     return jobs.run(job_id, pause=stop, progress=lambda *_: heartbeat.touch())  # shutdown: resumed later
 
 
-def loop(store, stop, log, interval=INTERVAL_SECONDS, heartbeat=HEARTBEAT, rounds=None):
+def export_once(store, folder, now=None):
+    """Build a requested installation export (parity roadmap phase 5); None without an export folder."""
+    if not folder:
+        return None
+    import privacy
+    return privacy.run_export(store, folder, time.time() if now is None else now)
+
+
+def loop(store, stop, log, interval=INTERVAL_SECONDS, heartbeat=HEARTBEAT, rounds=None, export_folder=None):
     """Rounds until ``stop`` is set (or ``rounds`` ran, for tests). A failed round never ends the loop."""
     done = 0
     while not stop.is_set() and (rounds is None or done < rounds):
@@ -56,6 +66,9 @@ def loop(store, stop, log, interval=INTERVAL_SECONDS, heartbeat=HEARTBEAT, round
             summary = import_once(store, stop, heartbeat)
             if summary is not None:
                 log('import_job_finished', 'INFO', count=summary['total'], status=summary['status'])
+            exported = export_once(store, export_folder)
+            if exported and exported.get('status') in ('done', 'failed') and exported.get('finished') == exported.get('started'):
+                log('privacy_export', 'INFO', status=exported['status'])
         except Exception as error:  # database away for a moment: the next round tries again
             log('worker_round_failed', 'ERROR', outcome=type(error).__name__)
         heartbeat.touch()
@@ -82,7 +95,8 @@ def main():  # pragma: no cover - starts the real worker
             except Exception:  # logging never stops the worker
                 pass
     log('worker_started')
-    loop(store, stop, log, int(os.environ.get('WR_WORKER_INTERVAL') or INTERVAL_SECONDS))
+    loop(store, stop, log, int(os.environ.get('WR_WORKER_INTERVAL') or INTERVAL_SECONDS),
+         export_folder=os.environ.get('WR_EXPORT_DIR') or None)
     log('worker_stopped')
 
 

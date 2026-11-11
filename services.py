@@ -209,3 +209,117 @@ class Limits:
                 return False
             hits.append(self.clock())
             return True
+
+
+# --- administration of phase 5: settings with audit ``settings_changed`` --------------------------
+def set_budget(store, record, admin, provider, **values):
+    """Monthly budget of one AI provider (C05). The audit names the changed fields, not their values."""
+    import budgets
+    with store.transaction():
+        changed = budgets.set_limits(store, provider, **values)
+        record('settings_changed', admin['id'], f'settings:budget:{provider}',
+               fields=','.join(sorted(k for k, v in values.items() if v is not None)))
+    return changed
+
+
+def set_retention(store, record, admin, category, days):
+    """Retention rule of one category in days, 0 keeps for good (E04)."""
+    import retention
+    with store.transaction():
+        rules = retention.set_rule(store, category, days)
+        record('settings_changed', admin['id'], f'settings:retention:{category}', days=int(days))
+    return rules
+
+
+def apply_retention(store, record, admin):
+    """Remove what the retention rules allow, in one transaction with the audit entry."""
+    import retention
+    with store.transaction():
+        removed = retention.apply(store, maintenance=False)
+        record('settings_changed', admin['id'], 'settings:retention:apply',
+               removed=sum(n for tables in removed.values() for n in tables.values()))
+    if store.backend == 'sqlite':
+        with store.connect() as db:
+            db.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+    return removed
+
+
+def set_chunk_strategy(store, record, admin, doc_type, size=None, overlap=None):
+    """Section length of one document type (D13); ``size`` None restores the default."""
+    with store.transaction():
+        changed = store.set_chunk_strategy(doc_type, size, overlap)
+        record('settings_changed', admin['id'], f'settings:chunking:{str(doc_type).strip().lower().lstrip(".")[:16]}',
+               size=size, overlap=overlap if size is not None else None, documents=changed)
+    return changed
+
+
+def save_rule(store, record, admin, data, rule_id=None):
+    """Create or change an import rule for area and tags (D11)."""
+    import rules
+    with store.transaction():
+        with store.connect() as db:
+            saved = rules.save_rule(db, data, rule_id)
+        record('settings_changed', admin['id'], f'settings:rule:{saved}', change='saved')
+    return saved
+
+
+def change_rule(store, record, admin, rule_id, action):
+    """``delete``, ``up`` or ``down`` for one import rule."""
+    import rules
+    with store.transaction():
+        with store.connect() as db:
+            if not db.execute('SELECT 1 FROM rules WHERE id=?', (rule_id,)).fetchone():
+                raise ValueError('Regel wurde nicht gefunden.')
+            if action == 'delete':
+                rules.delete_rule(db, rule_id)
+            elif action in ('up', 'down'):
+                rules.move_rule(db, rule_id, -1 if action == 'up' else 1)
+            else:
+                raise ValueError('Unbekannte Aktion.')
+        record('settings_changed', admin['id'], f'settings:rule:{rule_id}', change=action)
+
+
+def apply_rules(store, record, admin):
+    """Apply the rules to the stock as one run that can be taken back (``rules.revert``)."""
+    import rules
+    with store.transaction():
+        with store.connect() as db:
+            result = rules.apply(db, store.backend, rules.preview(db))
+        record('settings_changed', admin['id'], 'settings:rules:apply', run=result['run_id'],
+               changed=result['changed'], skipped=result['skipped'])
+    return result
+
+
+def revert_rules(store, record, admin, run_id):
+    import rules
+    with store.transaction():
+        with store.connect() as db:
+            result = rules.revert(db, store.backend, run_id)
+        record('settings_changed', admin['id'], f'settings:rules:revert:{run_id}', restored=result['restored'],
+               conflicts=result['conflicts'])
+    return result
+
+
+# --- data protection of phase 5 (decision 11.11.2026) ---------------------------------------------
+ERASE_CONFIRMATION = 'LÖSCHEN'
+
+
+def erase_documents(store, record, admin, ids, confirmation):
+    """Selective erasure (E03), administrators only: documents and everything derived, with audit entry."""
+    import privacy
+    if confirmation.strip() != ERASE_CONFIRMATION:
+        raise ValueError(f'Zur Bestätigung {ERASE_CONFIRMATION} eingeben.')
+    ids = sorted({int(i) for i in ids})
+    with store.transaction():
+        counts = privacy.erase(store, ids, maintenance=False)
+        record('privacy_erase', admin['id'], 'documents', documents=ids,
+               **{key: value for key, value in counts.items() if isinstance(value, int)})
+    counts.update(privacy.maintain(store))
+    return counts
+
+
+def request_export(store, record, admin, now):
+    import privacy
+    with store.transaction():
+        privacy.request_export(store, admin['id'], now)
+        record('privacy_export', admin['id'], 'installation', status='requested')

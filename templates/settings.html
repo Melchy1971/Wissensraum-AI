@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block content %}
+<p><a href="/verwaltung">Zurück zur Verwaltung</a> · <a href="/verwaltung/betrieb">Betrieb</a> · <a href="/verwaltung/datenschutz">Datenschutz</a></p>
+{% if notice %}<p class="notice">{{ notice }}</p>{% endif %}
+<h2>KI-Budgets im laufenden Monat</h2>
+<table>
+<thead><tr><th>Anbieter</th><th>Verbrauch</th><th>Budget (0 = ohne Grenze)</th></tr></thead>
+<tbody>{% for b in budgets %}
+<tr><td>{{ b.name }}</td><td>{{ b.anfragen }} Anfragen, {{ b.token }} Token{% if b.kosten_eur %}, {{ b.kosten_eur }} €{% endif %} · {{ b.stufe }}</td>
+<td><form method="post" action="/verwaltung/einstellungen/budget" class="inline"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="provider" value="{{ b.anbieter }}">
+<label>Token <input name="tokens" value="{{ b.budget.tokens }}" size="10" inputmode="numeric"></label>
+<label>Euro <input name="eur" value="{{ b.budget.eur }}" size="6"></label>
+<label>Preis Eingabe je Mio. <input name="price_in" value="{{ b.budget.price_in }}" size="6"></label>
+<label>Preis Ausgabe je Mio. <input name="price_out" value="{{ b.budget.price_out }}" size="6"></label>
+<button type="submit">Speichern</button></form></td></tr>
+{% endfor %}</tbody>
+</table>
+<h2>Aufbewahrung</h2>
+<table>
+<thead><tr><th>Kategorie</th><th>Tage (0 = unbegrenzt)</th></tr></thead>
+<tbody>{% for r in retention %}
+<tr><td>{{ r.label }}</td><td><form method="post" action="/verwaltung/einstellungen/aufbewahrung" class="inline"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="category" value="{{ r.key }}"><input name="days" value="{{ r.days }}" size="6" inputmode="numeric"> <button type="submit">Speichern</button></form></td></tr>
+{% endfor %}</tbody>
+</table>
+<p>Vorschau: {{ retention_preview }}</p>
+<form method="post" action="/verwaltung/einstellungen/aufbewahrung/anwenden"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit">Jetzt anwenden</button></form>
+<p><small>Gilt für alle Konten. Bestehende Sicherungen enthalten die Einträge weiter.</small></p>
+<h2>Regeln für Bereich und Tags beim Import</h2>
+<table>
+<thead><tr><th>Name</th><th>Bedingungen</th><th>Setzt</th><th></th></tr></thead>
+<tbody>{% for r in rules %}
+<tr><td>{{ r.name }}{% if not r.enabled %} (aus){% endif %}</td>
+<td>{% if r.source_type %}Quelle {{ sources.get(r.source_type, r.source_type) }} {% endif %}{% if r.path_pattern %}Pfad {{ r.path_pattern }} {% endif %}{% if r.sender_domain %}Absender @{{ r.sender_domain }} {% endif %}{% if r.extension %}Endung {{ r.extension }} {% endif %}{% if r.keyword %}Wort {{ r.keyword }}{% endif %}</td>
+<td>{% if r.category %}Bereich {{ r.category }} {% endif %}{% if r.tags %}Tags {{ r.tags }}{% endif %}</td>
+<td>{% for action, label in (('hoch', 'hoch'), ('runter', 'runter'), ('loeschen', 'löschen')) %}<form method="post" action="/verwaltung/einstellungen/regeln/{{ r.id }}/{{ action }}" class="inline"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit">{{ label }}</button></form> {% endfor %}</td></tr>
+{% else %}<tr><td colspan="4">Keine Regeln.</td></tr>{% endfor %}</tbody>
+</table>
+<h3>Neue Regel</h3>
+<form method="post" action="/verwaltung/einstellungen/regeln"><input type="hidden" name="csrf_token" value="{{ csrf }}">
+<label>Name <input name="name" maxlength="80" required></label>
+<label>Quelle <select name="source_type"><option value="">beliebig</option>{% for key, label in sources.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select></label>
+<label>Pfadmuster <input name="path_pattern" maxlength="200"></label>
+<label>Absenderdomäne <input name="sender_domain" maxlength="200"></label>
+<label>Endung <input name="extension" maxlength="10" size="5"></label>
+<label>Wort <input name="keyword" maxlength="200"></label>
+<label>Bereich <input name="category" maxlength="200"></label>
+<label>Tags <input name="tags" maxlength="200"></label>
+<label><input type="checkbox" name="enabled" value="1" checked> aktiv</label>
+<button type="submit">Anlegen</button></form>
+<p>Auf den Bestand angewendet ändern die Regeln {{ rule_preview|length }} Dokumente.{% if rule_preview %} Beispiele: {% for r in rule_preview[:5] %}{{ r.title }} ({{ r.category }} → {{ r.new_category }}{% if r.new_tags %}, + {{ r.new_tags|join(', ') }}{% endif %}){% if not loop.last %}; {% endif %}{% endfor %}{% endif %}</p>
+{% if rule_preview %}<form method="post" action="/verwaltung/einstellungen/regeln-anwenden"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit">Auf Bestand anwenden</button></form>{% endif %}
+{% if rule_runs %}<h3>Regelläufe</h3><ul>{% for run in rule_runs %}<li>Lauf {{ run.id }} vom {{ run.created_at }}: {{ run.documents }} Dokumente, {{ 'angewendet' if run.status == 'applied' else 'zurückgenommen' }}{% if run.status == 'applied' %} <form method="post" action="/verwaltung/einstellungen/regellauf/{{ run.id }}/zuruecknehmen" class="inline"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit">zurücknehmen</button></form>{% endif %}</li>{% endfor %}</ul>{% endif %}
+<h2>Abschnittslänge je Dokumenttyp</h2>
+<p>Standard: {{ default_chunking[0] }} Zeichen, Überlappung {{ default_chunking[1] }}.</p>
+<ul>{% for name, value in chunking.items() %}<li>{{ name }}: {{ value[0] }} Zeichen, Überlappung {{ value[1] }} <form method="post" action="/verwaltung/einstellungen/abschnitte" class="inline"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="type" value="{{ name }}"><input type="hidden" name="reset" value="1"><button type="submit">auf Standard</button></form></li>{% endfor %}</ul>
+<form method="post" action="/verwaltung/einstellungen/abschnitte"><input type="hidden" name="csrf_token" value="{{ csrf }}">
+<label>Typ (z. B. pdf, eml) <input name="type" maxlength="16" size="6" required></label>
+<label>Zeichen <input name="size" inputmode="numeric" size="6" required></label>
+<label>Überlappung <input name="overlap" inputmode="numeric" size="5" value="200"></label>
+<button type="submit">Speichern</button></form>
+<p><small>Dokumente dieses Typs werden sofort neu zerlegt. Ihre Vektoren bettet der Worker neu ein.</small></p>
+{% endblock %}

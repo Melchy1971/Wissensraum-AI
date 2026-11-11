@@ -16,7 +16,7 @@
 
 **Legende:** ✅ vollständig implementiert und gesamtes Gate nachweislich bestanden · 🟡 implementiert oder teilweise geprüft, aber noch nicht vollständig abgenommen · ❌ Gate fehlgeschlagen oder Freigabe blockiert · ⬜ geplant und noch nicht begonnen
 
-## Aktualisierung 11.11.2026 – Paritäts-Roadmap Phase 0 bis 4b (Betrieb, Service-Schicht, semantische Suche, Importaufträge, Dokumentpflege und Organisation im Server) 🟡
+## Aktualisierung 11.11.2026 – Paritäts-Roadmap Phase 0 bis 5 (Betrieb, Service-Schicht, semantische Suche, Importaufträge, Dokumentpflege, Organisation und Administration im Server) 🟡
 
 **Grundlage:** Analyse Desktop/Web an `bf3b126` in `docs/desktop-web-parity.md`, `docs/web-architecture-review.md`, `docs/web-parity-roadmap.md`, `docs/web-parity-testplan.md`. Die Roadmap-Phasen sind nicht die Teilschritte 11.1 bis 11.5 dieses Plans. Sie gehören zum Abschluss von 10.8 und zu 11.1 und 11.2.
 
@@ -32,11 +32,13 @@
 
 **Phase 4b (Schema 25):** Tabellen `account_favorites` und `account_saved_searches` für beide Backends. Favoriten und gespeicherte Suchen gelten je Konto, bestehende Einträge gehen an den ersten Administrator (Entscheidung 11.11.2026). Sammlungen anlegen (Besitzerfreigabe), umbenennen, Dokumente entfernen und löschen (nur Besitzer oder Administrator) auf `/sammlungen/{id}`. Ein Dokument kommt nur mit Schreibrecht am Dokument in eine Sammlung, auch über die API (Entscheidung 11.11.2026). Beziehungen anlegen und entfernen nur zwischen sichtbaren Dokumenten. Fassungen mit Vergleich, KI-Zusammenfassung mit Audit und 503 ohne Anbieter. Ein erneuter Upload derselben Datei wird neue Fassung und übernimmt Lese- und Schreibfreigaben, Besitz nicht (Entscheidung 11.11.2026). Parität 37 / 69 = 53,6 %. Nachweise: Linux, Python 3.12 mit Tk unter Xvfb 771 Tests, 1 Fehlschlag (bekannter GUI-Pixelfehler), 62 übersprungen. PostgreSQL 16: 53 von 53. bandit `-lll` ohne Befund. Mutationsproben für Schreibrecht beim Hinzufügen (Seite und API), Verlaufsfilter, Sichtbarkeit beim Entfernen von Beziehungen, Freigabeübernahme, Kontotrennung der Suchen und Favoriten und Rechteprüfung im Vergleich.
 
+**Phase 5:** Seiten `/verwaltung/betrieb` (Übersicht nur mit Zahlen und Codes, Diagnose, Prüfung von Schema, Prüfsummen und Audit-Kette), `/verwaltung/einstellungen` (KI-Budgets, Aufbewahrung, Importregeln mit Anwenden und Zurücknehmen, Abschnittslänge je Typ) und `/verwaltung/datenschutz`, nur für Administratoren, jede Änderung mit Audit `settings_changed`. Entscheidungen 11.11.2026: Selektive Löschung nur durch Administratoren mit Vorschau und Bestätigungswort (Audit `privacy_erase`). Datenschutzexport als Auskunft je Konto (`/konto/auskunft`, JSON ohne Dokumentinhalte) und als Installationsexport, den der Worker in das Volume `exports` schreibt und nach einem Tag entfernt (neues Audit-Ereignis `privacy_export`). Der KI-Verlauf blendet Antworten aus, deren Quellen das Konto nicht mehr sieht (S-10). Ablaufwarnung für das Client-Geheimnis über `WR_OIDC_CLIENT_SECRET_EXPIRES` (S-11). Keine Migration. Neu im Betrieb: `WR_EXPORT_DIR`, Volume `exports`, Ordner `/data/exports` im Image, also Image neu bauen. Parität 46 / 69 = 66,7 %. Nachweise: Linux, Python 3.12 mit Tk unter Xvfb 782 Tests, 1 Fehlschlag (bekannter GUI-Pixelfehler), 64 übersprungen. PostgreSQL 16: 54 von 54. bandit `-lll` ohne Befund. Mutationsproben für Adminprüfung, Bestätigungswort, Verlaufsfilter, Compare-and-set des Exportauftrags, Sichtbarkeit in der Auskunft, Audit der Budgets, Ablauf des Exports und Integritätsbefund.
+
 **Nachweise Phase 0 und 1:** Linux, Python 3.12 mit Tk unter Xvfb: 743 Tests, 1 Fehlschlag (`test_settings_pages_scroll_to_their_last_widget_at_minimum_size`, Seite `mail`, 1 Pixel, bestand schon an `bf3b126`), 60 übersprungen (47 PostgreSQL ohne Konfiguration im Gesamtlauf, 10 Tesseract, 3 nur Windows). PostgreSQL 16 Wegwerf-Cluster: 50 von 50. PostgreSQL 18, Windows und das Matrix-Gate liefen nicht. Mutationsprobe: ohne Filter, ohne Transaktion im Dienst und ohne Einklinken in `connect()` scheitern die neuen Tests.
 
 **Offen:** Matrix-Gate 7 von 7, Einrichtung von Sicherung und Übung auf VPS und Unraid, Neuanlage des Server-Containers zum Verwerfen alter Logs, Prüfung des GUI-Fehlschlags auf Windows.
 
-**Status:** Phase 0 bis 4b der Paritäts-Roadmap 🟡. 10.8 bleibt 🟡.
+**Status:** Phase 0 bis 5 der Paritäts-Roadmap 🟡. 10.8 bleibt 🟡.
 
 ## Aktualisierung 05.11.2026 (Mittag) – Phase 8A, Schritt 8A.1 Metadaten bearbeiten ✅
 

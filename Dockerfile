@@ -6,7 +6,7 @@ FROM python:3.13-slim-bookworm
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 \
     WR_HOST=0.0.0.0 WR_PORT=8000 WR_LOG_DIR=/data/logs
 RUN useradd --uid 10001 --home-dir /data --no-create-home wissensraum \
-    && mkdir -p /data/logs && chown -R wissensraum /data
+    && mkdir -p /data/logs /data/exports && chown -R wissensraum /data
 WORKDIR /app
 COPY requirements.txt requirements-server.txt ./
 RUN pip install --no-compile -r requirements-server.txt

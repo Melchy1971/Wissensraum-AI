@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+<p><a href="/verwaltung">Zurück zur Verwaltung</a> · <a href="/verwaltung/einstellungen">Einstellungen</a> · <a href="/verwaltung/datenschutz">Datenschutz</a></p>
+<h2>Diagnose</h2>
+<ul>{% for status, text in diagnosis %}<li><strong class="status-{{ status|lower }}">{{ status }}</strong> {{ text }}</li>{% endfor %}</ul>
+<h2>Integrität</h2>
+{% if check %}
+<p class="{{ 'notice' if check.ok else 'error' }}">{% if check.ok %}Keine Probleme gefunden.{% else %}Probleme gefunden:{% endif %} {{ check.documents }} Dokumente geprüft, Audit-Kette mit {{ check.entries }} Einträgen, Kopf {{ check.head }}…, {{ check.seconds }} Sekunden.</p>
+{% if check.problems %}<ul>{% for p in check.problems %}<li>{{ p }}</li>{% endfor %}</ul>{% endif %}
+{% endif %}
+<form method="post" action="/verwaltung/betrieb/pruefen"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit">Schema, Prüfsummen und Audit-Kette prüfen</button></form>
+<h2>Übersicht</h2>
+<form method="get" action="/verwaltung/betrieb"><label>Zeitraum in Tagen <input name="tage" value="{{ days }}" inputmode="numeric" size="4"></label> <button type="submit">Anzeigen</button></form>
+<ul class="plain">{% for line in overview %}<li>{{ line }}</li>{% endfor %}</ul>
+<p><small>Die Übersicht enthält nur Zahlen, Zustände und Fehlercodes, keine Inhalte.</small></p>
+{% endblock %}

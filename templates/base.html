@@ -21,7 +21,7 @@
     {% if account.role in ('admin', 'editor') %}<a href="/notiz">Notiz</a> <a href="/hochladen">Hochladen</a> <a href="/importe">Importe</a>{% endif %}
     {% if account.role == 'admin' %}<a href="/verwaltung">Verwaltung</a>{% endif %}
   </nav>
-  <span class="who">Angemeldet als {{ account.display_name or account.object_id }} ({{ account.role }})</span>
+  <span class="who">Angemeldet als {{ account.display_name or account.object_id }} ({{ account.role }}) · <a href="/konto/auskunft">Meine Daten</a></span>
   <form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit">Abmelden</button></form>
   {% endif %}
 </header>

@@ -72,6 +72,15 @@ Hochladen legt einen Auftrag an, der Worker importiert ihn. Mehrere Dateien und 
 
 Traefik begrenzt den Anfragekörper auf 110 MB (Middleware `wissensraum-groesse` in `compose.yaml`). Nach dem Update prüfen: Ein Upload über 110 MB endet mit 413 von Traefik, bevor der Server ihn liest.
 
+## Verwaltung, Datenschutz und Ablaufwarnung (Paritäts-Roadmap Phase 5)
+
+1. In `deploy/wissensraum.env` setzen: `WR_EXPORT_DIR=/data/exports` und `WR_OIDC_CLIENT_SECRET_EXPIRES` mit dem Ablaufdatum aus Entra ID (App-Registrierung, Zertifikate und Geheimnisse). Ohne Datum zeigt die Betriebsseite einen Hinweis.
+2. Image neu bauen, weil es jetzt den Ordner `/data/exports` anlegt: `docker compose -f deploy/compose.yaml up -d --build`. Server und Worker teilen das Volume `exports`.
+3. Unter Verwaltung, Betrieb einmal „Schema, Prüfsummen und Audit-Kette prüfen“. Erwartet: keine Probleme.
+4. Ab 30 Tagen vor Ablauf steht eine Warnung im Log (`client_secret`) und auf der Verwaltungsseite. Neues Geheimnis in Entra anlegen, `secrets/oidc_client_secret.txt` ersetzen, Datum anpassen, Server neu anlegen.
+
+Der Installationsexport enthält alle Tabellen samt Originalen, also alles, was auch `pg_dump` enthält. Er liegt unverschlüsselt im Volume, bis ein Admin ihn löscht oder der Worker ihn nach einem Tag entfernt. Nur bei Bedarf anfordern. Selektive Löschung entfernt Daten nicht aus bestehenden Sicherungen.
+
 ## Antwortqualität von qwen3:4b messen
 
 Alle Grenzwerte (False Reject höchstens 10 %, False Accept höchstens 5 %) sind mit `qwen3:8b` gemessen. Für das Modell des Servers gilt der Nachweis erst nach eigener Messung auf dem eingefrorenen Bestand V2, auf deinem Rechner, mit exklusiv laufendem Ollama:
@@ -91,5 +100,5 @@ Liegen False Reject und False Accept innerhalb der Grenzen, bleibt `qwen3:4b`. S
 
 - erster Lauf von Sicherung, Abholung und Wiederherstellungsübung auf VPS und Unraid
 - wöchentlicher `pip-audit` und Prüfung des Basis-Images
-- Ablaufwarnung für das Entra-Client-Geheimnis
+- Ablaufdatum des Entra-Client-Geheimnisses in `WR_OIDC_CLIENT_SECRET_EXPIRES` eintragen (Warnung seit Phase 5 eingebaut)
 - Probelauf mit zwei echten Konten im Browser

@@ -176,6 +176,35 @@ class Visibility:
         from accounts import visible_collections
         return visible_collections(self.viewer, alias)
 
+    def visible_history(self):
+        """The own AI history with ``sources``; runs citing a document the account no longer sees are withheld.
+
+        Decision 11.11.2026 (S-10): after a grant is revoked or a document deleted, the stored answer may
+        quote its text. Such a run shows its question only, ``withheld`` True, answer and sources empty.
+        Nothing is deleted: a new grant makes the run readable again.
+        """
+        runs, cited = [], set()
+        for run in self.history():
+            try:
+                found, _ = run_sources(run.get('sources_json') or '[]')
+            except (ValueError, TypeError, AttributeError):
+                found = []
+            sources = [s for s in found if isinstance(s, dict) and s.get('document_id') is not None]
+            cited |= {s['document_id'] for s in sources}
+            runs.append({**run, 'sources': sources})
+        visible = set()
+        if cited:
+            condition, params = self._visible()
+            marks = ','.join('?' * len(cited))
+            with self.connect() as db:
+                visible = {row['id'] for row in db.execute(
+                    f'SELECT d.id FROM documents d WHERE d.id IN ({marks}) AND {condition}', (*sorted(cited), *params))}
+        for run in runs:
+            run['withheld'] = any(s['document_id'] not in visible for s in run['sources'])
+            if run['withheld']:
+                run.update(answer='', sources=[], sources_json='[]')
+        return runs
+
 
 class DocumentMetadata:
     """Editing of title, area and tags (Release 2.2, step 8A.1), shared by both backends.
