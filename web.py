@@ -25,6 +25,10 @@ PAGE_SIZE = 50
 STATUS_LABELS = {'new': 'neu', 'reviewed': 'geprüft', 'outdated': 'veraltet', 'archived': 'archiviert'}  # app.py
 FIELD_LABELS = {'title': 'Titel', 'category': 'Bereich', 'tag': 'Tag', 'status': 'Status', 'owner': 'Verantwortlich',
                 'review_date': 'Wiedervorlage', 'relation': 'Beziehung', 'collection': 'Sammlung', 'favorite': 'Favorit'}
+RELATION_LABELS = {('references', 'out'): 'verweist auf', ('references', 'in'): 'wird verwiesen von',
+                   ('supersedes', 'out'): 'ersetzt', ('supersedes', 'in'): 'ersetzt durch',
+                   ('related', 'both'): 'gehört zu'}  # app.py
+RELATION_CHOICES = {'references': 'verweist auf', 'supersedes': 'ersetzt', 'related': 'gehört zu'}
 METHOD_LABELS = {'fulltext': 'Volltext', 'vector': 'Bedeutung', 'hybrid': 'Volltext und Bedeutung'}
 MAX_UPLOAD = 50 * 1024 * 1024  # core.MAX_DOCUMENT_BYTES, per file
 MAX_REQUEST = 100 * 1024 * 1024  # all files of one upload together
@@ -73,16 +77,16 @@ def register(app, ctx):
             raise HTTPException(422, 'Ungültige Angabe.') from None
 
     @app.get('/', response_class=HTMLResponse)
-    def start(request: Request, seite: int = 1, tag: str = ''):
+    def start(request: Request, seite: int = 1, tag: str = '', favoriten: int = 0):
         if request.state.account is None:
             return render(request, 'message.html', 'Wissensraum', message='Bitte melde dich an.',
                           link='/login', link_text='Anmelden')
         scoped, tag = ctx.viewer(request), tag.strip()[:100]
-        rows = scoped.list(tag=tag or None)
+        rows = scoped.list(tag=tag or None, favorites=bool(favoriten))
         page = max(1, seite)
         return render(request, 'documents.html', 'Dokumente', documents=rows[(page - 1) * PAGE_SIZE:page * PAGE_SIZE],
                       total=len(rows), page=page, more=len(rows) > page * PAGE_SIZE, tag=tag,
-                      tags=scoped.visible_tags(), labels=STATUS_LABELS)
+                      tags=scoped.visible_tags(), labels=STATUS_LABELS, favorites=bool(favoriten))
 
     @app.get('/suche', response_class=HTMLResponse)
     def search(request: Request, q: str = '', tag: str = ''):
@@ -97,7 +101,26 @@ def register(app, ctx):
                        for r in found.results]
             search_status = found.status
         return render(request, 'search.html', 'Suche', q=q, results=results, search_status=search_status, tag=tag,
-                      tags=scoped.visible_tags())
+                      tags=scoped.visible_tags(), saved=scoped.saved_searches())
+
+    @app.post('/suche/speichern', response_class=HTMLResponse)
+    async def save_search(request: Request):
+        ctx.signed_in(request)
+        values = await form(request)
+        try:  # per account (decision 11.11.2026); the same name replaces the own earlier search
+            ctx.viewer(request).save_search(values.get('name', ''), values.get('q', ''), tag=values.get('tag') or None)
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from None
+        return RedirectResponse('/suche', status_code=303)
+
+    @app.post('/suche/gespeichert/{search_id}/loeschen', response_class=HTMLResponse)
+    def delete_search(request: Request, search_id: int):
+        ctx.signed_in(request)
+        try:
+            ctx.viewer(request).delete_saved_search(search_id)
+        except ValueError:  # another account's search looks like a missing one (I3)
+            raise HTTPException(404, 'Nicht gefunden.') from None
+        return RedirectResponse('/suche', status_code=303)
 
     @app.get('/dokument/{doc_id}', response_class=HTMLResponse)
     def document(request: Request, doc_id: int):
@@ -115,10 +138,16 @@ def register(app, ctx):
                     'old_value': STATUS_LABELS.get(h['old_value'], h['old_value']) if h['field'] == 'status' else h['old_value'],
                     'new_value': STATUS_LABELS.get(h['new_value'], h['new_value']) if h['field'] == 'status' else h['new_value']}
                    for h in scoped.metadata_history(doc['id']) if h['field'] not in hidden]
+        writable = accounts.can_write(store, account, doc['id'])
+        inside = {c['id'] for c in scoped.document_collections(doc['id'])}
+        targets = [c for c in scoped.collections() if c['id'] not in inside
+                   and accounts.can_write_collection(store, account, c['id'])] if writable else []
+        relations = [{**r, 'label': RELATION_LABELS[(r['kind'], r['direction'])]} for r in scoped.relations(doc['id'])]
         return {'doc': doc, 'collections': scoped.document_collections(doc['id']), 'tags': scoped.document_tags(doc['id']),
-                'history': history, 'labels': STATUS_LABELS, 'notice': notice,
-                'writable': accounts.can_write(store, account, doc['id']),
-                'deletable': accounts.can_delete(store, account, doc['id'])}
+                'history': history, 'labels': STATUS_LABELS, 'notice': notice, 'writable': writable,
+                'deletable': accounts.can_delete(store, account, doc['id']), 'favorite': scoped.is_favorite(doc['id']),
+                'relations': relations, 'relation_choices': RELATION_CHOICES, 'versions': scoped.versions(doc['id']),
+                'targets': targets, 'summary_available': ctx.ai is not None}
 
     @app.post('/dokument/{doc_id}/metadaten', response_class=HTMLResponse)
     async def metadata(request: Request, doc_id: int):
@@ -321,6 +350,141 @@ def register(app, ctx):
     @app.get('/sammlungen', response_class=HTMLResponse)
     def collection_page(request: Request):
         return render(request, 'collections.html', 'Sammlungen', collections=ctx.viewer(request).collections())
+
+    def own_collection(request, collection_id):
+        """The collection if visible to the signed-in account, else 404 (I3)."""
+        ctx.signed_in(request)
+        found = next((c for c in ctx.viewer(request).collections() if c['id'] == collection_id), None)
+        if found is None:
+            raise HTTPException(404, 'Nicht gefunden.')
+        return found
+
+    def collection_writer(request, collection_id):
+        collection = own_collection(request, collection_id)
+        if not accounts.can_write_collection(store, request.state.account, collection_id):
+            raise HTTPException(403, 'Keine Berechtigung.')
+        return collection
+
+    @app.post('/sammlungen', response_class=HTMLResponse)
+    async def create_collection(request: Request):
+        account = ctx.require_role(request, 'admin', 'editor')
+        values = await form(request)
+        try:
+            collection_id = services.create_collection(store, ctx.recorder(request), account, values.get('name', ''))
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from None
+        return RedirectResponse(f'/sammlungen/{collection_id}', status_code=303)
+
+    @app.get('/sammlungen/{collection_id}', response_class=HTMLResponse)
+    def collection_detail(request: Request, collection_id: int):
+        collection = own_collection(request, collection_id)
+        account = request.state.account
+        return render(request, 'collection.html', collection['name'], collection=collection,
+                      documents=ctx.viewer(request).list(collection=collection_id),
+                      writable=accounts.can_write_collection(store, account, collection_id),
+                      deletable=accounts.can_delete_collection(store, account, collection_id))
+
+    @app.post('/sammlungen/{collection_id}/{action}', response_class=HTMLResponse)
+    async def collection_action(request: Request, collection_id: int, action: str):
+        if action not in ('umbenennen', 'entfernen', 'loeschen'):
+            raise HTTPException(404, 'Nicht gefunden.')
+        collection = collection_writer(request, collection_id)
+        account, values = request.state.account, await form(request)
+        revision = number(values.get('revision'))
+        try:
+            if action == 'loeschen':
+                if not accounts.can_delete_collection(store, account, collection_id):
+                    raise HTTPException(403, 'Löschen dürfen nur der Besitzer der Sammlung und Administratoren.')
+                services.delete_collection(store, ctx.recorder(request), account, collection_id, revision)
+                return RedirectResponse('/sammlungen', status_code=303)
+            if action == 'umbenennen':
+                services.change_collection(store, ctx.recorder(request), account, collection_id, revision,
+                                           name=values.get('name', ''))
+            else:
+                doc_id = number(values.get('document_id'))
+                ctx.document(ctx.viewer(request), doc_id)
+                services.change_collection(store, ctx.recorder(request), account, collection_id, revision,
+                                           remove=[doc_id])
+        except Conflict:
+            raise HTTPException(409, f'Die Sammlung {collection["name"]} wurde inzwischen geändert. '
+                                     'Bitte die Seite neu laden.') from None
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from None
+        return RedirectResponse(f'/sammlungen/{collection_id}', status_code=303)
+
+    # --- document actions of phase 4b ------------------------------------------------------------
+    def visible_and_writable(request, doc_id):
+        account = ctx.signed_in(request)
+        ctx.document(ctx.viewer(request), doc_id)  # not visible: 404 before any role answer
+        if not accounts.can_write(store, account, doc_id):
+            raise HTTPException(403, 'Keine Berechtigung.')
+        return account
+
+    @app.post('/dokument/{doc_id}/favorit', response_class=HTMLResponse)
+    async def favorite(request: Request, doc_id: int):
+        ctx.signed_in(request)
+        ctx.document(ctx.viewer(request), doc_id)
+        values = await form(request)
+        ctx.viewer(request).set_favorite(doc_id, values.get('enabled') == '1')
+        return RedirectResponse(f'/dokument/{doc_id}', status_code=303)
+
+    @app.post('/dokument/{doc_id}/sammlung', response_class=HTMLResponse)
+    async def add_to_collection(request: Request, doc_id: int):
+        account = visible_and_writable(request, doc_id)  # decision 11.11.2026: write access to the document
+        values = await form(request)
+        collection = collection_writer(request, number(values.get('collection_id')))
+        try:
+            services.change_collection(store, ctx.recorder(request), account, collection['id'], collection['revision'],
+                                       add=[doc_id])
+        except Conflict:
+            raise HTTPException(409, 'Die Sammlung wurde inzwischen geändert. Bitte erneut versuchen.') from None
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from None
+        return RedirectResponse(f'/dokument/{doc_id}', status_code=303)
+
+    @app.post('/dokument/{doc_id}/beziehung', response_class=HTMLResponse)
+    async def relate(request: Request, doc_id: int):
+        account = visible_and_writable(request, doc_id)
+        values = await form(request)
+        target = number(values.get('target_id'))
+        ctx.document(ctx.viewer(request), target)  # only to documents the account sees
+        try:
+            services.relate(store, ctx.recorder(request), account, doc_id, target, values.get('kind', ''),
+                            values.get('note', ''))
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from None
+        return RedirectResponse(f'/dokument/{doc_id}', status_code=303)
+
+    @app.post('/dokument/{doc_id}/beziehung/{relation_id}/loeschen', response_class=HTMLResponse)
+    def unrelate(request: Request, doc_id: int, relation_id: int):
+        account = visible_and_writable(request, doc_id)
+        if relation_id not in {r['id'] for r in ctx.viewer(request).relations(doc_id)}:
+            raise HTTPException(404, 'Nicht gefunden.')
+        services.unrelate(store, ctx.recorder(request), account, doc_id, relation_id)
+        return RedirectResponse(f'/dokument/{doc_id}', status_code=303)
+
+    @app.get('/dokument/{doc_id}/vergleich/{other_id}', response_class=HTMLResponse)
+    def compare(request: Request, doc_id: int, other_id: int):
+        scoped = ctx.viewer(request)
+        doc, other = ctx.document(scoped, doc_id), ctx.document(scoped, other_id)
+        result = scoped.compare(other_id, doc_id)
+        return render(request, 'compare.html', f'Vergleich: {other["title"]} und {doc["title"]}', result=result,
+                      doc=doc, other=other)
+
+    @app.post('/dokument/{doc_id}/zusammenfassung', response_class=HTMLResponse)
+    def summary(request: Request, doc_id: int):
+        scoped = ctx.viewer(request)
+        ctx.document(scoped, doc_id)
+        if ctx.ai is None:
+            raise HTTPException(503, 'Für den Server ist kein KI-Anbieter eingerichtet.')
+        ctx.limited(request, 'question')
+        try:
+            text = services.summarize(scoped, ctx.ai, ctx.recorder(request), request.state.account, doc_id)
+        except services.Unavailable as error:
+            raise HTTPException(503, str(error)) from None
+        except ValueError as error:  # too long for a summary
+            raise HTTPException(422, str(error)) from None
+        return HTMLResponse(f'<div class="answer"><p>{html.escape(text)}</p></div>')
 
     # --- administration --------------------------------------------------------------------
     def admin_page(request, notice='', status=200):

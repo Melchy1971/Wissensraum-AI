@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block content %}
+{% if result.identical %}<p>Beide Fassungen sind inhaltlich gleich.</p>
+{% else %}<p>{{ result.added }} Zeilen hinzugefügt, {{ result.removed }} Zeilen entfernt{% if result.truncated %} (Anzeige gekürzt){% endif %}.</p>
+<pre class="diff">{% for line in result.diff %}{{ line }}
+{% endfor %}</pre>{% endif %}
+<p><a href="/dokument/{{ doc.id }}">Zurück zum Dokument</a></p>
+{% endblock %}

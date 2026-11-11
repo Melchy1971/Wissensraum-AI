@@ -82,10 +82,12 @@ class DocumentCareTests(test_rights.EndpointTests):
         doc = self.ids['granted']  # in the hidden collection and related to the secret document
         self.store.set_favorite(doc)
         reader, admin = self.clients['oid-reader'].get(f'/dokument/{doc}').text, self.clients['oid-admin'].get(f'/dokument/{doc}').text
-        for text in ('Projekt Geheim', f'related:{self.ids["secret"]}', 'Favorit'):
+        history = lambda page: page.split('Verlauf der Metadaten')[1] if 'Verlauf der Metadaten' in page else ''
+        for text in ('Projekt Geheim', f'related:{self.ids["secret"]}'):
             self.assertNotIn(text, reader)
+        self.assertNotIn('<td>Favorit</td>', history(reader))
         self.assertIn('Projekt Geheim', admin)
-        self.assertNotIn('Favorit', admin)  # another account's action
+        self.assertNotIn('<td>Favorit</td>', history(admin))  # another account's action
 
     def test_delete_only_by_owner_or_administrator(self):
         editor, reader, admin = self.clients['oid-editor'], self.clients['oid-reader'], self.clients['oid-admin']

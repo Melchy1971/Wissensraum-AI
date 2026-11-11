@@ -9,7 +9,7 @@ import uuid
 from contextlib import closing, contextmanager
 from pathlib import Path
 
-CURRENT_SCHEMA_VERSION = 24
+CURRENT_SCHEMA_VERSION = 25
 # Unversioned PostgreSQL schemas predate schema_migrations and match version 4.
 POSTGRES_LEGACY_SCHEMA_VERSION = 4
 # ponytail: source_type is validated in application code (core.SOURCE_TYPES), not by a
@@ -350,6 +350,23 @@ SQLITE_MIGRATIONS = (
     # Parity roadmap phase 3: an import job of the server belongs to the uploading account (None: desktop,
     # command line); an uploaded file waits in import_items.upload until the worker imported it.
     (24, ('ALTER TABLE import_jobs ADD COLUMN account_id INTEGER', 'ALTER TABLE import_items ADD COLUMN upload BLOB')),
+    # Parity roadmap phase 4b: favorites and saved searches per server account (decision 11.11.2026). The
+    # desktop keeps its tables; existing entries of a server database go to the first administrator.
+    (25, (
+        """CREATE TABLE IF NOT EXISTS account_favorites (
+            account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+            document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(account_id, document_id)
+        )""",
+        """CREATE TABLE IF NOT EXISTS account_saved_searches (
+            id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+            name TEXT NOT NULL, normalized TEXT NOT NULL, query TEXT NOT NULL, mode TEXT, tag TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(account_id, normalized)
+        )""",
+        "INSERT INTO account_favorites(account_id,document_id,created_at) SELECT a.id,f.document_id,f.created_at FROM favorites f JOIN (SELECT MIN(id) AS id FROM accounts WHERE role='admin') a ON a.id IS NOT NULL",
+        "INSERT INTO account_saved_searches(account_id,name,normalized,query,mode,tag,created_at) SELECT a.id,s.name,s.normalized,s.query,s.mode,s.tag,s.created_at FROM saved_searches s JOIN (SELECT MIN(id) AS id FROM accounts WHERE role='admin') a ON a.id IS NOT NULL",
+    )),
 )
 
 
@@ -657,6 +674,24 @@ POSTGRES_MIGRATIONS = (
     # Parity roadmap phase 3: an import job of the server belongs to the uploading account (None: desktop,
     # command line); an uploaded file waits in import_items.upload until the worker imported it.
     (24, ('ALTER TABLE import_jobs ADD COLUMN account_id INTEGER', 'ALTER TABLE import_items ADD COLUMN upload BYTEA')),
+    # Parity roadmap phase 4b: favorites and saved searches per server account (decision 11.11.2026). The
+    # desktop keeps its tables; existing entries of a server database go to the first administrator.
+    (25, (
+        """CREATE TABLE IF NOT EXISTS account_favorites (
+            account_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+            document_id BIGINT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(account_id, document_id)
+        )""",
+        """CREATE TABLE IF NOT EXISTS account_saved_searches (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            account_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+            name TEXT NOT NULL, normalized TEXT NOT NULL, query TEXT NOT NULL, mode TEXT, tag TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(account_id, normalized)
+        )""",
+        "INSERT INTO account_favorites(account_id,document_id,created_at) SELECT a.id,f.document_id,f.created_at FROM favorites f JOIN (SELECT MIN(id) AS id FROM accounts WHERE role='admin') a ON a.id IS NOT NULL",
+        "INSERT INTO account_saved_searches(account_id,name,normalized,query,mode,tag,created_at) SELECT a.id,s.name,s.normalized,s.query,s.mode,s.tag,s.created_at FROM saved_searches s JOIN (SELECT MIN(id) AS id FROM accounts WHERE role='admin') a ON a.id IS NOT NULL",
+    )),
 )
 
 # Columns added to an existing table by a later migration: (table, column) -> version.
@@ -695,6 +730,7 @@ SQLITE_TABLE_VERSIONS = {
     'entity_types': 16, 'relation_types': 16, 'entities': 16, 'entity_mentions': 16, 'graph_relations': 16,
     'graph_changes': 16, 'ai_usage': 18, 'organizations': 19, 'accounts': 19, 'grants': 19,
     'web_sessions': 20, 'login_requests': 20, 'audit_log': 21,
+    'account_favorites': 25, 'account_saved_searches': 25,
 }
 
 # Constant SQL list of all application tables, derived from the catalog so that
@@ -816,6 +852,11 @@ SQLITE_COLUMNS = {
     'audit_log': (('id','INTEGER',0,None,1), ('created_at','INTEGER',1,None,0), ('account_id','INTEGER',0,None,0),
                   ('event','TEXT',1,None,0), ('target','TEXT',1,"''",0), ('source','TEXT',1,"''",0),
                   ('details','TEXT',1,"'{}'",0), ('previous_hash','TEXT',1,None,0), ('hash','TEXT',1,None,0)),
+    'account_favorites': (('account_id','INTEGER',1,None,1), ('document_id','INTEGER',1,None,2),
+                          ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
+    'account_saved_searches': (('id','INTEGER',0,None,1), ('account_id','INTEGER',1,None,0), ('name','TEXT',1,None,0),
+                               ('normalized','TEXT',1,None,0), ('query','TEXT',1,None,0), ('mode','TEXT',0,None,0),
+                               ('tag','TEXT',0,None,0), ('created_at','TEXT',1,'CURRENT_TIMESTAMP',0)),
 }
 
 SQLITE_UNIQUE_CONSTRAINTS = {
@@ -833,6 +874,7 @@ SQLITE_UNIQUE_CONSTRAINTS = {
     'entity_mentions': set(), 'graph_relations': set(), 'graph_changes': set(), 'ai_usage': set(),
     'organizations': set(), 'accounts': {('tenant_id', 'object_id')}, 'grants': set(),
     'web_sessions': set(), 'login_requests': set(), 'audit_log': set(),
+    'account_favorites': set(), 'account_saved_searches': {('account_id', 'normalized')},
 }
 
 SQLITE_FOREIGN_KEYS = {
@@ -883,6 +925,9 @@ SQLITE_FOREIGN_KEYS = {
                ('collection_id','collections','id','NO ACTION','CASCADE')},
     'web_sessions': {('account_id','accounts','id','NO ACTION','CASCADE')}, 'login_requests': set(),
     'audit_log': set(),
+    'account_favorites': {('account_id','accounts','id','NO ACTION','CASCADE'),
+                          ('document_id','documents','id','NO ACTION','CASCADE')},
+    'account_saved_searches': {('account_id','accounts','id','NO ACTION','CASCADE')},
 }
 
 POSTGRES_LEGACY_COLUMNS = {
@@ -1118,6 +1163,17 @@ POSTGRES_LEGACY_COLUMNS = {
     ('audit_log','details','text','NO','NO',"'{}'::text",None),
     ('audit_log','previous_hash','text','NO','NO',None,None),
     ('audit_log','hash','text','NO','NO',None,None),
+    ('account_favorites','account_id','bigint','NO','NO',None,None),
+    ('account_favorites','document_id','bigint','NO','NO',None,None),
+    ('account_favorites','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
+    ('account_saved_searches','id','bigint','NO','YES',None,'ALWAYS'),
+    ('account_saved_searches','account_id','bigint','NO','NO',None,None),
+    ('account_saved_searches','name','text','NO','NO',None,None),
+    ('account_saved_searches','normalized','text','NO','NO',None,None),
+    ('account_saved_searches','query','text','NO','NO',None,None),
+    ('account_saved_searches','mode','text','YES','NO',None,None),
+    ('account_saved_searches','tag','text','YES','NO',None,None),
+    ('account_saved_searches','created_at','timestamp with time zone','NO','NO','CURRENT_TIMESTAMP',None),
 }
 
 POSTGRES_LEGACY_CONSTRAINTS = {
@@ -1203,6 +1259,12 @@ POSTGRES_LEGACY_CONSTRAINTS = {
     ('web_sessions', 'f', ('account_id',), 'accounts', ('id',), 'c'),
     ('login_requests', 'p', ('state',), None, (), ' '),
     ('audit_log', 'p', ('id',), None, (), ' '),
+    ('account_favorites', 'p', ('account_id', 'document_id'), None, (), ' '),
+    ('account_favorites', 'f', ('account_id',), 'accounts', ('id',), 'c'),
+    ('account_favorites', 'f', ('document_id',), 'documents', ('id',), 'c'),
+    ('account_saved_searches', 'p', ('id',), None, (), ' '),
+    ('account_saved_searches', 'f', ('account_id',), 'accounts', ('id',), 'c'),
+    ('account_saved_searches', 'u', ('account_id', 'normalized'), None, (), ' '),
 }
 
 

@@ -292,6 +292,7 @@ SQLITE_HISTORICAL_MIGRATIONS = (
     (22, tuple(f'ALTER TABLE {table} ADD COLUMN revision INTEGER NOT NULL DEFAULT 1'
                for table in ('documents', 'collections', 'entities', 'graph_relations', 'grants'))),
     (23, ('ALTER TABLE ai_runs ADD COLUMN account_id INTEGER',)),
+    (24, ('ALTER TABLE import_jobs ADD COLUMN account_id INTEGER', 'ALTER TABLE import_items ADD COLUMN upload BLOB')),
 )
 
 
@@ -458,7 +459,7 @@ class FakePostgres:
                        'import_item_errors', 'document_versions', 'email_attachments',
                        'tags', 'document_tags', 'rules', 'rule_runs', 'rule_run_changes',
                        'chunk_vectors', 'metadata_changes', 'collections', 'collection_documents', 'favorites', 'saved_searches',
-                       'document_relations', 'entity_types', 'relation_types', 'entities', 'entity_mentions', 'graph_relations', 'graph_changes', 'ai_usage', 'organizations', 'accounts', 'grants', 'web_sessions', 'login_requests', 'audit_log'}
+                       'document_relations', 'entity_types', 'relation_types', 'entities', 'entity_mentions', 'graph_relations', 'graph_changes', 'ai_usage', 'organizations', 'accounts', 'grants', 'web_sessions', 'login_requests', 'audit_log', 'account_favorites', 'account_saved_searches'}
         return tables
 
 
@@ -865,7 +866,7 @@ class PostgresMigrationTests(unittest.TestCase):
                                                           'document_tags', 'rules', 'rule_runs',
                                                           'rule_run_changes', 'chunk_vectors',
                                                           'metadata_changes', 'collections', 'collection_documents', 'favorites', 'saved_searches',
-                                                          'document_relations', 'entity_types', 'relation_types', 'entities', 'entity_mentions', 'graph_relations', 'graph_changes', 'ai_usage', 'organizations', 'accounts', 'grants', 'web_sessions', 'login_requests', 'audit_log')),
+                                                          'document_relations', 'entity_types', 'relation_types', 'entities', 'entity_mentions', 'graph_relations', 'graph_changes', 'ai_usage', 'organizations', 'accounts', 'grants', 'web_sessions', 'login_requests', 'audit_log', 'account_favorites', 'account_saved_searches')),
         ]
         indexes = [
             {'table_name':'chunks','index_name':'chunks_document_id_idx','index_definition':'CREATE INDEX chunks_document_id_idx ON wissensraum.chunks USING btree (document_id)'},

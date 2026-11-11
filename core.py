@@ -403,6 +403,8 @@ class Organization:
             rules.log_change(db, row['document_id'], 'collection', old, new, 'manual')
 
     def set_favorite(self, doc_id, favorite=True):
+        if self.viewer is not None:  # server: the account's own mark, not logged in the shared history
+            return self._set_account_favorite(doc_id, favorite)
         with self.connect() as db:
             if not db.execute('SELECT 1 FROM documents WHERE id=?', (doc_id,)).fetchone():
                 raise ValueError('Dokument wurde nicht gefunden.')
@@ -418,10 +420,29 @@ class Organization:
 
     def is_favorite(self, doc_id):
         with self.connect() as db:
+            if self.viewer is not None:
+                return db.execute('SELECT 1 FROM account_favorites WHERE account_id=? AND document_id=?',
+                                  (self.viewer['id'], doc_id)).fetchone() is not None
             return db.execute('SELECT 1 FROM favorites WHERE document_id=?', (doc_id,)).fetchone() is not None
+
+    def _set_account_favorite(self, doc_id, favorite):
+        visible, params = self._visible()
+        with self.connect() as db:
+            if not db.execute(f'SELECT 1 FROM documents d WHERE d.id=? AND {visible}', (doc_id, *params)).fetchone():
+                raise ValueError('Dokument wurde nicht gefunden.')
+            if favorite:
+                db.execute('INSERT INTO account_favorites(account_id,document_id) VALUES(?,?) ON CONFLICT DO NOTHING',
+                           (self.viewer['id'], doc_id))
+            else:
+                db.execute('DELETE FROM account_favorites WHERE account_id=? AND document_id=?',
+                           (self.viewer['id'], doc_id))
 
     def saved_searches(self):
         with self.connect() as db:
+            if self.viewer is not None:
+                return [dict(row) for row in db.execute(
+                    'SELECT id,name,query,mode,tag FROM account_saved_searches WHERE account_id=? '
+                    'ORDER BY normalized,id', (self.viewer['id'],))]
             return [dict(row) for row in db.execute(
                 'SELECT id,name,query,mode,tag FROM saved_searches ORDER BY normalized,id')]
 
@@ -435,6 +456,12 @@ class Organization:
             raise ValueError('Suchmodus: fulltext, vector oder hybrid.')
         tag = ' '.join(str(tag).split()) or None if tag is not None else None
         with self.connect() as db:
+            if self.viewer is not None:  # server: per account, the same name may exist for another account
+                return db.execute(
+                    'INSERT INTO account_saved_searches(account_id,name,normalized,query,mode,tag) VALUES(?,?,?,?,?,?) '
+                    'ON CONFLICT(account_id,normalized) DO UPDATE SET name=excluded.name,query=excluded.query,'
+                    'mode=excluded.mode,tag=excluded.tag RETURNING id',
+                    (self.viewer['id'], name, normalized, query, mode, tag)).fetchone()['id']
             return db.execute(
                 'INSERT INTO saved_searches(name,normalized,query,mode,tag) VALUES(?,?,?,?,?) '
                 'ON CONFLICT(normalized) DO UPDATE SET name=excluded.name,query=excluded.query,'
@@ -510,7 +537,12 @@ class Organization:
 
     def delete_saved_search(self, search_id):
         with self.connect() as db:
-            if db.execute('DELETE FROM saved_searches WHERE id=? RETURNING id', (search_id,)).fetchone() is None:
+            if self.viewer is not None:
+                deleted = db.execute('DELETE FROM account_saved_searches WHERE id=? AND account_id=? RETURNING id',
+                                     (search_id, self.viewer['id'])).fetchone()
+            else:
+                deleted = db.execute('DELETE FROM saved_searches WHERE id=? RETURNING id', (search_id,)).fetchone()
+            if deleted is None:
                 raise ValueError('Gespeicherte Suche wurde nicht gefunden.')
 
 
@@ -1317,18 +1349,22 @@ MAX_OWNER_LENGTH = 100
 
 COLLECTION_FILTER = 'd.id IN (SELECT cd.document_id FROM collection_documents cd WHERE cd.collection_id=?)'
 FAVORITE_FILTER = 'd.id IN (SELECT f.document_id FROM favorites f)'
+ACCOUNT_FAVORITE_FILTER = 'd.id IN (SELECT f.document_id FROM account_favorites f WHERE f.account_id=?)'
 
 
-def _list(db, all_versions, tag=None, collection=None, favorites=False, visible=('1=1', ())):
+def _list(db, all_versions, tag=None, collection=None, favorites=False, visible=('1=1', ()), account=None):
+    """``account``: the server account whose favorites count (parity roadmap phase 4b); None: the desktop's."""
     import rules
+    favorite_filter = ACCOUNT_FAVORITE_FILTER if account is not None else FAVORITE_FILTER
     conditions = (([] if all_versions else [CURRENT_VERSION_FILTER]) + ([TAG_FILTER] if tag else [])
-                  + ([COLLECTION_FILTER] if collection is not None else []) + ([FAVORITE_FILTER] if favorites else [])
+                  + ([COLLECTION_FILTER] if collection is not None else []) + ([favorite_filter] if favorites else [])
                   + [visible[0]])
     where = ' WHERE '+' AND '.join(conditions) if conditions else ''
     rows = [dict(row) for row in db.execute(
         'SELECT d.id,d.title,d.category,d.created_at,d.revision,COALESCE(v.version,1) AS version FROM documents d '
         'LEFT JOIN document_versions v ON v.document_id=d.id'+where+' ORDER BY d.id DESC',
-        ((tag.casefold(),) if tag else ()) + ((int(collection),) if collection is not None else ()) + tuple(visible[1]))]
+        ((tag.casefold(),) if tag else ()) + ((int(collection),) if collection is not None else ())
+        + ((account,) if favorites and account is not None else ()) + tuple(visible[1]))]
     tags = rules.tags_by_document(db)
     for row in rows:
         row['tags'] = tags.get(row['id'], [])
@@ -1846,7 +1882,7 @@ class Store(Transaction, Visibility, DocumentMetadata, Organization, Relations, 
 
     def list(self, all_versions=False, tag=None, collection=None, favorites=False):
         with self.connect() as db:
-            return _list(db, all_versions, tag, collection, favorites, self._visible())
+            return _list(db, all_versions, tag, collection, favorites, self._visible(), self._asker())
 
     def versions(self, doc_id):
         """All versions of the document's lineage, newest first."""
@@ -2263,7 +2299,7 @@ class PostgresStore(Transaction, Visibility, DocumentMetadata, Organization, Rel
 
     def list(self,all_versions=False,tag=None,collection=None,favorites=False):
         with self.connect() as db:
-            return _list(db,all_versions,tag,collection,favorites,self._visible())
+            return _list(db,all_versions,tag,collection,favorites,self._visible(),self._asker())
 
     def versions(self,doc_id):
         with self.connect() as db:

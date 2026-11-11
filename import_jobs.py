@@ -260,6 +260,12 @@ class ImportJobs:
             return
         yield lambda item, recovering: self._file_item(job, item, recovering)
 
+    def _previous_version(self, document_id):
+        with self.store.connect() as db:
+            return db.execute('SELECT p.document_id FROM document_versions v JOIN document_versions p '
+                              'ON p.lineage_id=v.lineage_id AND p.version=v.version-1 WHERE v.document_id=?',
+                              (document_id,)).fetchone()['document_id']
+
     def _cancelled(self, job_id):
         return self.job(job_id)['status'] == 'cancelled'
 
@@ -284,13 +290,21 @@ class ImportJobs:
             except OcrDeferred:  # quarantine, so that a later run with OCR can take it up again
                 raise ImportRejected('no_text', 'Bilder brauchen die Texterkennung; der Server verarbeitet '
                                                 'sie noch nicht.') from None
-            document_id, created = self.store.add(title, text, job['category'], filename, original)
-            if created:
-                accounts.grant(self.store, account['id'], 'owner', document_id=document_id, end_sessions=False)
-                audit.record(self.store, 'document_created', account['id'], f'document:{document_id}', 'worker',
-                             {'job': job['id']})
-            # Decision 10.11.2026: an existing text gives no access; the item only says "already there".
-            return ('imported' if created else 'duplicate'), (document_id if created else None), original
+            # The same file name from the same account is the same place: a changed file becomes a new version,
+            # as on the desktop. The account in the source keeps lineages of different accounts apart.
+            source = ('file', f'server:{account["id"]}', item['locator'])
+            document_id, created = self.store.add(title, text, job['category'], filename, original, source,
+                                                  versioned=True)
+            if not created:
+                # Decision 10.11.2026: an existing text gives no access; the item only says "already there".
+                return 'duplicate', None, original
+            accounts.grant(self.store, account['id'], 'owner', document_id=document_id, end_sessions=False)
+            versioned = self._version(document_id) > 1
+            if versioned:  # decision 11.11.2026: whoever could read or change the previous version keeps that
+                accounts.inherit_grants(self.store, self._previous_version(document_id), document_id)
+            audit.record(self.store, 'document_created', account['id'], f'document:{document_id}', 'worker',
+                         {'job': job['id'], 'version': versioned})
+            return ('versioned' if versioned else 'imported'), document_id, original
         handle.atomic = True
         return handle
 

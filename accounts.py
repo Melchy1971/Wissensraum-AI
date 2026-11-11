@@ -135,6 +135,17 @@ def grant(store, account_id, access, document_id=None, collection_id=None, end_s
                           (account_id, target, access)).fetchone()['id']
 
 
+def inherit_grants(store, previous_id, document_id):
+    """Copy the read and write grants of ``previous_id`` to its new version ``document_id``.
+
+    Owner grants are not copied: the new version belongs to whoever uploaded it. Sessions stay.
+    """
+    with store.connect() as db:
+        db.execute("INSERT INTO grants(account_id,document_id,access) SELECT g.account_id,?,g.access FROM grants g "
+                   "WHERE g.document_id=? AND g.access IN ('read','write') AND NOT EXISTS (SELECT 1 FROM grants h "
+                   'WHERE h.account_id=g.account_id AND h.document_id=?)', (document_id, previous_id, document_id))
+
+
 def revoke(store, account_id, document_id=None, collection_id=None, revision=None):
     if (document_id is None) == (collection_id is None):
         raise ValueError('Eine Freigabe gilt genau für ein Dokument oder eine Sammlung.')
@@ -210,6 +221,17 @@ def can_delete(store, acting, document_id):
     with store.connect() as db:
         return db.execute("SELECT 1 FROM grants WHERE account_id=? AND document_id=? AND access='owner'",
                           (acting['id'], document_id)).fetchone() is not None
+
+
+def can_delete_collection(store, acting, collection_id):
+    """Like ``can_delete`` for a collection: admin, or owner access to exactly this collection."""
+    if acting['disabled'] or acting['role'] == 'reader':
+        return False
+    if acting['role'] == 'admin':
+        return True
+    with store.connect() as db:
+        return db.execute("SELECT 1 FROM grants WHERE account_id=? AND collection_id=? AND access='owner'",
+                          (acting['id'], collection_id)).fetchone() is not None
 
 
 def can_write(store, acting, document_id):

@@ -42,16 +42,16 @@ Gemeinsamer Kern: `core.py` (`Store`, `PostgresStore`, `AI`, `Embedder`, Extrakt
 
 | Status | Anzahl Desktop-Funktionen |
 |---|---:|
-| FULL | 27 |
-| PARTIAL | 14 |
-| MISSING | 26 |
+| FULL | 37 |
+| PARTIAL | 11 |
+| MISSING | 19 |
 | DIFFERENT | 2 |
 | NOT_APPLICABLE | 7 |
 | UNKNOWN | 2 |
 | Summe Desktop-Funktionen | 78 |
 | WEB_ONLY (zusätzlich) | 13 |
 
-Funktionsparität = FULL / (FULL + PARTIAL + MISSING + DIFFERENT) = 27 / 69 = 39,1 % (Stand nach Paritäts-Roadmap Phase 4a. Nach Phase 3: 18 / 69 = 26,1 %, nach Phase 2: 16 / 69 = 23,2 %, nach Phase 1: 12 / 69 = 17,4 %, nach Phase 0: 11 / 69 = 15,9 %, vor Phase 0: 10 / 69 = 14,5 %).
+Funktionsparität = FULL / (FULL + PARTIAL + MISSING + DIFFERENT) = 37 / 69 = 53,6 % (Stand nach Paritäts-Roadmap Phase 4b. Nach Phase 4a: 27 / 69 = 39,1 %, nach Phase 3: 18 / 69 = 26,1 %, nach Phase 2: 16 / 69 = 23,2 %, nach Phase 1: 12 / 69 = 17,4 %, nach Phase 0: 11 / 69 = 15,9 %, vor Phase 0: 10 / 69 = 14,5 %).
 
 ## 5. Funktionsmatrix
 
@@ -70,9 +70,9 @@ Spalte Desktop: Status der Referenz (GUI oder CLI). Spalte Web: Status im Web. A
 | A09 | Dokumente | Dokument löschen | FULL (GUI, CLI) | FULL | `/dokument/{id}/loeschen`, `DELETE /api/documents/{id}?revision=`, nur Besitzer oder Admin (`accounts.can_delete`), Audit | test_document_care | erledigt | 0 |
 | A10 | Dokumente | Original herunterladen | FULL (GUI) | FULL | `GET /api/documents/{id}/original` | test_rights i3, test_audit r1 | erledigt | 0 |
 | A11 | Dokumente | Dublettenprüfung | FULL | DIFFERENT | `Store.add` prüft `sha256` global | test_web upload (409) | P1 | 2 bis 4 |
-| A12 | Dokumente | Fassungslinie beim erneuten Import | FULL (GUI) | MISSING | `Store.add(versioned=True, source)` | keine Web-Tests | P2 | 1 bis 2 |
-| A13 | Dokumente | Fassungen anzeigen und vergleichen | FULL (GUI, CLI) | PARTIAL | `versions` im JSON von `GET /api/documents/{id}`, `compare` fehlt | test_rights | P2 | 1 bis 2 |
-| A14 | Dokumente | Favoriten | FULL (GUI, CLI) | MISSING | Tabelle `favorites` ohne Konto | keine | P2 | 1,5 bis 2,5 |
+| A12 | Dokumente | Fassungslinie beim erneuten Import | FULL (GUI) | FULL | Upload mit Quelle `server:{konto}` und Dateiname, `versioned=True`, Status „neue Fassung“. Lese- und Schreibfreigaben gehen per `accounts.inherit_grants` mit, Besitz nicht (Entscheidung 11.11.2026) | test_organization_web | erledigt | 0 |
+| A13 | Dokumente | Fassungen anzeigen und vergleichen | FULL (GUI, CLI) | FULL | Fassungsliste auf der Dokumentseite, `GET /dokument/{id}/vergleich/{andere}` mit Rechteprüfung beider Seiten | test_organization_web | erledigt | 0 |
+| A14 | Dokumente | Favoriten | FULL (GUI, CLI) | FULL | Tabelle `account_favorites` (Schema 25) je Konto, Schalter auf der Dokumentseite, Filter `/?favoriten=1`, `GET /api/documents?favorites=true`. Alte Favoriten gehen an den ersten Admin | test_organization_web (beide Backends) | erledigt | 0 |
 | A15 | Dokumente | Dokumentinhalt anzeigen | FULL (GUI) | FULL | `GET /dokument/{id}`, `GET /api/documents/{id}` | test_web, test_rights i1 | erledigt | 0 |
 | B01 | Suche | Volltextsuche mit Rechtefilter | FULL (GUI, CLI) | FULL | `Store.search`, `GET /suche`, `GET /api/search` | test_rights i1, test_web | erledigt | 0 |
 | B02 | Suche | Semantische und hybride Suche (RRF) | FULL (GUI, CLI) | FULL | `Retriever`, `vector_search`, `Embedder` über `WR_OLLAMA_URL`, Einbettung im Dienst `worker` | test_worker (hybrid mit Rechtefilter) | erledigt, Modell auf VPS laden | 0 |
@@ -80,14 +80,14 @@ Spalte Desktop: Status der Referenz (GUI oder CLI). Spalte Web: Status im Web. A
 | B04 | Suche | Suchstatus (Modus, Fallback, Vektorstand) | FULL (GUI) | FULL | `Retrieval.status` auf der Suchseite und als `status` in `/api/search` | test_worker | erledigt | 0 |
 | B05 | Suche | Ränge und Score anzeigen | FULL (GUI) | PARTIAL | Rang über die Reihenfolge, Fundweg (Volltext, Bedeutung, beide) je Treffer. Kein Zahlenwert | test_document_care | P3 | 0,25 |
 | B06 | Suche | Tag-Filter | FULL (GUI, CLI) | FULL | Tag-Auswahl in Liste und Suche, `tag` in `/api/documents` und `/api/search`, `visible_tags` mit Rechtefilter | test_document_care (beide Backends) | erledigt | 0 |
-| B07 | Suche | Filter Sammlung und Favoriten | FULL (GUI, CLI) | MISSING | `list(collection=, favorites=)` | keine Web-Tests | P2 | 1 |
-| B08 | Suche | Gespeicherte Suchen | FULL (GUI, CLI) | MISSING | Tabelle `saved_searches` ohne Konto | keine | P2 | 1,5 bis 2 |
+| B07 | Suche | Filter Sammlung und Favoriten | FULL (GUI, CLI) | FULL | Sammlungsseite `/sammlungen/{id}` listet sichtbare Dokumente, Favoritenfilter in der Dokumentliste und API | test_organization_web | erledigt | 0 |
+| B08 | Suche | Gespeicherte Suchen | FULL (GUI, CLI) | FULL | Tabelle `account_saved_searches` (Schema 25) je Konto, Speichern und Löschen auf `/suche`. Fremde Suche ergibt 404 | test_organization_web (beide Backends) | erledigt | 0 |
 | B09 | Suche | Dokumentliste mit Seiten | FULL (GUI, CLI) | FULL | `Store.list`, `GET /`, `GET /api/documents` | test_web, test_rights | erledigt | 0 |
 | B10 | Suche | Antwortzeiten unter Last auf dem VPS | gemessen (Benchmark Desktop) | UNKNOWN | `tests/bench/benchmark.py` | keine Messung Server | P2 | 1 bis 2 |
 | C01 | KI | Frage mit Quellen und Evidenzprüfung | FULL (GUI, CLI) | FULL | `AI.ask`, `POST /fragen`, `POST /api/questions` | test_web, test_rights i2 | erledigt | 0 |
 | C02 | KI | Quellenlage und Ablehnungsgrund anzeigen | FULL (GUI) | FULL | `AnswerResult.label` in `answer.html`, ohne Antwort Treffer nur als Suchhinweise | test_worker | erledigt | 0 |
 | C03 | KI | KI-Verlauf | FULL (GUI) | FULL | Eigener Verlauf mit verlinkten Quellen (`core.run_sources`) | test_document_care | erledigt | 0 |
-| C04 | KI | Dokument zusammenfassen | FULL (GUI) | MISSING | `AI.summarize` | keine Web-Tests | P2 | 1 bis 1,5 |
+| C04 | KI | Dokument zusammenfassen | FULL (GUI) | FULL | `POST /dokument/{id}/zusammenfassung`, `services.summarize`, Audit `ai_question` mit Status summary, 503 ohne Anbieter | test_organization_web | erledigt | 0 |
 | C05 | KI | Monatsbudget je Anbieter | FULL (GUI, CLI) | PARTIAL | `budgets.check` wirkt, keine Verwaltung | keine Web-Tests | P2 | 1 |
 | C06 | KI | Veraltete Dokumente aus Antworten ausschließen | FULL (CLI) | FULL | Schalter unter Verwaltung, Audit `settings_changed` | test_document_care | erledigt | 0 |
 | C07 | KI | Graphkontext in Antworten | aus (D-025) | NOT_APPLICABLE | `set_graph_context` | test_graph_context | keine | 0 |
@@ -113,10 +113,10 @@ Spalte Desktop: Status der Referenz (GUI oder CLI). Spalte Web: Status im Web. A
 | E04 | Datenschutz | Aufbewahrungsregeln | FULL (GUI, CLI) | MISSING | `retention.py` | keine Web-Tests | P2 | 1 bis 2 |
 | E05 | Betrieb | Strukturiertes Protokoll mit Geheimnismaskierung | FULL | FULL | `local_logging`, Uvicorn-Zugriffsprotokoll nur mit Pfad (`server.PathOnlyAccessLog`, Paritäts-Roadmap Phase 0) | test_server AccessLogTests | erledigt, Einsatz auf VPS offen | 0 |
 | F01 | Wissensstruktur | Sammlungen anzeigen und exportieren | FULL (GUI, CLI) | FULL | `collections`, `export_collection`, `GET /api/collections/{id}/export` | test_web, test_rights, test_audit | erledigt | 0 |
-| F02 | Wissensstruktur | Sammlung anlegen und löschen | FULL (GUI, CLI) | MISSING | `create_collection`, `delete_collection` | keine Web-Tests | P1 | 1 bis 1,5 |
-| F03 | Wissensstruktur | Sammlung umbenennen, Dokumente zuordnen | FULL (GUI, CLI) | PARTIAL | `PATCH /api/collections/{id}`, keine Seite | test_concurrency t2 | P2 | 1 bis 1,5 |
-| F04 | Wissensstruktur | Dokumentbeziehungen anzeigen | FULL (GUI, CLI) | PARTIAL | `relations` nur im JSON | test_rights | P2 | 0,5 |
-| F05 | Wissensstruktur | Dokumentbeziehungen anlegen und entfernen | FULL (GUI, CLI) | MISSING | `relate`, `unrelate` | keine Web-Tests | P2 | 1 bis 1,5 |
+| F02 | Wissensstruktur | Sammlung anlegen und löschen | FULL (GUI, CLI) | FULL | `POST /sammlungen` (admin, editor) mit Besitzerfreigabe, Löschen nur Besitzer oder Admin (`can_delete_collection`), Audit `collection_changed` | test_organization_web | erledigt | 0 |
+| F03 | Wissensstruktur | Sammlung umbenennen, Dokumente zuordnen | FULL (GUI, CLI) | FULL | Seite `/sammlungen/{id}` und `PATCH /api/collections/{id}`. Hinzufügen nur mit Schreibrecht am Dokument (Entscheidung 11.11.2026) | test_organization_web, test_concurrency t2 | erledigt | 0 |
+| F04 | Wissensstruktur | Dokumentbeziehungen anzeigen | FULL (GUI, CLI) | FULL | Abschnitt „Beziehungen“ auf der Dokumentseite, nur sichtbare Gegenstücke | test_organization_web, test_rights | erledigt | 0 |
+| F05 | Wissensstruktur | Dokumentbeziehungen anlegen und entfernen | FULL (GUI, CLI) | FULL | `POST /dokument/{id}/beziehung` und `/beziehung/{rid}/loeschen`, Schreibrecht nötig, Ziel muss sichtbar sein, Audit `document_changed` | test_organization_web | erledigt | 0 |
 | F06 | Wissensgraph | Entitäten und Relationen mit Beleg anlegen | FULL (GUI, CLI) | MISSING | `create_entity`, `relate_entities` | keine Web-Tests | P2 | 2 bis 3 |
 | F07 | Wissensgraph | Entität umbenennen | FULL (GUI, CLI) | PARTIAL | `PATCH /api/entities/{id}`, keine Seite | test_concurrency | P3 | 0,5 |
 | F08 | Wissensgraph | Zusammenführen, Trennen, Löschen, Zurücknehmen | FULL (GUI, CLI) | MISSING | `merge_entities`, `split_entity`, `revert_graph_change` | keine Web-Tests | P3 | 3 bis 4 |

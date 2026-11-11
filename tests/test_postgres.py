@@ -492,6 +492,10 @@ class PostgresStoreTests(unittest.TestCase):
         from test_document_care import check_care_contract
         check_care_contract(self, PostgresStore(self.profile, self.password))
 
+    def test_account_organization_on_real_postgresql(self):
+        from test_organization_web import check_organization_contract
+        check_organization_contract(self, PostgresStore(self.profile, self.password))
+
     def test_upload_jobs_on_real_postgresql(self):
         from test_uploads import check_upload_contract
         check_upload_contract(self, PostgresStore(self.profile, self.password))
@@ -779,7 +783,7 @@ class PostgresStoreTests(unittest.TestCase):
         reset = DatabaseSettings(Path.cwd(), vault, environ={}).reset_postgresql(
             self.profile, self.password, self.profile['database'])
         self.assertEqual(reset['tables'], [
-            'accounts', 'ai_runs', 'ai_usage', 'audit_log', 'chunk_vectors', 'chunks', 'collection_documents', 'collections', 'document_relations',
+            'account_favorites', 'account_saved_searches', 'accounts', 'ai_runs', 'ai_usage', 'audit_log', 'chunk_vectors', 'chunks', 'collection_documents', 'collections', 'document_relations',
             'document_tags',
             'document_versions', 'documents', 'email_accounts', 'email_attachments', 'email_imports', 'entities',
             'entity_mentions', 'entity_types', 'favorites', 'grants', 'graph_changes', 'graph_relations',

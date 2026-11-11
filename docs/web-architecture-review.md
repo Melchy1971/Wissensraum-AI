@@ -138,4 +138,6 @@ Erst Betrieb absichern (S-01 bis S-04), dann eine dünne Service-Schicht und ein
 | 10.11.2026 | Antwortmodell | `qwen3:4b` wird auf Bestand V2 gemessen, Wechsel auf `qwen3:8b` nur bei verfehltem Gate |
 | 11.11.2026 | Löschen | nur Besitzer des Dokuments (Freigabe owner direkt am Dokument) oder Administratoren, Schreibrecht genügt nicht |
 | 11.11.2026 | Favoriten und gespeicherte Suchen | je Konto, bestehende Einträge gehören dem ersten Administrator |
+| 11.11.2026 | Dokument in Sammlung legen | nur mit Schreibrecht am Dokument und an der Sammlung. Eine Sammlungsfreigabe zeigt ihre Dokumente anderen Konten, Leserecht darf das nicht weitergeben |
+| 11.11.2026 | Freigaben bei neuer Fassung | Lese- und Schreibfreigaben der vorigen Fassung gehen auf die neue über, Besitz nicht |
 | 10.11.2026 | Dublette über Kontogrenzen (S-05) | Verhalten bleibt: 409 ohne Zugriff. Restrisiko: ein Bearbeiter erfährt, dass ein exakt gleicher Text existiert. Kein Titel, keine Kennung wird preisgegeben. |

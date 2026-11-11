@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<form method="get" action="/">{% include "tag_filter.html" %} <button type="submit">Filtern</button></form>
+<form method="get" action="/">{% include "tag_filter.html" %} <label><input type="checkbox" name="favoriten" value="1"{% if favorites %} checked{% endif %}> nur Favoriten</label> <button type="submit">Filtern</button></form>
 <p>{{ total }} Dokumente{% if tag %} mit Tag {{ tag }}{% endif %}</p>
 <table>
 <thead><tr><th>Titel</th><th>Bereich</th><th>Tags</th><th>Angelegt</th></tr></thead>

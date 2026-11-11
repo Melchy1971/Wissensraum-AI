@@ -2,6 +2,7 @@
 {% block content %}
 <form method="get" action="/suche"><input type="search" name="q" value="{{ q }}" maxlength="500" required> {% include "tag_filter.html" %} <button type="submit">Suchen</button></form>
 {% if q %}
+<form method="post" action="/suche/speichern"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="q" value="{{ q }}"><input type="hidden" name="tag" value="{{ tag }}"><label>Suche speichern als <input name="name" maxlength="100" required></label> <button type="submit">Speichern</button></form>
 <p class="status">{{ search_status }}</p>
 <ol>
 {% for hit in results %}
@@ -10,5 +11,9 @@
 <li>Keine Treffer.</li>
 {% endfor %}
 </ol>
+{% endif %}
+{% if saved %}
+<h2>Gespeicherte Suchen</h2>
+<ul>{% for s in saved %}<li><a href="/suche?q={{ s.query | urlencode }}{% if s.tag %}&amp;tag={{ s.tag | urlencode }}{% endif %}">{{ s.name }}</a> <form class="inline" method="post" action="/suche/gespeichert/{{ s.id }}/loeschen"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit">löschen</button></form></li>{% endfor %}</ul>
 {% endif %}
 {% endblock %}

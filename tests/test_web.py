@@ -77,7 +77,8 @@ class WebTests(unittest.TestCase):
         page = self.reader.get(f'/dokument/{self.ids["granted"]}').text
         self.assertIn('Nordhalle', page)
         self.assertNotIn('Projekt Geheim', page)  # its invisible collection is not named
-        self.assertNotIn('hx-post="/dokument/', page)  # a reader gets no edit form
+        self.assertNotIn('/metadaten', page)  # a reader gets no edit form
+        self.assertNotIn('/beziehung"', page)  # nor a relation form
         foreign, missing = self.reader.get(f'/dokument/{self.ids["secret"]}'), self.reader.get('/dokument/999999')
         self.assertEqual((foreign.status_code, foreign.text), (404, missing.text))
         self.assertIn('Projekt Süd', self.reader.get('/sammlungen').text)

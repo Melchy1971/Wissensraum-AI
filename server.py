@@ -326,8 +326,8 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
             raise HTTPException(404, NOT_FOUND) from None
 
     @app.get('/api/documents')
-    def list_documents(request: Request, offset: int = 0, limit: int = 50, tag: str = ''):
-        rows = viewer(request).list(tag=tag.strip()[:100] or None)
+    def list_documents(request: Request, offset: int = 0, limit: int = 50, tag: str = '', favorites: bool = False):
+        rows = viewer(request).list(tag=tag.strip()[:100] or None, favorites=favorites)  # favorites: own account
         offset, limit = max(0, offset), max(1, min(limit, 200))
         return {'total': len(rows), 'documents': rows[offset:offset + limit]}
 
@@ -495,21 +495,15 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
         visible_collection(scoped, collection_id)
         if not accounts.can_write_collection(store, account, collection_id):
             raise HTTPException(403, 'Keine Berechtigung.')
-        if [bool(body.name), bool(body.add_documents), bool(body.remove_documents)].count(True) != 1:
-            # one change per request, so it is applied whole or not at all
-            raise HTTPException(422, 'Genau eine Änderung angeben: name, add_documents oder remove_documents.')
         for doc_id in body.add_documents + body.remove_documents:
             document(scoped, doc_id)  # only documents the account sees
+        if not all(accounts.can_write(store, account, doc_id) for doc_id in body.add_documents):
+            # A collection grant shows its documents to others: only who may change a document may put it
+            # there, read access does not pass it on (decision 11.11.2026).
+            raise HTTPException(403, 'Hinzufügen nur mit Schreibrecht am Dokument.')
         try:
-            with store.transaction():
-                if body.name:
-                    store.rename_collection(collection_id, body.name, body.revision)
-                elif body.add_documents:
-                    store.add_to_collection(collection_id, body.add_documents, body.revision)
-                else:
-                    store.remove_from_collection(collection_id, body.remove_documents, body.revision)
-                audited(request, 'collection_changed', account['id'], f'collection:{collection_id}',
-                        added=body.add_documents, removed=body.remove_documents, renamed=bool(body.name))
+            services.change_collection(store, recorder(request), account, collection_id, body.revision, body.name,
+                                       body.add_documents, body.remove_documents)
         except Conflict as error:
             return conflict(error, visible_collection(scoped, collection_id))
         except ValueError as error:

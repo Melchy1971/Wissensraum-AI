@@ -75,6 +75,61 @@ def delete_document(store, record, account, doc_id, revision=None):
         record('document_deleted', account['id'], f'document:{doc_id}')
 
 
+def create_collection(store, record, account, name):
+    """New collection with owner grant for ``account`` (so editors can share it) and audit entry."""
+    with store.transaction():
+        collection_id = store.create_collection(name)
+        accounts.grant(store, account['id'], 'owner', collection_id=collection_id, end_sessions=False)
+        record('collection_changed', account['id'], f'collection:{collection_id}', created=True)
+    return collection_id
+
+
+def change_collection(store, record, account, collection_id, revision, name=None, add=(), remove=()):
+    """Exactly one change: rename, add documents or remove documents. Visibility checked by the caller."""
+    if [bool(name), bool(add), bool(remove)].count(True) != 1:
+        raise ValueError('Genau eine Änderung angeben: Name, hinzufügen oder entfernen.')
+    with store.transaction():
+        if name:
+            store.rename_collection(collection_id, name, revision)
+        elif add:
+            store.add_to_collection(collection_id, list(add), revision)
+        else:
+            store.remove_from_collection(collection_id, list(remove), revision)
+        record('collection_changed', account['id'], f'collection:{collection_id}', added=list(add),
+               removed=list(remove), renamed=bool(name))
+
+
+def delete_collection(store, record, account, collection_id, revision=None):
+    """Delete the collection; its documents stay. Grants on it go with it (foreign key)."""
+    with store.transaction():
+        store.delete_collection(collection_id, revision)
+        record('collection_changed', account['id'], f'collection:{collection_id}', deleted=True)
+
+
+def relate(store, record, account, source_id, target_id, kind, note=''):
+    with store.transaction():
+        relation_id = store.relate(source_id, target_id, kind, note)
+        record('document_changed', account['id'], f'document:{source_id}', fields='relation')
+    return relation_id
+
+
+def unrelate(store, record, account, doc_id, relation_id):
+    with store.transaction():
+        store.unrelate(relation_id)
+        record('document_changed', account['id'], f'document:{doc_id}', fields='relation')
+
+
+def summarize(scoped, ai, record, account, doc_id):
+    """Summary of one visible document; audit ``ai_question`` with kind summary and the document id."""
+    try:
+        answer, _ = ai(scoped).summarize(doc_id)
+    except ProviderError as error:
+        record('ai_question', account['id'], f'document:{doc_id}', status='unavailable', kind=error.kind)
+        raise Unavailable(str(error)) from None
+    record('ai_question', account['id'], f'document:{doc_id}', status='summary')
+    return answer
+
+
 def set_exclude_retired(store, record, admin, enabled):
     """Whether AI answers leave out outdated and archived documents, for the whole installation."""
     with store.transaction():

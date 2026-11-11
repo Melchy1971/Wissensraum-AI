@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+<p>{{ documents|length }} Dokumente · <a href="/api/collections/{{ collection.id }}/export">Export</a></p>
+{% if writable %}
+<form method="post" action="/sammlungen/{{ collection.id }}/umbenennen"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ collection.revision }}"><label>Name <input name="name" value="{{ collection.name }}" maxlength="100" required></label> <button type="submit">Umbenennen</button></form>
+{% endif %}
+<ul>
+{% for d in documents %}
+<li><a href="/dokument/{{ d.id }}">{{ d.title }}</a>{% if writable %} <form class="inline" method="post" action="/sammlungen/{{ collection.id }}/entfernen"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ collection.revision }}"><input type="hidden" name="document_id" value="{{ d.id }}"><button type="submit">aus Sammlung entfernen</button></form>{% endif %}</li>
+{% else %}
+<li>Keine sichtbaren Dokumente.</li>
+{% endfor %}
+</ul>
+{% if deletable %}
+<form method="post" action="/sammlungen/{{ collection.id }}/loeschen"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ collection.revision }}"><button type="submit">Sammlung löschen</button></form>
+<p><small>Die Dokumente bleiben erhalten.</small></p>
+{% endif %}
+{% endblock %}

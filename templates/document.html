@@ -3,7 +3,9 @@
 <p>Bereich: {{ doc.category }} · Status: {{ labels.get(doc.status, doc.status) }}{% if doc.owner %} · Verantwortlich: {{ doc.owner }}{% endif %}{% if doc.review_date %} · Wiedervorlage: {{ doc.review_date }}{% endif %} · Revision {{ doc.revision }}
 {% if doc.original is not none %} · <a href="/api/documents/{{ doc.id }}/original">Original herunterladen</a>{% endif %}</p>
 {% if tags %}<p>Tags: {% for t in tags %}<a href="/?tag={{ t | urlencode }}">{{ t }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
-{% if collections %}<p>Sammlungen: {% for c in collections %}{{ c.name }}{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+<form method="post" action="/dokument/{{ doc.id }}/favorit"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="enabled" value="{{ '0' if favorite else '1' }}"><button type="submit">{{ 'Aus Favoriten entfernen' if favorite else 'Zu Favoriten' }}</button></form>
+{% if collections %}<p>Sammlungen: {% for c in collections %}<a href="/sammlungen/{{ c.id }}">{{ c.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+{% if targets %}<form method="post" action="/dokument/{{ doc.id }}/sammlung"><input type="hidden" name="csrf_token" value="{{ csrf }}"><label>In Sammlung legen <select name="collection_id">{% for c in targets %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select></label> <button type="submit">Hinzufügen</button></form>{% endif %}
 {% if writable %}
 <form id="metadata" hx-post="/dokument/{{ doc.id }}/metadaten" hx-target="#metadata" hx-swap="outerHTML">
 {% include "metadata_form.html" %}
@@ -15,7 +17,15 @@
 <button type="submit">Dokument löschen</button>
 </form>
 {% endif %}
+{% if summary_available %}<form hx-post="/dokument/{{ doc.id }}/zusammenfassung" hx-target="#summary"><button type="submit">Zusammenfassen</button></form><div id="summary"></div>{% endif %}
 <pre class="content">{{ doc.content }}</pre>
+{% if versions|length > 1 %}
+<h2>Fassungen</h2>
+<ul>{% for v in versions %}<li>Fassung {{ v.version }}: {% if v.id == doc.id %}diese{% else %}<a href="/dokument/{{ v.id }}">{{ v.title }}</a> · <a href="/dokument/{{ doc.id }}/vergleich/{{ v.id }}">mit dieser vergleichen</a>{% endif %} ({{ v.created_at }})</li>{% endfor %}</ul>
+{% endif %}
+<h2>Beziehungen</h2>
+<ul>{% for r in relations %}<li>{{ r.label }} <a href="/dokument/{{ r.other_id }}">{{ r.other_title }}</a>{% if r.note %} ({{ r.note }}){% endif %}{% if writable %} <form class="inline" method="post" action="/dokument/{{ doc.id }}/beziehung/{{ r.id }}/loeschen"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit">entfernen</button></form>{% endif %}</li>{% else %}<li>Keine Beziehungen.</li>{% endfor %}</ul>
+{% if writable %}<form method="post" action="/dokument/{{ doc.id }}/beziehung"><input type="hidden" name="csrf_token" value="{{ csrf }}"><label>Art <select name="kind">{% for key, text in relation_choices.items() %}<option value="{{ key }}">{{ text }}</option>{% endfor %}</select></label> <label>Dokument-Nr. <input name="target_id" inputmode="numeric" required size="6"></label> <label>Notiz <input name="note" maxlength="300"></label> <button type="submit">Beziehung anlegen</button></form>{% endif %}
 {% if history %}
 <h2>Verlauf der Metadaten</h2>
 <table>
