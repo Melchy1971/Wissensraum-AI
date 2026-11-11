@@ -11,6 +11,8 @@ import base64
 import hashlib
 import json
 import secrets
+import re
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -40,6 +42,19 @@ def http_json(url, form=None):
     # The scheme is checked above (bandit B310 warns about file: URLs).
     with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:  # nosec B310
         return json.loads(response.read(MAX_RESPONSE))
+
+
+def _entra_code(error):
+    """Only the AADSTS code of a refused token request (e.g. AADSTS7000215, wrong client secret), else 'unknown'.
+
+    From the VPS (hotfix of 11.11.2026): the code names the cause in the log without the description text.
+    """
+    try:
+        body = json.loads(error.read(16384))
+        matches = re.findall(r'AADSTS[0-9]{4,8}', str(body.get('error_description', '')))
+        return matches[0] if matches else 'unknown'
+    except (ValueError, TypeError, AttributeError, OSError):
+        return 'unknown'
 
 
 class Provider:
@@ -84,6 +99,8 @@ class Provider:
             tokens = self.http(self.config()['token_endpoint'], {
                 'grant_type': 'authorization_code', 'code': code, 'redirect_uri': redirect_uri or self.redirect_uri,
                 'client_id': self.client_id, 'client_secret': self._secret, 'code_verifier': verifier})
+        except urllib.error.HTTPError as error:
+            raise SignInError('token_endpoint_' + _entra_code(error)) from None
         except (OSError, ValueError):
             raise SignInError('token_endpoint') from None
         if not isinstance(tokens, dict) or not isinstance(tokens.get('id_token'), str):
@@ -96,6 +113,8 @@ class Provider:
             tokens = self.http(self.config()['token_endpoint'], {
                 'grant_type': 'refresh_token', 'refresh_token': refresh_token, 'scope': scope,
                 'client_id': self.client_id, 'client_secret': self._secret})
+        except urllib.error.HTTPError as error:
+            raise SignInError('token_endpoint_' + _entra_code(error)) from None
         except (OSError, ValueError):
             raise SignInError('token_endpoint') from None
         if not isinstance(tokens, dict) or not isinstance(tokens.get('access_token'), str):

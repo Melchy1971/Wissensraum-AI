@@ -14,11 +14,13 @@ RUN apt-get update \
     && mkdir -p /data/logs /data/exports && chown -R wissensraum /data
 ENV OMP_THREAD_LIMIT=1
 WORKDIR /app
-COPY requirements.txt requirements-server.txt requirements-ocr.txt ./
+# --chown (from the VPS, 11.11.2026): the runtime user must read the code even when the checkout on the
+# host is not world-readable (umask 077). The root file system stays read-only in compose.yaml.
+COPY --chown=10001:10001 requirements.txt requirements-server.txt requirements-ocr.txt ./
 RUN pip install --no-compile -r requirements-server.txt -r requirements-ocr.txt
-COPY *.py schema.sql ./
-COPY templates templates
-COPY static static
+COPY --chown=10001:10001 *.py schema.sql ./
+COPY --chown=10001:10001 templates templates
+COPY --chown=10001:10001 static static
 
 USER wissensraum
 EXPOSE 8000

@@ -1,6 +1,6 @@
 # Wissensraum-AI Server auf dem VPS (Release 3.0, Schritt 10.8, D-029).
 # Erreichbar nur aus dem WireGuard-Netz: Traefik terminiert HTTPS, die Middleware lässt nur VPN-Adressen zu.
-# Platzhalter in <...> vor dem ersten Start ersetzen, siehe deploy/BETRIEB.md.
+# Netze, Entrypoint, Zertifikat und VPN-Middleware sind die Werte des VPS (Stand 11.11.2026), siehe deploy/BETRIEB.md.
 name: wissensraum
 
 services:
@@ -41,12 +41,12 @@ services:
       options: {max-size: "10m", max-file: "5"}
     labels:
       traefik.enable: "true"
-      traefik.docker.network: <proxy-netz>
+      traefik.docker.network: proxy
       traefik.http.routers.wissensraum.rule: Host(`wissen.melchy.cloud`)
-      traefik.http.routers.wissensraum.entrypoints: <https-entrypoint>
-      traefik.http.routers.wissensraum.tls.certresolver: <certresolver>
-      traefik.http.routers.wissensraum.middlewares: wissensraum-vpn,wissensraum-groesse
-      traefik.http.middlewares.wissensraum-vpn.ipallowlist.sourcerange: 10.13.13.0/24
+      traefik.http.routers.wissensraum.entrypoints: websecure
+      traefik.http.routers.wissensraum.tls.certresolver: letsencrypt
+      # VPN-Sperre aus der Traefik-Dateikonfiguration des VPS (wissen-vpn-only, nur 10.13.13.0/24), Stand 11.11.2026
+      traefik.http.routers.wissensraum.middlewares: wissen-vpn-only@file,wissensraum-groesse
       # S-09: Obergrenze für den Anfragekörper vor dem Server (Upload 100 MB plus Formularrahmen), auch ohne Content-Length.
       traefik.http.middlewares.wissensraum-groesse.buffering.maxRequestBodyBytes: "110000000"
       traefik.http.services.wissensraum.loadbalancer.server.port: "8000"
@@ -101,5 +101,5 @@ volumes:
   exports:  # Installationsexport des Workers, Server liefert ihn an Admins aus, gelöscht nach einem Tag
 
 networks:
-  datenbank: {external: true, name: <netz-des-postgres-containers>}
-  proxy: {external: true, name: <proxy-netz>}
+  datenbank: {external: true, name: backend}
+  proxy: {external: true, name: proxy}
