@@ -16,7 +16,7 @@
 
 **Legende:** ✅ vollständig implementiert und gesamtes Gate nachweislich bestanden · 🟡 implementiert oder teilweise geprüft, aber noch nicht vollständig abgenommen · ❌ Gate fehlgeschlagen oder Freigabe blockiert · ⬜ geplant und noch nicht begonnen
 
-## Aktualisierung 11.11.2026 – Paritäts-Roadmap Phase 0 bis 6 (Betrieb, Service-Schicht, semantische Suche, Importaufträge, Dokumentpflege, Organisation, Administration und Texterkennung im Server) 🟡
+## Aktualisierung 11.11.2026 – Paritäts-Roadmap Phase 0 bis 7 (Betrieb, Service-Schicht, semantische Suche, Importaufträge, Dokumentpflege, Organisation, Administration, Texterkennung und Wissensgraph im Server) 🟡
 
 **Grundlage:** Analyse Desktop/Web an `bf3b126` in `docs/desktop-web-parity.md`, `docs/web-architecture-review.md`, `docs/web-parity-roadmap.md`, `docs/web-parity-testplan.md`. Die Roadmap-Phasen sind nicht die Teilschritte 11.1 bis 11.5 dieses Plans. Sie gehören zum Abschluss von 10.8 und zu 11.1 und 11.2.
 
@@ -36,11 +36,13 @@
 
 **Phase 6:** Tesseract mit Deutsch und Englisch liegt im gemeinsamen Image (Entscheidung 11.11.2026), nur der Worker erkennt Text, der Server läuft mit `WISSENSRAUM_OCR=0`. Hochgeladene Bilder und Scans werden durchsuchbar. Ohne erkannten Text geht eine Datei in Quarantäne und behält ihre Bytes 30 Tage, Besitzer und Administratoren können sie erneut verarbeiten (D05, Entscheidung 11.11.2026), danach entfernt der Worker die Bytes. Der Herzschlag des Workers läuft während langer Scans weiter, jede Tesseract-Seite hat ihre Zeitgrenze. Speichergrenze des Workers 1,5 GB. Die Desktop-Wiederholung der Quarantäne lässt Server-Uploads aus. Keine Migration. Parität 48 / 69 = 69,6 %. Nachweise: Linux, Python 3.12 mit Tk und Tesseract 5.3.4 unter Xvfb mit `WISSENSRAUM_REQUIRE_OCR=1`: 787 Tests, 1 Fehlschlag (bekannter GUI-Pixelfehler), 55 übersprungen (52 PostgreSQL ohne Konfiguration, 3 nur Windows), die OCR-Tests laufen erstmals. PostgreSQL 16: 55 von 55. bandit `-lll` ohne Befund. Mutationsproben für Halten der Bytes, Wiederholung, Ablauf nach 30 Tagen, Ausschluss aus der Desktop-Wiederholung, OCR im Worker, Herzschlag und Auftragszugriff. Nicht ausgeführt: Bau des Images mit Tesseract (hier läuft kein Docker-Daemon).
 
+**Phase 7:** Wissensgraph im Web. `/graph` zeigt sichtbare Entitäten als serverseitiges SVG mit dem Layout des Desktops (`graph_layout.py`, aus `graph_view.py` ohne Tk herausgelöst), mit Filter und Fokus. Entitätsseite mit Erwähnungen und Relationen, nur aus sichtbaren Belegen. Rechte gestuft (Entscheidung 11.11.2026): Schreibrecht am Belegdokument genügt für Anlegen, Bestätigen, Löschen und für KI-Vorschläge. Eine Entität löscht nur, wer alle ihre Belegdokumente schreiben darf. Umbenennen, Zusammenführen, Trennen, Zurücknehmen, Arten und Graphkontext nur Administratoren. KI-Vorschläge fordert man auf der Dokumentseite an, der Worker fragt das lokale Ollama (`graph_jobs.py`, D-023) und prüft das Recht vor dem Lauf erneut. Jede Änderung mit Audit `graph_changed`. Keine Migration. Parität 54 / 69 = 78,3 %. Nachweise: Linux, Python 3.12 mit Tk und Tesseract unter Xvfb: 793 Tests, 1 Fehlschlag (bekannter GUI-Pixelfehler), 56 übersprungen. PostgreSQL 16: 56 von 56. bandit `-lll` ohne Befund. Mutationsproben für alle Rechteprüfungen der Graphseiten, die Sichtbarkeit von Belegen und Zielen, die Rechteprüfung im Worker und das Compare-and-set der Vorschläge. Offen: Qualität der Vorschläge mit `qwen3:4b`.
+
 **Nachweise Phase 0 und 1:** Linux, Python 3.12 mit Tk unter Xvfb: 743 Tests, 1 Fehlschlag (`test_settings_pages_scroll_to_their_last_widget_at_minimum_size`, Seite `mail`, 1 Pixel, bestand schon an `bf3b126`), 60 übersprungen (47 PostgreSQL ohne Konfiguration im Gesamtlauf, 10 Tesseract, 3 nur Windows). PostgreSQL 16 Wegwerf-Cluster: 50 von 50. PostgreSQL 18, Windows und das Matrix-Gate liefen nicht. Mutationsprobe: ohne Filter, ohne Transaktion im Dienst und ohne Einklinken in `connect()` scheitern die neuen Tests.
 
 **Offen:** Matrix-Gate 7 von 7, Einrichtung von Sicherung und Übung auf VPS und Unraid, Neuanlage des Server-Containers zum Verwerfen alter Logs, Prüfung des GUI-Fehlschlags auf Windows.
 
-**Status:** Phase 0 bis 6 der Paritäts-Roadmap 🟡. 10.8 bleibt 🟡.
+**Status:** Phase 0 bis 7 der Paritäts-Roadmap 🟡. 10.8 bleibt 🟡.
 
 ## Aktualisierung 05.11.2026 (Mittag) – Phase 8A, Schritt 8A.1 Metadaten bearbeiten ✅
 

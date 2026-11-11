@@ -42,16 +42,16 @@ Gemeinsamer Kern: `core.py` (`Store`, `PostgresStore`, `AI`, `Embedder`, Extrakt
 
 | Status | Anzahl Desktop-Funktionen |
 |---|---:|
-| FULL | 48 |
-| PARTIAL | 7 |
-| MISSING | 12 |
+| FULL | 54 |
+| PARTIAL | 5 |
+| MISSING | 8 |
 | DIFFERENT | 2 |
 | NOT_APPLICABLE | 7 |
 | UNKNOWN | 2 |
 | Summe Desktop-Funktionen | 78 |
 | WEB_ONLY (zusätzlich) | 13 |
 
-Funktionsparität = FULL / (FULL + PARTIAL + MISSING + DIFFERENT) = 48 / 69 = 69,6 % (Stand nach Paritäts-Roadmap Phase 6. Nach Phase 5: 46 / 69 = 66,7 %, nach Phase 4b: 37 / 69 = 53,6 %, nach Phase 4a: 27 / 69 = 39,1 %, nach Phase 3: 18 / 69 = 26,1 %, nach Phase 2: 16 / 69 = 23,2 %, nach Phase 1: 12 / 69 = 17,4 %, nach Phase 0: 11 / 69 = 15,9 %, vor Phase 0: 10 / 69 = 14,5 %).
+Funktionsparität = FULL / (FULL + PARTIAL + MISSING + DIFFERENT) = 54 / 69 = 78,3 % (Stand nach Paritäts-Roadmap Phase 7. Nach Phase 6: 48 / 69 = 69,6 %, nach Phase 5: 46 / 69 = 66,7 %, nach Phase 4b: 37 / 69 = 53,6 %, nach Phase 4a: 27 / 69 = 39,1 %, nach Phase 3: 18 / 69 = 26,1 %, nach Phase 2: 16 / 69 = 23,2 %, nach Phase 1: 12 / 69 = 17,4 %, nach Phase 0: 11 / 69 = 15,9 %, vor Phase 0: 10 / 69 = 14,5 %).
 
 ## 5. Funktionsmatrix
 
@@ -117,12 +117,12 @@ Spalte Desktop: Status der Referenz (GUI oder CLI). Spalte Web: Status im Web. A
 | F03 | Wissensstruktur | Sammlung umbenennen, Dokumente zuordnen | FULL (GUI, CLI) | FULL | Seite `/sammlungen/{id}` und `PATCH /api/collections/{id}`. Hinzufügen nur mit Schreibrecht am Dokument (Entscheidung 11.11.2026) | test_organization_web, test_concurrency t2 | erledigt | 0 |
 | F04 | Wissensstruktur | Dokumentbeziehungen anzeigen | FULL (GUI, CLI) | FULL | Abschnitt „Beziehungen“ auf der Dokumentseite, nur sichtbare Gegenstücke | test_organization_web, test_rights | erledigt | 0 |
 | F05 | Wissensstruktur | Dokumentbeziehungen anlegen und entfernen | FULL (GUI, CLI) | FULL | `POST /dokument/{id}/beziehung` und `/beziehung/{rid}/loeschen`, Schreibrecht nötig, Ziel muss sichtbar sein, Audit `document_changed` | test_organization_web | erledigt | 0 |
-| F06 | Wissensgraph | Entitäten und Relationen mit Beleg anlegen | FULL (GUI, CLI) | MISSING | `create_entity`, `relate_entities` | keine Web-Tests | P2 | 2 bis 3 |
-| F07 | Wissensgraph | Entität umbenennen | FULL (GUI, CLI) | PARTIAL | `PATCH /api/entities/{id}`, keine Seite | test_concurrency | P3 | 0,5 |
-| F08 | Wissensgraph | Zusammenführen, Trennen, Löschen, Zurücknehmen | FULL (GUI, CLI) | MISSING | `merge_entities`, `split_entity`, `revert_graph_change` | keine Web-Tests | P3 | 3 bis 4 |
-| F09 | Wissensgraph | KI-Vorschläge prüfen und bestätigen | FULL (GUI, CLI) | MISSING | `graph_suggest.py`, `confirm_graph_item` | keine Web-Tests | P3 | 2 bis 3 |
-| F10 | Wissensgraph | Graphansicht | FULL (GUI) | PARTIAL | `GET /api/graph` liefert JSON, keine Darstellung | test_rights | P3 | 2 bis 4 |
-| F11 | Wissensgraph | Entitäts- und Relationsarten verwalten | FULL (CLI) | MISSING | `add_entity_type`, `add_relation_type` | keine Web-Tests | P3 | 1 |
+| F06 | Wissensgraph | Entitäten und Relationen mit Beleg anlegen | FULL (GUI, CLI) | FULL | Abschnitt „Wissensgraph“ der Dokumentseite: Entität, Erwähnung, Relation mit wörtlichem Beleg, nur mit Schreibrecht am Belegdokument (Entscheidung 11.11.2026), Audit `graph_changed` | test_graph_web (beide Backends) | erledigt | 0 |
+| F07 | Wissensgraph | Entität umbenennen | FULL (GUI, CLI) | FULL | Entitätsseite und `PATCH /api/entities/{id}`, nur Admin, mit Revision | test_graph_web, test_concurrency | erledigt | 0 |
+| F08 | Wissensgraph | Zusammenführen, Trennen, Löschen, Zurücknehmen | FULL (GUI, CLI) | FULL | Entitätsseite und `/verwaltung/graph`: Zusammenführen, Trennen, Zurücknehmen nur Admin, Löschen mit Schreibrecht an allen Belegdokumenten | test_graph_web | erledigt | 0 |
+| F09 | Wissensgraph | KI-Vorschläge prüfen und bestätigen | FULL (GUI, CLI) | FULL | Anfordern auf der Dokumentseite, der Worker fragt das lokale Ollama (`graph_jobs`, D-023), Bestätigen und Verwerfen mit Schreibrecht | test_graph_web (beide Backends) | erledigt, Messung mit `qwen3:4b` offen | 0 |
+| F10 | Wissensgraph | Graphansicht | FULL (GUI) | FULL | `/graph` mit serverseitigem SVG (`graph_layout`, gleiches Layout wie der Desktop), Filter, Fokus, Entitätsliste | test_graph_web | erledigt | 0 |
+| F11 | Wissensgraph | Entitäts- und Relationsarten verwalten | FULL (CLI) | FULL | `/verwaltung/graph`, nur Admin, Audit | test_graph_web | erledigt | 0 |
 | G01 | Administration | Betriebsübersicht | FULL (GUI, CLI) | FULL | `/verwaltung/betrieb` mit `operations.overview`, nur Zahlen und Codes | test_administration | erledigt | 0 |
 | G02 | Administration | Integritätsprüfung | FULL (GUI, CLI) | FULL | Schema, Prüfsummen und Audit-Kette per Knopf auf `/verwaltung/betrieb` | test_administration | erledigt | 0 |
 | G03 | Administration | Sicherung und Wiederherstellungsübung | FULL (GUI, CLI, SQLite) | PARTIAL | `deploy/backup.sh`, `backup-pull.sh`, `restore-drill.sh`, `server.audit_check` (Paritäts-Roadmap Phase 0) | test_audit ServerAuditCheckTests, manuelle Probe PG 16 | P0 | 0,5 (Einrichtung, Erstlauf) |

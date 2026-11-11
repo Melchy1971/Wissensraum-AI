@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+<p><a href="/verwaltung">Zurück zur Verwaltung</a> · <a href="/graph">Wissensgraph</a></p>
+{% if notice %}<p class="notice">{{ notice }}</p>{% endif %}
+<h2>Graphkontext in KI-Antworten</h2>
+<p>Bestätigte Relationen aus den Quelldokumenten gehen {% if context %}in Antworten ein{% else %}nicht in Antworten ein{% endif %}.</p>
+<form method="post" action="/verwaltung/graph/kontext"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="enabled" value="{{ '0' if context else '1' }}"><button type="submit">{{ 'Ausschalten' if context else 'Einschalten' }}</button></form>
+{% for kind, label, rows in (('entity', 'Entitätsarten', entity_types), ('relation', 'Relationsarten', relation_types)) %}
+<h2>{{ label }}</h2>
+<ul>{% for t in rows %}<li><form method="post" action="/verwaltung/graph/art-umbenennen" class="inline"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="kind" value="{{ kind }}"><input type="hidden" name="type_id" value="{{ t.id }}"><input name="name" value="{{ t.name }}" maxlength="100"> <button type="submit">Umbenennen</button></form>
+({{ t.used }} verwendet){% if not t.used %} <form method="post" action="/verwaltung/graph/art-loeschen" class="inline"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="kind" value="{{ kind }}"><input type="hidden" name="type_id" value="{{ t.id }}"><button type="submit">löschen</button></form>{% endif %}</li>{% endfor %}</ul>
+<form method="post" action="/verwaltung/graph/art"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="kind" value="{{ kind }}"><label>Neue Art <input name="name" maxlength="100" required></label> <button type="submit">Anlegen</button></form>
+{% endfor %}
+<h2>Letzte Änderungen</h2>
+<table><thead><tr><th>Zeit</th><th>Aktion</th><th>Objekt</th><th></th></tr></thead><tbody>
+{% for c in changes %}<tr><td>{{ c.created_at }}</td><td>{{ c.action }}</td><td>{{ c.object_type }} {{ c.object_id }}</td>
+<td>{% if c.reverted_at %}zurückgenommen{% elif c.action != 'revert' %}<form method="post" action="/verwaltung/graph/zuruecknehmen"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="change_id" value="{{ c.id }}"><button type="submit">zurücknehmen</button></form>{% endif %}</td></tr>
+{% else %}<tr><td colspan="4">Keine Änderungen.</td></tr>{% endfor %}</tbody></table>
+{% endblock %}

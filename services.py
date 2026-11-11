@@ -323,3 +323,72 @@ def request_export(store, record, admin, now):
     with store.transaction():
         privacy.request_export(store, admin['id'], now)
         record('privacy_export', admin['id'], 'installation', status='requested')
+
+
+# --- knowledge graph of phase 7 (decision 11.11.2026) ---------------------------------------------
+# Who may write the evidence document may create, confirm and delete what rests on it; renaming,
+# merging, splitting, reverting and the types work across documents and stay with administrators.
+GRAPH_TABLES = {'entity': 'entities', 'mention': 'entity_mentions', 'relation': 'graph_relations'}
+
+
+def graph_evidence(store, kind, object_id):
+    """Document ids that carry an active entity's mentions and relations, or the one of a mention or relation."""
+    with store.connect() as db:
+        if kind == 'entity':
+            return sorted({row['document_id'] for row in db.execute(
+                'SELECT document_id FROM entity_mentions WHERE entity_id=? AND deleted_at IS NULL UNION '
+                'SELECT document_id FROM graph_relations WHERE (source_id=? OR target_id=?) AND deleted_at IS NULL',
+                (object_id, object_id, object_id))})
+        if kind not in GRAPH_TABLES:
+            raise ValueError('Unbekannte Art des Eintrags.')
+        row = db.execute(f'SELECT document_id FROM {GRAPH_TABLES[kind]} WHERE id=? AND deleted_at IS NULL',
+                         (object_id,)).fetchone()
+    if row is None:
+        raise ValueError('Eintrag wurde nicht gefunden.')
+    return [row['document_id']]
+
+
+def may_change_graph_item(store, account, kind, object_id):
+    """Mentions and relations: write access to their document. Entities: to every document they rest on."""
+    if account['role'] == 'admin' and not account['disabled']:
+        return True
+    documents = graph_evidence(store, kind, object_id)
+    return bool(documents) and all(accounts.can_write(store, account, d) for d in documents)
+
+
+def _graph(store, record, account, target, action, change):
+    with store.transaction():
+        result = change()
+        record('graph_changed', account['id'], target, action=action)
+    return result
+
+
+def graph_create_entity(store, record, account, type_id, name, document_id, quote):
+    return _graph(store, record, account, f'document:{document_id}', 'entity_created',
+                  lambda: store.create_entity(type_id, name, document_id, quote))
+
+
+def graph_add_mention(store, record, account, entity_id, document_id, quote):
+    return _graph(store, record, account, f'entity:{entity_id}', 'mention_created',
+                  lambda: store.add_mention(entity_id, document_id, quote))
+
+
+def graph_relate(store, record, account, source_id, target_id, type_id, document_id, quote):
+    return _graph(store, record, account, f'document:{document_id}', 'relation_created',
+                  lambda: store.relate_entities(source_id, target_id, type_id, document_id, quote))
+
+
+def graph_confirm(store, record, account, kind, object_id):
+    return _graph(store, record, account, f'{kind}:{object_id}', 'confirmed',
+                  lambda: store.confirm_graph_item(kind, object_id))
+
+
+def graph_delete(store, record, account, kind, object_id, revision=None):
+    deleters = {'entity': store.delete_entity, 'relation': store.delete_graph_relation}
+    action = (lambda: deleters[kind](object_id, revision)) if kind in deleters else (lambda: store.delete_mention(object_id))
+    return _graph(store, record, account, f'{kind}:{object_id}', 'deleted', action)
+
+
+def graph_admin(store, record, admin, target, action, change):
+    """Renaming, merging, splitting, reverting and types: administrators only (checked by the caller)."""
+    return _graph(store, record, admin, target, action, change)

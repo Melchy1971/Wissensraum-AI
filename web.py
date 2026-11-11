@@ -148,7 +148,17 @@ def register(app, ctx):
                 'history': history, 'labels': STATUS_LABELS, 'notice': notice, 'writable': writable,
                 'deletable': accounts.can_delete(store, account, doc['id']), 'favorite': scoped.is_favorite(doc['id']),
                 'relations': relations, 'relation_choices': RELATION_CHOICES, 'versions': scoped.versions(doc['id']),
-                'targets': targets, 'summary_available': ctx.ai is not None}
+                'targets': targets, 'summary_available': ctx.ai is not None, **graph_section(scoped, doc['id'], writable)}
+
+    def graph_section(scoped, doc_id, writable):
+        """Mentions and relations resting on the document; forms when the account may write it (phase 7)."""
+        import graph_jobs
+        section = {'graph': scoped.document_graph(doc_id), 'graph_writable': writable,
+                   'suggest_available': ctx.graph_model is not None, 'suggest_state': graph_jobs.state(store, doc_id)}
+        if writable:
+            section.update(entity_types=store.entity_types(), relation_types=store.relation_types(),
+                           known_entities=scoped.entities()[:500])
+        return section
 
     @app.post('/dokument/{doc_id}/metadaten', response_class=HTMLResponse)
     async def metadata(request: Request, doc_id: int):
@@ -486,6 +496,201 @@ def register(app, ctx):
         except ValueError as error:  # too long for a summary
             raise HTTPException(422, str(error)) from None
         return HTMLResponse(f'<div class="answer"><p>{html.escape(text)}</p></div>')
+
+    # --- knowledge graph of phase 7 (decision 11.11.2026) ----------------------------------------
+    def graph_fail(error):
+        """Our own refusal as 422, a stale revision as 409."""
+        if isinstance(error, Conflict):
+            return HTTPException(409, 'Der Eintrag wurde inzwischen geändert. Bitte die Seite neu laden.')
+        return HTTPException(422, str(error))
+
+    def graph_run(action):
+        try:
+            return action()
+        except (Conflict, ValueError) as error:
+            raise graph_fail(error) from None
+
+    def visible_entity(scoped, entity_id):
+        try:
+            return scoped.entity(entity_id)
+        except ValueError:
+            raise HTTPException(404, 'Nicht gefunden.') from None
+
+    def visible_item(request, kind, object_id):
+        """A mention or relation whose document the account sees, else 404; then the right to change it."""
+        account = ctx.signed_in(request)
+        try:
+            (document_id,) = services.graph_evidence(store, kind, object_id)
+        except ValueError:
+            raise HTTPException(404, 'Nicht gefunden.') from None
+        ctx.document(ctx.viewer(request), document_id)
+        if not services.may_change_graph_item(store, account, kind, object_id):
+            raise HTTPException(403, 'Keine Berechtigung.')
+        return account, document_id
+
+    @app.get('/graph', response_class=HTMLResponse)
+    def graph_page(request: Request, q: str = '', typ: str = '', fokus: str = '', vorschlaege: int = 0):
+        from graph_layout import TYPE_COLOURS, layout
+        scoped = ctx.viewer(request)
+        types = store.entity_types()
+        chosen = [number(typ)] if typ else None
+        focus = number(fokus) if fokus else None
+        try:
+            data = scoped.graph_data(entity_types=chosen, include_proposed=bool(vorschlaege), query=q.strip()[:100] or None,
+                                     focus=focus)
+        except ValueError:  # the focus is not visible with these filters
+            raise HTTPException(404, 'Nicht gefunden.') from None
+        width, height = 900, 560
+        positions = layout(data['nodes'], data['edges'], width, height, focus)
+        colours = {t['id']: TYPE_COLOURS[i % len(TYPE_COLOURS)] for i, t in enumerate(types)}
+        nodes = [{**n, 'x': round(positions[n['id']][0], 1), 'y': round(positions[n['id']][1], 1),
+                  'colour': colours.get(n['type_id'], '#6b6b6b')} for n in data['nodes']]
+        edges = [{**e, 'x1': round(positions[e['source_id']][0], 1), 'y1': round(positions[e['source_id']][1], 1),
+                  'x2': round(positions[e['target_id']][0], 1), 'y2': round(positions[e['target_id']][1], 1)}
+                 for e in data['edges']]
+        return render(request, 'graph.html', 'Wissensgraph', nodes=nodes, edges=edges, truncated=data['truncated'],
+                      types=types, colours=colours, q=q, typ=chosen[0] if chosen else None, focus=focus,
+                      proposed=bool(vorschlaege), width=width, height=height,
+                      entities=scoped.entities(type_id=chosen[0] if chosen else None, query=q.strip()[:100] or None)[:300])
+
+    @app.get('/graph/entitaet/{entity_id}', response_class=HTMLResponse)
+    def entity_page(request: Request, entity_id: int):
+        scoped = ctx.viewer(request)
+        entity = visible_entity(scoped, entity_id)
+        account = request.state.account
+        admin = account['role'] == 'admin'
+        same_type = [e for e in scoped.entities(type_id=entity['type_id']) if e['id'] != entity_id] if admin else []
+        return render(request, 'entity.html', entity['name'], entity=entity, admin=admin, same_type=same_type,
+                      changeable=services.may_change_graph_item(store, account, 'entity', entity_id))
+
+    @app.post('/graph/entitaet/{entity_id}/{action}', response_class=HTMLResponse)
+    async def entity_action(request: Request, entity_id: int, action: str):
+        account = ctx.signed_in(request)
+        scoped = ctx.viewer(request)
+        entity = visible_entity(scoped, entity_id)
+        values = await form(request)
+        record, target = ctx.recorder(request), f'entity:{entity_id}'
+        if action in ('bestaetigen', 'loeschen'):
+            if not services.may_change_graph_item(store, account, 'entity', entity_id):
+                raise HTTPException(403, 'Keine Berechtigung.')
+            if action == 'bestaetigen':
+                graph_run(lambda: services.graph_confirm(store, record, account, 'entity', entity_id))
+                return RedirectResponse(f'/graph/entitaet/{entity_id}', status_code=303)
+            graph_run(lambda: services.graph_delete(store, record, account, 'entity', entity_id,
+                                                     number(values.get('revision'))))
+            return RedirectResponse('/graph', status_code=303)
+        if action not in ('umbenennen', 'zusammenfuehren', 'trennen'):
+            raise HTTPException(404, 'Nicht gefunden.')
+        admin = ctx.require_role(request, 'admin')
+        if action == 'umbenennen':
+            graph_run(lambda: services.graph_admin(store, record, admin, target, 'renamed', lambda: store.rename_entity(
+                entity_id, values.get('name', ''), number(values.get('revision')))))
+            return RedirectResponse(f'/graph/entitaet/{entity_id}', status_code=303)
+        if action == 'zusammenfuehren':
+            other = number(values.get('other_id'))
+            visible_entity(scoped, other)
+            graph_run(lambda: services.graph_admin(store, record, admin, target, 'merged',
+                                                   lambda: store.merge_entities(entity_id, other)))
+            return RedirectResponse(f'/graph/entitaet/{entity_id}', status_code=303)
+        mentions = [number(v) for v in values.getlist('mention')]
+        relations = [number(v) for v in values.getlist('relation')]
+        new_id = graph_run(lambda: services.graph_admin(store, record, admin, target, 'split', lambda: store.split_entity(
+            entity_id, values.get('name', ''), mentions, relations)))
+        return RedirectResponse(f'/graph/entitaet/{new_id}', status_code=303)
+
+    @app.post('/graph/{kind}/{object_id}/{action}', response_class=HTMLResponse)
+    async def graph_item_action(request: Request, kind: str, object_id: int, action: str):
+        kinds = {'erwaehnung': 'mention', 'relation': 'relation'}
+        if kind not in kinds or action not in ('bestaetigen', 'loeschen'):
+            raise HTTPException(404, 'Nicht gefunden.')
+        account, document_id = visible_item(request, kinds[kind], object_id)
+        values = await form(request)
+        record = ctx.recorder(request)
+        if action == 'bestaetigen':
+            graph_run(lambda: services.graph_confirm(store, record, account, kinds[kind], object_id))
+        else:
+            graph_run(lambda: services.graph_delete(store, record, account, kinds[kind], object_id,
+                                                     number(values['revision']) if values.get('revision') else None))
+        back = values.get('zurueck', '')
+        return RedirectResponse(back if back.startswith('/graph/entitaet/') else f'/dokument/{document_id}', status_code=303)
+
+    @app.post('/dokument/{doc_id}/graph/{action}', response_class=HTMLResponse)
+    async def document_graph_action(request: Request, doc_id: int, action: str):
+        account = visible_and_writable(request, doc_id)
+        scoped, values, record = ctx.viewer(request), await form(request), ctx.recorder(request)
+        quote = values.get('quote', '')
+        if action == 'entitaet':
+            graph_run(lambda: services.graph_create_entity(store, record, account, number(values.get('type_id')),
+                                                           values.get('name', ''), doc_id, quote))
+        elif action == 'erwaehnung':
+            entity_id = number(values.get('entity_id'))
+            visible_entity(scoped, entity_id)
+            graph_run(lambda: services.graph_add_mention(store, record, account, entity_id, doc_id, quote))
+        elif action == 'relation':
+            source, target = number(values.get('source_id')), number(values.get('target_id'))
+            visible_entity(scoped, source)
+            visible_entity(scoped, target)
+            graph_run(lambda: services.graph_relate(store, record, account, source, target,
+                                                    number(values.get('type_id')), doc_id, quote))
+        elif action == 'vorschlaege':
+            import graph_jobs
+            if ctx.graph_model is None:
+                raise HTTPException(503, 'KI-Vorschläge gibt es nur mit dem lokalen Ollama (WR_AI_PROVIDER=ollama).')
+            try:
+                with store.transaction():
+                    graph_jobs.request(store, account['id'], doc_id, ctx.clock())
+                    ctx.audited(request, 'graph_changed', account['id'], f'document:{doc_id}', action='suggest_requested')
+            except ValueError as error:
+                raise HTTPException(409, str(error)) from None
+        else:
+            raise HTTPException(404, 'Nicht gefunden.')
+        return RedirectResponse(f'/dokument/{doc_id}', status_code=303)
+
+    def graph_admin_page(request, notice='', status=200):
+        return render(request, 'graph_admin.html', 'Wissensgraph verwalten', status, notice=notice,
+                      entity_types=store.entity_types(), relation_types=store.relation_types(),
+                      changes=store.graph_changes(50), context=store.graph_context_enabled())
+
+    @app.get('/verwaltung/graph', response_class=HTMLResponse)
+    def graph_admin_view(request: Request):
+        ctx.require_role(request, 'admin')
+        return graph_admin_page(request)
+
+    @app.post('/verwaltung/graph/{action}', response_class=HTMLResponse)
+    async def graph_admin_action(request: Request, action: str):
+        admin = ctx.require_role(request, 'admin')
+        values, record = await form(request), ctx.recorder(request)
+        kind = values.get('kind', '')
+        if kind not in ('entity', 'relation') and action in ('art', 'art-umbenennen', 'art-loeschen'):
+            raise HTTPException(422, 'Art: entity oder relation.')
+        adders = {'entity': store.add_entity_type, 'relation': store.add_relation_type}
+        renamers = {'entity': store.rename_entity_type, 'relation': store.rename_relation_type}
+        deleters = {'entity': store.delete_entity_type, 'relation': store.delete_relation_type}
+        try:
+            if action == 'art':
+                services.graph_admin(store, record, admin, f'{kind}_type', 'type_created',
+                                     lambda: adders[kind](values.get('name', '')))
+            elif action == 'art-umbenennen':
+                type_id = number(values.get('type_id'))
+                services.graph_admin(store, record, admin, f'{kind}_type:{type_id}', 'type_renamed',
+                                     lambda: renamers[kind](type_id, values.get('name', '')))
+            elif action == 'art-loeschen':
+                type_id = number(values.get('type_id'))
+                services.graph_admin(store, record, admin, f'{kind}_type:{type_id}', 'type_deleted',
+                                     lambda: deleters[kind](type_id))
+            elif action == 'zuruecknehmen':
+                change_id = number(values.get('change_id'))
+                services.graph_admin(store, record, admin, f'graph_change:{change_id}', 'reverted',
+                                     lambda: store.revert_graph_change(change_id))
+            elif action == 'kontext':
+                with store.transaction():
+                    store.set_graph_context(values.get('enabled') == '1')
+                    record('settings_changed', admin['id'], 'settings:graph_context', enabled=values.get('enabled') == '1')
+            else:
+                raise HTTPException(404, 'Nicht gefunden.')
+        except (Conflict, ValueError) as error:
+            return graph_admin_page(request, str(error), 409 if isinstance(error, Conflict) else 422)
+        return RedirectResponse('/verwaltung/graph', status_code=303)
 
     # --- administration --------------------------------------------------------------------
     def admin_page(request, notice='', status=200):

@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+<p>Art: {{ entity.type }} · {{ 'KI-Vorschlag' if entity.status == 'proposed' else 'bestätigt' }} · <a href="/graph?fokus={{ entity.id }}">im Graph zeigen</a></p>
+{% if changeable %}
+{% if entity.status == 'proposed' %}<form method="post" action="/graph/entitaet/{{ entity.id }}/bestaetigen" class="inline"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit">Bestätigen</button></form>{% endif %}
+<form method="post" action="/graph/entitaet/{{ entity.id }}/loeschen" class="inline"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ entity.revision }}"><button type="submit">Entität löschen</button></form>
+{% endif %}
+<h2>Erwähnungen</h2>
+<ul>{% for m in entity.mentions %}<li>„{{ m.quote }}“ in <a href="/dokument/{{ m.document_id }}">{{ m.document }}</a>{% if m.status == 'proposed' %} (Vorschlag){% endif %}</li>{% else %}<li>Keine sichtbaren Erwähnungen.</li>{% endfor %}</ul>
+<h2>Relationen</h2>
+<ul>{% for r in entity.relations %}<li><a href="/graph/entitaet/{{ r.source_id }}">{{ r.source }}</a> {{ r.type }} <a href="/graph/entitaet/{{ r.target_id }}">{{ r.target }}</a>: „{{ r.quote }}“ in <a href="/dokument/{{ r.document_id }}">{{ r.document }}</a>{% if r.status == 'proposed' %} (Vorschlag){% endif %}</li>{% else %}<li>Keine sichtbaren Relationen.</li>{% endfor %}</ul>
+{% if admin %}
+<h2>Verwalten</h2>
+<form method="post" action="/graph/entitaet/{{ entity.id }}/umbenennen"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ entity.revision }}"><label>Name <input name="name" value="{{ entity.name }}" maxlength="200" required></label> <button type="submit">Umbenennen</button></form>
+{% if same_type %}<form method="post" action="/graph/entitaet/{{ entity.id }}/zusammenfuehren"><input type="hidden" name="csrf_token" value="{{ csrf }}"><label>Diese Entität hineinführen <select name="other_id">{% for e in same_type %}<option value="{{ e.id }}">{{ e.name }}</option>{% endfor %}</select></label> <button type="submit">Zusammenführen</button></form>{% endif %}
+{% if entity.mentions|length > 1 %}
+<form method="post" action="/graph/entitaet/{{ entity.id }}/trennen"><input type="hidden" name="csrf_token" value="{{ csrf }}">
+<p>Neue Entität mit den gewählten Erwähnungen und Relationen abtrennen:</p>
+<ul class="plain">{% for m in entity.mentions %}<li><label><input type="checkbox" name="mention" value="{{ m.id }}"> „{{ m.quote }}“</label></li>{% endfor %}
+{% for r in entity.relations %}<li><label><input type="checkbox" name="relation" value="{{ r.id }}"> {{ r.source }} {{ r.type }} {{ r.target }}</label></li>{% endfor %}</ul>
+<label>Name der neuen Entität <input name="name" maxlength="200" required></label> <button type="submit">Trennen</button></form>
+{% endif %}
+<p><small>Zurücknehmen unter <a href="/verwaltung/graph">Wissensgraph verwalten</a>.</small></p>
+{% endif %}
+{% endblock %}

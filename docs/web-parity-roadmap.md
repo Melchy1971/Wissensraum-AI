@@ -18,10 +18,10 @@ Stand: 10.11.2026, Commit `bf3b126`. Grundlage: `docs/desktop-web-parity.md` (Ma
 | 1 | Service-Schicht und atomare Änderungen (umgesetzt, Gate offen) | P1 | 5 bis 8 PT | N | 0 |
 | 2 | KI und Suche im Server vollständig (umgesetzt außer C03, C06, Messungen C09 und B10) | P1 | 7 bis 12 PT | M | 1 |
 | 3 | Worker-Dienst und Import (umgesetzt, Vorschau mit Abwahl offen) | P1 | 9 bis 14 PT | M | 1 |
-| 4 | Dokumentpflege und Organisation (umgesetzt außer Zahlenwert B05 und Datenschutzlöschung E03) | P1/P2 | 18 bis 29 PT | N | 1 |
+| 4 | Dokumentpflege und Organisation (umgesetzt außer Zahlenwert B05, E03 kam mit Phase 5) | P1/P2 | 18 bis 29 PT | N | 1 |
 | 5 | Administration, Datenschutz, Betrieb (umgesetzt, Exportordner auf VPS einrichten) | P2 | 10 bis 15 PT | M | 1, 3 |
 | 6 | OCR im Server (umgesetzt, Image-Bau auf dem VPS offen) | P2 | 4 bis 6 PT | M | 3 |
-| 7 | Wissensgraph im Web | P3 | 10 bis 16 PT | M | 4 |
+| 7 | Wissensgraph im Web (umgesetzt) | P3 | 10 bis 16 PT | M | 4 |
 | 8 | E-Mail- und PST-Import | P3 | 15 bis 25 PT | H | 3, ADR Geheimnisse |
 | 9 | Oberfläche und Barrierefreiheit | P3 | 3 bis 6 PT | N | 4 |
 | Summe | | | 84 bis 136 PT | | |

@@ -25,6 +25,25 @@
 {% endif %}
 <h2>Beziehungen</h2>
 <ul>{% for r in relations %}<li>{{ r.label }} <a href="/dokument/{{ r.other_id }}">{{ r.other_title }}</a>{% if r.note %} ({{ r.note }}){% endif %}{% if writable %} <form class="inline" method="post" action="/dokument/{{ doc.id }}/beziehung/{{ r.id }}/loeschen"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit">entfernen</button></form>{% endif %}</li>{% else %}<li>Keine Beziehungen.</li>{% endfor %}</ul>
+<h2>Wissensgraph</h2>
+<ul>{% for m in graph.mentions %}<li><a href="/graph/entitaet/{{ m.entity_id }}">{{ m.entity }}</a> ({{ m.type }}): „{{ m.quote }}“{% if m.status == 'proposed' %} (Vorschlag){% endif %}{% if graph_writable %}{% if m.status == 'proposed' %} <form class="inline" method="post" action="/graph/erwaehnung/{{ m.id }}/bestaetigen"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit">bestätigen</button></form>{% endif %} <form class="inline" method="post" action="/graph/erwaehnung/{{ m.id }}/loeschen"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit">entfernen</button></form>{% endif %}</li>{% endfor %}
+{% for r in graph.relations %}<li>{{ r.source }} {{ r.type }} {{ r.target }}: „{{ r.quote }}“{% if r.status == 'proposed' %} (Vorschlag){% endif %}{% if graph_writable %}{% if r.status == 'proposed' %} <form class="inline" method="post" action="/graph/relation/{{ r.id }}/bestaetigen"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit">bestätigen</button></form>{% endif %} <form class="inline" method="post" action="/graph/relation/{{ r.id }}/loeschen"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ r.revision }}"><button type="submit">entfernen</button></form>{% endif %}</li>{% endfor %}
+{% if not graph.mentions and not graph.relations %}<li>Keine Einträge.</li>{% endif %}</ul>
+{% if graph_writable %}
+<details><summary>Eintrag anlegen</summary>
+<p><small>Der Beleg muss wörtlich im Text des Dokuments stehen.</small></p>
+<form method="post" action="/dokument/{{ doc.id }}/graph/entitaet"><input type="hidden" name="csrf_token" value="{{ csrf }}"><label>Art <select name="type_id">{% for t in entity_types %}<option value="{{ t.id }}">{{ t.name }}</option>{% endfor %}</select></label> <label>Name <input name="name" maxlength="200" required></label> <label>Beleg <input name="quote" maxlength="1000" required></label> <button type="submit">Neue Entität</button></form>
+{% if known_entities %}
+<form method="post" action="/dokument/{{ doc.id }}/graph/erwaehnung"><input type="hidden" name="csrf_token" value="{{ csrf }}"><label>Entität <select name="entity_id">{% for e in known_entities %}<option value="{{ e.id }}">{{ e.name }} ({{ e.type }})</option>{% endfor %}</select></label> <label>Beleg <input name="quote" maxlength="1000" required></label> <button type="submit">Erwähnung</button></form>
+<form method="post" action="/dokument/{{ doc.id }}/graph/relation"><input type="hidden" name="csrf_token" value="{{ csrf }}"><select name="source_id" aria-label="Quelle">{% for e in known_entities %}<option value="{{ e.id }}">{{ e.name }}</option>{% endfor %}</select> <select name="type_id" aria-label="Relationsart">{% for t in relation_types %}<option value="{{ t.id }}">{{ t.name }}</option>{% endfor %}</select> <select name="target_id" aria-label="Ziel">{% for e in known_entities %}<option value="{{ e.id }}">{{ e.name }}</option>{% endfor %}</select> <label>Beleg <input name="quote" maxlength="1000" required></label> <button type="submit">Relation</button></form>
+{% endif %}
+</details>
+{% if suggest_available %}
+{% if suggest_state.status in ('pending', 'running') %}<p>KI-Vorschläge {{ 'warten auf den Worker' if suggest_state.status == 'pending' else 'laufen' }}.</p>
+{% else %}{% if suggest_state.status == 'done' %}<p><small>Letzter Lauf: {{ suggest_state.counts.entitaeten }} Entitäten, {{ suggest_state.counts.relationen }} Relationen vorgeschlagen.</small></p>{% elif suggest_state.status == 'failed' %}<p><small>Letzter Lauf fehlgeschlagen ({{ suggest_state.error }}).</small></p>{% endif %}
+<form method="post" action="/dokument/{{ doc.id }}/graph/vorschlaege"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit">KI-Vorschläge anfordern</button></form>{% endif %}
+{% endif %}
+{% endif %}
 {% if writable %}<form method="post" action="/dokument/{{ doc.id }}/beziehung"><input type="hidden" name="csrf_token" value="{{ csrf }}"><label>Art <select name="kind">{% for key, text in relation_choices.items() %}<option value="{{ key }}">{{ text }}</option>{% endfor %}</select></label> <label>Dokument-Nr. <input name="target_id" inputmode="numeric" required size="6"></label> <label>Notiz <input name="note" maxlength="300"></label> <button type="submit">Beziehung anlegen</button></form>{% endif %}
 {% if history %}
 <h2>Verlauf der Metadaten</h2>

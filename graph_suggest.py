@@ -82,8 +82,10 @@ def suggest(store, document_id, model=DEFAULT_MODEL, transport=None, progress=No
 
 
 def ai_endpoint():
+    """The local Ollama, or the one ``WR_OLLAMA_URL`` names on the server (``core.use_ollama_at``)."""
+    import core
     from settings import PROVIDERS
-    return PROVIDERS['ollama']['endpoint']
+    return core._OLLAMA_BASE + '/api/chat' if core._OLLAMA_BASE else PROVIDERS['ollama']['endpoint']
 
 
 def _span(offset, text, quote):
