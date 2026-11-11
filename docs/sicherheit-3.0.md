@@ -80,6 +80,7 @@ Dokumenttexte und Originale, Abschnitte und Vektoren (sie verraten Inhalte), KI-
 ### Geheimnisse (10.8)
 
 - Der Server liest Geheimnisse aus Docker-Secrets-Dateien oder Umgebungsvariablen, nie aus Repository, Datenbank oder Logs. Logs maskieren sie wie bisher.
+- Ausnahme Postfach-Zugänge (D-030, `docs/adr-postfach-zugaenge.md`): IMAP-Kennwörter und Microsoft-Refresh-Token je Konto liegen mit AES-256-GCM verschlüsselt in PostgreSQL, Konto und Postfach als zusätzliche Daten der Verschlüsselung. Der Schlüssel ist das Docker-Secret `mail_key`, nur Server und Worker lesen es, eine mit age verschlüsselte Kopie liegt außerhalb des VPS. Chiffrate erscheinen nie in Log, Audit, Auskunft oder Installationsexport.
 - Zwei Datenbankrollen (D-029): Die Eigentümerrolle migriert, die Laufzeitrolle des Servers hat kein DDL-Recht, liest die Migrationshistorie nur und darf den Audit-Verlauf nur lesen und ergänzen.
 - Das Entra-Client-Geheimnis hat ein Ablaufdatum, die Betriebsübersicht warnt 30 Tage vorher.
 

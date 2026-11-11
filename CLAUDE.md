@@ -93,7 +93,7 @@ Architekturregeln:
 ### Geheimnisse
 
 - Keine API-Schlüssel, Datenbankkennwörter, App-Passwörter oder OAuth-Token in Git, SQL, Logs, Screenshots, Fixtures oder Fehlermeldungen speichern.
-- Neue Geheimnisse ausschließlich im nativen Betriebssystem-Schlüsselspeicher ablegen.
+- Neue Geheimnisse ausschließlich im nativen Betriebssystem-Schlüsselspeicher ablegen. Ausnahme nur für den Server (D-030): Postfach-Zugänge verschlüsselt mit AES-256-GCM in PostgreSQL, Schlüssel als Docker-Secret, nie im Klartext in Datenbank, Sicherung, Log, Audit oder Export.
 - Umgebungsvariablen und lokale `.env`-Dateien nur über die vorhandenen, maskierten Lesepfade verwenden.
 - Vor jedem Commit Diff und neue Dateien auf Geheimnisse prüfen.
 

@@ -1,6 +1,6 @@
 # ADR: Postfach-Zugänge im Server (Paritäts-Roadmap Phase 8)
 
-Status: Vorschlag, Entscheidung des Product Owners offen
+Status: angenommen am 11.11.2026 (D-030): Option B mit A für IMAP, PST nur im Desktop, Zustimmung zu `Mail.Read` und `offline_access` erteilt der Product Owner
 Stand: 11.11.2026
 Betrifft: D06 bis D10, D12 der Paritätsmatrix, Befund „Geheimnisablage je Konto“ im Architektur-Review
 
