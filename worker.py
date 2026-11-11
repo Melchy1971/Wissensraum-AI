@@ -67,6 +67,10 @@ def import_once(store, stop, heartbeat=HEARTBEAT, beat=INTERVAL_SECONDS, importe
     """
     jobs = ImportJobs(store, importer)
     jobs.drop_kept_uploads()  # bytes of uploads without text after 30 days (decision 11.11.2026)
+    preview = jobs.next_preview_job()
+    if preview is not None:  # A03: read the files first, the account chooses before anything is imported
+        with alive(heartbeat, beat):
+            jobs.build_preview(preview, progress=heartbeat.touch)
     job_id = jobs.next_upload_job()
     if job_id is None:
         return None

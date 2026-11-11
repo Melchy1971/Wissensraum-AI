@@ -17,11 +17,13 @@ from pathlib import Path
 from core import (MAX_DOCUMENT_BYTES, QUARANTINE_REASONS, ImportRejected, OcrDeferred, discover_documents,
                   extract_document, import_document)
 
-FINAL_STATUSES = ('imported', 'versioned', 'duplicate', 'quarantined')
+FINAL_STATUSES = ('imported', 'versioned', 'duplicate', 'quarantined', 'deselected')
 OPEN_STATUSES = ('pending', 'running', 'failed')
 STATUS_LABELS = {'pending': 'offen', 'running': 'in Bearbeitung', 'imported': 'importiert',
                  'versioned': 'neue Version',
-                 'duplicate': 'bereits vorhanden', 'quarantined': 'Quarantäne', 'failed': 'fehlgeschlagen'}
+                 'duplicate': 'bereits vorhanden', 'quarantined': 'Quarantäne', 'failed': 'fehlgeschlagen',
+                 'deselected': 'abgewählt', 'preview': 'Vorschau wird erstellt', 'review': 'wartet auf Auswahl'}
+PREVIEW_SETTING = 'import.preview.'  # one JSON per server job in review: {item id: preview row} (phase 9, A03)
 REASON_LABELS = {**QUARANTINE_REASONS, 'error': 'Unerwarteter Fehler'}
 MAIL_KINDS = ('imap', 'graph', 'pst')
 OUTCOME_LABELS = {'new': 'neu', 'version': 'neue Version', 'duplicate': 'bereits vorhanden',
@@ -133,10 +135,12 @@ class ImportJobs:
                            (item_id, 1, 'unreadable', message))
         return job_id
 
-    def create_uploads(self, account_id, files, category='Allgemein'):
+    def create_uploads(self, account_id, files, category='Allgemein', preview=False):
         """Server job for ``account_id``: ``files`` are (name, bytes); ZIP archives are unpacked.
 
         The bytes wait in ``import_items.upload`` until the worker imported the item and are removed then.
+        With ``preview`` the job waits as ``preview``: the worker reads the files first (``build_preview``),
+        the account deselects items (``start_selection``) and only then the import runs (A03).
         """
         entries, problems = [], []
         for name, data in files:
@@ -150,7 +154,8 @@ class ImportJobs:
             raise ValueError('Keine Dateien gefunden.')
         with self.store.transaction() as db:
             job_id = db.execute('INSERT INTO import_jobs(kind,root,category,status,account_id) VALUES(?,?,?,?,?) '
-                                'RETURNING id', (UPLOAD, '', category, 'pending', account_id)).fetchone()['id']
+                                'RETURNING id', (UPLOAD, '', category, 'preview' if preview else 'pending',
+                                                 account_id)).fetchone()['id']
             for ordinal, (name, data) in enumerate(entries, start=1):
                 db.execute('INSERT INTO import_items(job_id,ordinal,path,locator,size,upload) VALUES(?,?,?,?,?,?)',
                            (job_id, ordinal, name, name, len(data), data))
@@ -173,6 +178,67 @@ class ImportJobs:
                              "NULL) AND status IN ('pending','running') ORDER BY id LIMIT 1", (UPLOAD,)).fetchone()
         return row['id'] if row else None
 
+    def next_preview_job(self):
+        """The oldest server job waiting for its preview, or None."""
+        with self.store.connect() as db:
+            row = db.execute("SELECT id FROM import_jobs WHERE kind=? AND status='preview' ORDER BY id LIMIT 1",
+                             (UPLOAD,)).fetchone()
+        return row['id'] if row else None
+
+    def build_preview(self, job_id, progress=None):
+        """Read every waiting upload without OCR, as the desktop preview does, and put the job in review.
+
+        Rows: outcome (new, version, duplicate, ocr, quarantined), title, excerpt, reason and the matching
+        document. The page shows a matching document's title only if the account may see it.
+        """
+        job = self.job(job_id)
+        rows = {}
+        for item in self.items(job_id):
+            if item['status'] != 'pending' or not item['kept']:
+                continue
+            with self.store.connect() as db:
+                data = bytes(db.execute('SELECT upload FROM import_items WHERE id=?', (item['id'],)).fetchone()['upload'])
+            row = {'outcome': 'quarantined', 'title': '', 'excerpt': '', 'reason': '', 'document_id': None,
+                   'version': None, 'pages': None}
+            try:
+                title, text, _, _ = extract_document(item['locator'], data, allow_ocr=False)
+                match = self.store.match(text, ('file', f'server:{job["account_id"]}', item['locator']), versioned=True)
+                row.update(outcome=match['outcome'], title=title, excerpt=text.strip()[:PREVIEW_EXCERPT],
+                           document_id=match.get('document_id'), version=match.get('version'))
+            except OcrDeferred as deferred:
+                row.update(outcome='ocr', title=Path(item['locator']).stem, pages=deferred.pages)
+            except ImportRejected as rejected:
+                row['reason'] = rejected.reason
+            rows[str(item['id'])] = row
+            if progress is not None:
+                progress()
+        with self.store.connect() as db:
+            db.execute('DELETE FROM settings WHERE name=?', (f'{PREVIEW_SETTING}{job_id}',))
+            db.execute('INSERT INTO settings(name,value) VALUES(?,?)', (f'{PREVIEW_SETTING}{job_id}', json.dumps(rows)))
+            db.execute("UPDATE import_jobs SET status='review',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='preview'",
+                       (job_id,))
+        return rows
+
+    def upload_preview(self, job_id):
+        with self.store.connect() as db:
+            row = db.execute('SELECT value FROM settings WHERE name=?', (f'{PREVIEW_SETTING}{job_id}',)).fetchone()
+        return json.loads(row['value']) if row else {}
+
+    def start_selection(self, job_id, chosen):
+        """Import the chosen items of a job in review; the others become ``deselected`` and lose their bytes."""
+        chosen = {int(i) for i in chosen}
+        with self.store.transaction() as db:
+            if db.execute("UPDATE import_jobs SET status='pending',updated_at=CURRENT_TIMESTAMP WHERE id=? "
+                          "AND status='review'", (job_id,)).rowcount != 1:
+                raise ValueError('Die Vorschau ist nicht mehr offen.')
+            dropped = [row['id'] for row in db.execute("SELECT id FROM import_items WHERE job_id=? AND status='pending'",
+                                                       (job_id,)) if row['id'] not in chosen]
+            for item_id in dropped:
+                db.execute("UPDATE import_items SET status='deselected',upload=NULL,updated_at=CURRENT_TIMESTAMP "
+                           'WHERE id=?', (item_id,))
+            db.execute('DELETE FROM settings WHERE name=?', (f'{PREVIEW_SETTING}{job_id}',))
+        return len(dropped)
+
     def upload_jobs(self, account_id=None, limit=50):
         """Summaries of server jobs, newest first; ``account_id`` None: all (administrators)."""
         with self.store.connect() as db:
@@ -185,12 +251,15 @@ class ImportJobs:
         """Cancel (``cancelled``) an unfinished job, or resume (``pending``) one with open or failed items."""
         if status not in ('cancelled', 'pending'):
             raise ValueError('Unbekannter Auftragsstatus.')
-        allowed = ("status IN ('pending','running')" if status == 'cancelled' else
-                   "EXISTS (SELECT 1 FROM import_items i WHERE i.job_id=import_jobs.id "
-                   "AND i.status IN ('pending','running','failed'))")
+        allowed = ("status IN ('pending','running','preview','review')" if status == 'cancelled' else
+                   "status NOT IN ('preview','review') AND EXISTS (SELECT 1 FROM import_items i "
+                   "WHERE i.job_id=import_jobs.id AND i.status IN ('pending','running','failed'))")
         with self.store.connect() as db:
-            return db.execute(f'UPDATE import_jobs SET status=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND {allowed}',
-                              (status, job_id)).rowcount == 1
+            changed = db.execute(f'UPDATE import_jobs SET status=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND {allowed}',
+                                 (status, job_id)).rowcount == 1
+            if changed and status == 'cancelled':
+                db.execute('DELETE FROM settings WHERE name=?', (f'{PREVIEW_SETTING}{job_id}',))
+            return changed
 
     def retry_candidates(self, reason='no_text'):
         """Items whose latest outcome is quarantine for ``reason``, grouped by source; oldest first.

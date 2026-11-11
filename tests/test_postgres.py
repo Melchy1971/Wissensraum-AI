@@ -492,6 +492,10 @@ class PostgresStoreTests(unittest.TestCase):
         from test_document_care import check_care_contract
         check_care_contract(self, PostgresStore(self.profile, self.password))
 
+    def test_upload_preview_on_real_postgresql(self):
+        from test_upload_preview import check_preview_contract
+        check_preview_contract(self, PostgresStore(self.profile, self.password))
+
     def test_mailboxes_on_real_postgresql(self):
         from test_mailboxes import check_mailbox_contract
         check_mailbox_contract(self, PostgresStore(self.profile, self.password))

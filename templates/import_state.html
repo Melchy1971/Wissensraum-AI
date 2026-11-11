@@ -1,14 +1,30 @@
 <div id="import-state"{% if open %} hx-get="/importe/{{ job.id }}/stand" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
-<p class="status">Status: {{ labels.get(job.status, job.status) }} · {{ summary.total }} Dateien: {{ summary.imported }} importiert, {{ summary.duplicate }} bereits vorhanden, {{ summary.quarantined }} in Quarantäne, {{ summary.failed }} fehlgeschlagen, {{ summary.pending + summary.running }} offen</p>
-{% if open %}
+<p class="status">Status: {{ labels.get(job.status, job.status) }} · {{ summary.total }} Dateien: {{ summary.imported }} importiert, {{ summary.duplicate }} bereits vorhanden, {{ summary.quarantined }} in Quarantäne, {{ summary.failed }} fehlgeschlagen, {{ summary.deselected }} abgewählt, {{ summary.pending + summary.running }} offen</p>
+{% if open or job.status == 'review' %}
 <form method="post" action="/importe/{{ job.id }}/abbrechen"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit">Abbrechen</button></form>
-{% elif summary.resumable %}
+{% elif summary.resumable and job.status != 'review' %}
 <form method="post" action="/importe/{{ job.id }}/fortsetzen"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit">Fortsetzen</button></form>
 {% endif %}
 {% if kept and not open %}
 <form method="post" action="/importe/{{ job.id }}/erneut"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit">{{ kept }} Dateien ohne erkannten Text erneut verarbeiten</button></form>
 <p><small>Dateien ohne erkannten Text hält der Server 30 Tage für einen neuen Versuch, danach nicht mehr.</small></p>
 {% endif %}
+{% if job.status == 'preview' %}<p>Der Worker liest die Dateien für die Vorschau.</p>{% endif %}
+{% if job.status == 'review' %}
+<form method="post" action="/importe/{{ job.id }}/auswahl"><input type="hidden" name="csrf_token" value="{{ csrf }}">
+<table>
+<thead><tr><th>Import</th><th>Datei</th><th>Ergebnis</th><th>Titel und Auszug</th></tr></thead>
+<tbody>
+{% for item in items %}{% set p = preview.get(item.id) %}
+<tr><td>{% if p %}<input type="checkbox" name="item" value="{{ item.id }}" aria-label="{{ item.locator }} importieren"{% if p.outcome in ('new', 'version', 'ocr') %} checked{% endif %}>{% endif %}</td>
+<td>{{ item.locator }}<br><small>{{ item.size }} Bytes</small></td>
+<td>{% if p %}{{ p.label }}{% if p.version %} (Fassung {{ p.version }}){% endif %}{% if p.existing %}: {{ p.existing }}{% endif %}{% else %}{{ item.status_text }} {{ item.reason_text }}{% endif %}</td>
+<td>{% if p %}{{ p.title }}<br><small>{{ p.excerpt }}</small>{% endif %}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+<button type="submit">Ausgewählte importieren</button></form>
+{% else %}
 <table>
 <thead><tr><th>Nr.</th><th>Datei</th><th>Status</th><th>Grund</th></tr></thead>
 <tbody>
@@ -18,4 +34,5 @@
 {% endfor %}
 </tbody>
 </table>
+{% endif %}
 </div>

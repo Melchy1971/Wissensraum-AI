@@ -3,9 +3,10 @@
 <form hx-post="/hochladen" hx-indicator="#laeuft" hx-disabled-elt="find button" hx-encoding="multipart/form-data" hx-target="#upload-result">
 <label>Dateien oder ZIP-Archive <input type="file" name="file" multiple required></label>
 <label>Bereich <input name="category" value="Allgemein" maxlength="100" required></label>
+<label><input type="checkbox" name="preview" value="1" checked> erst Vorschau, dann auswählen</label>
 <button type="submit">Hochladen</button>
 </form>
 <div id="upload-result"></div>
-<p><small>Mehrere Dateien oder ZIP-Archive, bis 50 MB je Datei und 100 MB je Upload. Der Import läuft im Hintergrund, der Fortschritt erscheint danach. Bilder brauchen die Texterkennung und landen bis dahin in der Quarantäne.</small></p>
+<p><small>Mehrere Dateien oder ZIP-Archive, bis 50 MB je Datei und 100 MB je Upload. Der Import läuft im Hintergrund, der Fortschritt erscheint danach. Mit Vorschau liest der Worker die Dateien zuerst und du wählst ab, was nicht importiert werden soll. Bilder und Scans erkennt der Worker per Texterkennung.</small></p>
 <p><a href="/importe">Bisherige Importe</a></p>
 {% endblock %}

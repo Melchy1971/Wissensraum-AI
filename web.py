@@ -307,7 +307,7 @@ def register(app, ctx):
         category = (values.get('category') or 'Allgemein').strip()[:100] or 'Allgemein'
         try:
             with store.transaction():
-                job_id = ImportJobs(store).create_uploads(account['id'], files, category)
+                job_id = ImportJobs(store).create_uploads(account['id'], files, category, values.get('preview') == '1')
                 ctx.audited(request, 'import_started', account['id'], f'import:{job_id}', files=len(files))
         except ValueError as error:
             raise HTTPException(422, str(error)) from None
@@ -329,14 +329,28 @@ def register(app, ctx):
             raise HTTPException(404, 'Nicht gefunden.')
         return jobs, job
 
-    def job_view(jobs, job):
+    def job_view(jobs, job, request):
         from import_jobs import REASON_LABELS, STATUS_LABELS
         summary = jobs.summary(job['id'])
         items = [{**item, 'status_text': STATUS_LABELS[item['status']],
                   'reason_text': REASON_LABELS.get(item['reason'], item['reason'])} for item in jobs.items(job['id'])]
         kept = sum(1 for item in items if item['kept'] and item['status'] == 'quarantined')
-        return {'job': job, 'summary': summary, 'items': items, 'open': job['status'] in ('pending', 'running'),
-                'labels': STATUS_LABELS, 'kept': kept}
+        preview = {}
+        if job['status'] == 'review':  # A03: titles of matching documents only if the account sees them
+            from import_jobs import OUTCOME_LABELS
+            scoped = ctx.viewer(request)
+            for item_id, row in jobs.upload_preview(job['id']).items():
+                existing = ''
+                if row.get('document_id') is not None:
+                    try:
+                        existing = scoped.get(row['document_id'])['title']
+                    except ValueError:
+                        existing = ''
+                label = (REASON_LABELS.get(row['reason'], 'nicht importierbar') if row['outcome'] == 'quarantined'
+                         else OUTCOME_LABELS.get(row['outcome'], row['outcome']))
+                preview[int(item_id)] = {**row, 'existing': existing, 'label': label}
+        return {'job': job, 'summary': summary, 'items': items, 'open': job['status'] in ('pending', 'running', 'preview'),
+                'labels': STATUS_LABELS, 'kept': kept, 'preview': preview}
 
     @app.get('/importe', response_class=HTMLResponse)
     def imports(request: Request):
@@ -348,16 +362,26 @@ def register(app, ctx):
     @app.get('/importe/{job_id}', response_class=HTMLResponse)
     def import_page(request: Request, job_id: int):
         jobs, job = own_job(request, job_id)
-        return render(request, 'import.html', f'Import {job_id}', **job_view(jobs, job))
+        return render(request, 'import.html', f'Import {job_id}', **job_view(jobs, job, request))
 
     @app.get('/importe/{job_id}/stand', response_class=HTMLResponse)
     def import_state(request: Request, job_id: int):
         jobs, job = own_job(request, job_id)
-        return render(request, 'import_state.html', '', **job_view(jobs, job))
+        return render(request, 'import_state.html', '', **job_view(jobs, job, request))
 
     @app.post('/importe/{job_id}/{action}', response_class=HTMLResponse)
-    def import_action(request: Request, job_id: int, action: str):
+    async def import_action(request: Request, job_id: int, action: str):
         jobs, job = own_job(request, job_id)
+        if action == 'auswahl':  # A03: the chosen items of a job in review; the others are not imported
+            values = await form(request)
+            try:
+                with store.transaction():
+                    dropped = jobs.start_selection(job_id, [number(v) for v in values.getlist('item')])
+                    ctx.audited(request, 'import_started', request.state.account['id'], f'import:{job_id}',
+                                deselected=dropped)
+            except ValueError as error:
+                raise HTTPException(409, str(error)) from None
+            return RedirectResponse(f'/importe/{job_id}', status_code=303)
         if action == 'erneut':  # D05: items without readable text whose bytes are still kept (30 days)
             with store.transaction():
                 count = jobs.retry_uploads(job_id)

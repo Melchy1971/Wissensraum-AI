@@ -42,8 +42,8 @@ Gemeinsamer Kern: `core.py` (`Store`, `PostgresStore`, `AI`, `Embedder`, Extrakt
 
 | Status | Anzahl Desktop-Funktionen |
 |---|---:|
-| FULL | 63 |
-| PARTIAL | 3 |
+| FULL | 64 |
+| PARTIAL | 2 |
 | MISSING | 0 |
 | DIFFERENT | 2 |
 | NOT_APPLICABLE | 9 |
@@ -51,7 +51,7 @@ Gemeinsamer Kern: `core.py` (`Store`, `PostgresStore`, `AI`, `Embedder`, Extrakt
 | Summe Desktop-Funktionen | 78 |
 | WEB_ONLY (zusätzlich) | 13 |
 
-Funktionsparität = FULL / (FULL + PARTIAL + MISSING + DIFFERENT) = 63 / 68 = 92,6 % (Stand nach Paritäts-Roadmap Phase 8. D06 und D12 sind seitdem NOT_APPLICABLE, PST nach D-030 nur im Desktop. Nach Phase 9: 59 / 70 = 84,3 %. H06 ist seitdem bewertet und zählt mit, daher 70. Nach Phase 7: 54 / 69 = 78,3 %, nach Phase 6: 48 / 69 = 69,6 %, nach Phase 5: 46 / 69 = 66,7 %, nach Phase 4b: 37 / 69 = 53,6 %, nach Phase 4a: 27 / 69 = 39,1 %, nach Phase 3: 18 / 69 = 26,1 %, nach Phase 2: 16 / 69 = 23,2 %, nach Phase 1: 12 / 69 = 17,4 %, nach Phase 0: 11 / 69 = 15,9 %, vor Phase 0: 10 / 69 = 14,5 %).
+Funktionsparität = FULL / (FULL + PARTIAL + MISSING + DIFFERENT) = 64 / 68 = 94,1 % (Stand nach A03, Importvorschau. Nach Phase 8: 63 / 68 = 92,6 %. D06 und D12 sind seitdem NOT_APPLICABLE, PST nach D-030 nur im Desktop. Nach Phase 9: 59 / 70 = 84,3 %. H06 ist seitdem bewertet und zählt mit, daher 70. Nach Phase 7: 54 / 69 = 78,3 %, nach Phase 6: 48 / 69 = 69,6 %, nach Phase 5: 46 / 69 = 66,7 %, nach Phase 4b: 37 / 69 = 53,6 %, nach Phase 4a: 27 / 69 = 39,1 %, nach Phase 3: 18 / 69 = 26,1 %, nach Phase 2: 16 / 69 = 23,2 %, nach Phase 1: 12 / 69 = 17,4 %, nach Phase 0: 11 / 69 = 15,9 %, vor Phase 0: 10 / 69 = 14,5 %).
 
 ## 5. Funktionsmatrix
 
@@ -61,7 +61,7 @@ Spalte Desktop: Status der Referenz (GUI oder CLI). Spalte Web: Status im Web. A
 |---|---|---|---|---|---|---|---|---|
 | A01 | Dokumente | Notiz bzw. Textdokument erfassen | FULL (GUI) | FULL | Seite `/notiz`, `services.create_document` | test_document_care | erledigt | 0 |
 | A02 | Dokumente | Einzeldatei hochladen (Textformate) | FULL (GUI) | FULL | `extract_document`, `POST /hochladen` | test_web upload | erledigt | 0 |
-| A03 | Dokumente | Mehrere Dateien mit Importvorschau | FULL (GUI) | PARTIAL | Mehrfach- und ZIP-Upload als Auftrag (`ImportJobs.create_uploads`), Ergebnis je Datei. Keine Vorschau mit Abwahl vor dem Import | test_uploads, test_web | P2 | 1 bis 2 |
+| A03 | Dokumente | Mehrere Dateien mit Importvorschau | FULL (GUI) | FULL | Upload mit Vorschau: der Worker liest die Dateien ohne OCR wie der Desktop (Titel, Auszug, neu, neue Fassung, vorhanden), das Konto wählt ab, nur die Auswahl wird importiert. Titel fremder Dokumente erscheinen nie | test_upload_preview (beide Backends) | erledigt | 0 |
 | A04 | Dokumente | Titel und Bereich bearbeiten | FULL (GUI, CLI) | FULL | `update_metadata`, `PATCH /api/documents/{id}`, `POST /dokument/{id}/metadaten` | test_web, test_concurrency | erledigt | 0 |
 | A05 | Dokumente | Tags bearbeiten | FULL (GUI, CLI) | FULL | Tag-Liste im Metadatenformular, `services.change_document` rechnet Zu- und Abgänge | test_document_care | erledigt | 0 |
 | A06 | Dokumente | Status, Verantwortlicher, Wiedervorlage | FULL (GUI, CLI) | FULL | Status, Verantwortlich, Wiedervorlage in Formular und `PATCH /api/documents/{id}` | test_document_care | erledigt | 0 |
