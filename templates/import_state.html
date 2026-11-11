@@ -5,6 +5,10 @@
 {% elif summary.resumable %}
 <form method="post" action="/importe/{{ job.id }}/fortsetzen"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit">Fortsetzen</button></form>
 {% endif %}
+{% if kept and not open %}
+<form method="post" action="/importe/{{ job.id }}/erneut"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit">{{ kept }} Dateien ohne erkannten Text erneut verarbeiten</button></form>
+<p><small>Dateien ohne erkannten Text hält der Server 30 Tage für einen neuen Versuch, danach nicht mehr.</small></p>
+{% endif %}
 <table>
 <thead><tr><th>Nr.</th><th>Datei</th><th>Status</th><th>Grund</th></tr></thead>
 <tbody>

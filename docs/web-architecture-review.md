@@ -142,5 +142,7 @@ Erst Betrieb absichern (S-01 bis S-04), dann eine dünne Service-Schicht und ein
 | 11.11.2026 | Freigaben bei neuer Fassung | Lese- und Schreibfreigaben der vorigen Fassung gehen auf die neue über, Besitz nicht |
 | 11.11.2026 | Datenschutzexport | beides: Auskunft je Konto (JSON, ohne Dokumentinhalte) und Installationsexport für Admins als Worker-Auftrag, Datei bleibt einen Tag |
 | 11.11.2026 | Selektive Löschung (E03) | nur Administratoren, mit Vorschau der Folgen und Bestätigungswort |
+| 11.11.2026 | Texterkennung im Server | Tesseract (deu, eng) im gemeinsamen Image von Server und Worker, nur der Worker ruft es auf |
+| 11.11.2026 | Uploads ohne erkannten Text | Bytes bleiben 30 Tage für einen neuen Versuch, danach entfernt der Worker sie |
 | 11.11.2026 | KI-Verlauf nach Entzug (S-10) | beim Anzeigen filtern: Antworten mit nicht mehr sichtbaren Quellen erscheinen ohne Antwort und Quellen, nichts wird gelöscht |
 | 10.11.2026 | Dublette über Kontogrenzen (S-05) | Verhalten bleibt: 409 ohne Zugriff. Restrisiko: ein Bearbeiter erfährt, dass ein exakt gleicher Text existiert. Kein Titel, keine Kennung wird preisgegeben. |

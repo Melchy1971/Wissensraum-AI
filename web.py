@@ -275,8 +275,9 @@ def register(app, ctx):
         summary = jobs.summary(job['id'])
         items = [{**item, 'status_text': STATUS_LABELS[item['status']],
                   'reason_text': REASON_LABELS.get(item['reason'], item['reason'])} for item in jobs.items(job['id'])]
+        kept = sum(1 for item in items if item['kept'] and item['status'] == 'quarantined')
         return {'job': job, 'summary': summary, 'items': items, 'open': job['status'] in ('pending', 'running'),
-                'labels': STATUS_LABELS}
+                'labels': STATUS_LABELS, 'kept': kept}
 
     @app.get('/importe', response_class=HTMLResponse)
     def imports(request: Request):
@@ -298,6 +299,14 @@ def register(app, ctx):
     @app.post('/importe/{job_id}/{action}', response_class=HTMLResponse)
     def import_action(request: Request, job_id: int, action: str):
         jobs, job = own_job(request, job_id)
+        if action == 'erneut':  # D05: items without readable text whose bytes are still kept (30 days)
+            with store.transaction():
+                count = jobs.retry_uploads(job_id)
+                if count:
+                    ctx.audited(request, 'import_started', request.state.account['id'], f'import:{job_id}', retry=count)
+            if not count:
+                raise HTTPException(409, 'Keine Dateien zum erneuten Verarbeiten vorhanden.')
+            return RedirectResponse(f'/importe/{job_id}', status_code=303)
         status = {'abbrechen': 'cancelled', 'fortsetzen': 'pending'}.get(action)
         if status is None:
             raise HTTPException(404, 'Nicht gefunden.')

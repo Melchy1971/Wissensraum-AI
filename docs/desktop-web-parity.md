@@ -42,16 +42,16 @@ Gemeinsamer Kern: `core.py` (`Store`, `PostgresStore`, `AI`, `Embedder`, Extrakt
 
 | Status | Anzahl Desktop-Funktionen |
 |---|---:|
-| FULL | 46 |
+| FULL | 48 |
 | PARTIAL | 7 |
-| MISSING | 14 |
+| MISSING | 12 |
 | DIFFERENT | 2 |
 | NOT_APPLICABLE | 7 |
 | UNKNOWN | 2 |
 | Summe Desktop-Funktionen | 78 |
 | WEB_ONLY (zusätzlich) | 13 |
 
-Funktionsparität = FULL / (FULL + PARTIAL + MISSING + DIFFERENT) = 46 / 69 = 66,7 % (Stand nach Paritäts-Roadmap Phase 5. Nach Phase 4b: 37 / 69 = 53,6 %, nach Phase 4a: 27 / 69 = 39,1 %, nach Phase 3: 18 / 69 = 26,1 %, nach Phase 2: 16 / 69 = 23,2 %, nach Phase 1: 12 / 69 = 17,4 %, nach Phase 0: 11 / 69 = 15,9 %, vor Phase 0: 10 / 69 = 14,5 %).
+Funktionsparität = FULL / (FULL + PARTIAL + MISSING + DIFFERENT) = 48 / 69 = 69,6 % (Stand nach Paritäts-Roadmap Phase 6. Nach Phase 5: 46 / 69 = 66,7 %, nach Phase 4b: 37 / 69 = 53,6 %, nach Phase 4a: 27 / 69 = 39,1 %, nach Phase 3: 18 / 69 = 26,1 %, nach Phase 2: 16 / 69 = 23,2 %, nach Phase 1: 12 / 69 = 17,4 %, nach Phase 0: 11 / 69 = 15,9 %, vor Phase 0: 10 / 69 = 14,5 %).
 
 ## 5. Funktionsmatrix
 
@@ -97,8 +97,8 @@ Spalte Desktop: Status der Referenz (GUI oder CLI). Spalte Web: Status im Web. A
 | D01 | Import | Ordner rekursiv vom lokalen Dateisystem | FULL (GUI) | NOT_APPLICABLE | `discover_documents(folder)` | test_importer | keine | 0 |
 | D02 | Import | Persistente Importaufträge mit Fortschritt, Abbruch, Fortsetzen | FULL (GUI) | FULL | Worker `import_once`, `/importe`, Polling je 2 s, Abbrechen, Fortsetzen, Neustart setzt fort, Schema 24 | test_uploads, test_postgres | erledigt | 0 |
 | D03 | Import | Importbericht und Fehlerjournal | FULL (GUI) | FULL | Status und Grund je Datei, CSV unter `/importe/{id}/bericht` | test_uploads | erledigt | 0 |
-| D04 | Import | OCR für Bilder und Scans | FULL (GUI, optional) | MISSING | `ocr.py`, Server lehnt Bilder ab | test_web (Ablehnung) | P2 | 3 bis 5 |
-| D05 | Import | OCR-Quarantäne erneut verarbeiten | FULL (GUI) | MISSING | `retry_quarantined` | keine Web-Tests | P3 | 1 |
+| D04 | Import | OCR für Bilder und Scans | FULL (GUI, optional) | FULL | Tesseract (deu, eng) im gemeinsamen Image, nur der Worker erkennt (`WISSENSRAUM_OCR=0` im Server), Grenzen aus `ocr.py`, Herzschlag während langer Scans | test_ocr (14 Tests), test_ocr_server | erledigt, Image neu bauen | 0 |
+| D05 | Import | OCR-Quarantäne erneut verarbeiten | FULL (GUI) | FULL | Uploads ohne erkannten Text behalten ihre Bytes 30 Tage (Entscheidung 11.11.2026), „erneut verarbeiten“ für Besitzer und Admins, Audit `import_started` | test_ocr_server (beide Backends) | erledigt | 0 |
 | D06 | Import | PST-Import mit Vorschau | FULL (GUI, optional) | MISSING | `import_pst`, `pst_archive.py` | keine Web-Tests | P3 | 3 bis 5 |
 | D07 | Import | IMAP-Import mit Vorschau und Anhangsfreigabe | FULL (GUI) | MISSING | `preview_imap`, `import_imap_ids` | keine Web-Tests | P3 | 4 bis 7 |
 | D08 | Import | Microsoft-Graph-Mailimport | FULL (GUI) | MISSING | `begin_microsoft`, `import_microsoft_ids` | keine Web-Tests | P3 | 3 bis 5 |

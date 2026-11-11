@@ -81,6 +81,16 @@ Traefik begrenzt den Anfragekörper auf 110 MB (Middleware `wissensraum-groesse`
 
 Der Installationsexport enthält alle Tabellen samt Originalen, also alles, was auch `pg_dump` enthält. Er liegt unverschlüsselt im Volume, bis ein Admin ihn löscht oder der Worker ihn nach einem Tag entfernt. Nur bei Bedarf anfordern. Selektive Löschung entfernt Daten nicht aus bestehenden Sicherungen.
 
+## Texterkennung (Paritäts-Roadmap Phase 6)
+
+Das Image enthält jetzt Tesseract mit Deutsch und Englisch. Nur der Worker erkennt Text, der Server hat `WISSENSRAUM_OCR=0` in `compose.yaml`.
+
+1. Image neu bauen: `docker compose -f deploy/compose.yaml up -d --build`. Danach steht im Worker-Log `worker_started` mit `status` `ocr`. Steht dort `ohne_ocr`, fehlt Tesseract im Image.
+2. Probe: ein Foto einer Textseite hochladen. Nach einer Runde ist es importiert und über die Suche auffindbar.
+3. Der Worker hat jetzt 1,5 GB Speichergrenze. Ein Scan mit vielen Seiten belegt ihn mehrere Minuten, Einbettung und Export warten so lange.
+
+Dateien ohne erkannten Text bleiben 30 Tage in der Datenbank (`import_items.upload`), damit Besitzer oder Admin sie unter Importe erneut verarbeiten können. Danach entfernt der Worker die Bytes.
+
 ## Antwortqualität von qwen3:4b messen
 
 Alle Grenzwerte (False Reject höchstens 10 %, False Accept höchstens 5 %) sind mit `qwen3:8b` gemessen. Für das Modell des Servers gilt der Nachweis erst nach eigener Messung auf dem eingefrorenen Bestand V2, auf deinem Rechner, mit exklusiv laufendem Ollama:

@@ -23,6 +23,8 @@ services:
         condition: service_completed_successfully
     env_file: wissensraum.env
     secrets: [db_app, oidc_client_secret]
+    environment:
+      WISSENSRAUM_OCR: "0"  # Texterkennung nur im Worker (Paritäts-Roadmap Phase 6)
     volumes:
       - logs:/data/logs
       - exports:/data/exports
@@ -49,7 +51,7 @@ services:
       traefik.http.middlewares.wissensraum-groesse.buffering.maxRequestBodyBytes: "110000000"
       traefik.http.services.wissensraum.loadbalancer.server.port: "8000"
 
-  # Hintergrundarbeiten (Paritäts-Roadmap Phase 2): bettet Abschnitte für die semantische Suche ein.
+  # Hintergrundarbeiten (Paritäts-Roadmap Phase 2, 3, 5, 6): Einbettung, Uploads samt Texterkennung, Installationsexport.
   # Gleiches Image und gleiche Datenbankrolle wie server, kein Port, keine Anmeldedaten. Genau ein Worker.
   worker:
     image: wissensraum-server:3.0
@@ -66,10 +68,11 @@ services:
     # Netz hier ergänzen. Nicht das Proxy-Netz: der Worker bietet nichts an.
     networks: [datenbank]
     read_only: true
-    tmpfs: ["/tmp"]
+    tmpfs: ["/tmp:size=256m"]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    mem_limit: 512m
+    # Phase 6: Tesseract rechnet hier; eine Seite mit 300 dpi braucht einige hundert MB, /tmp liegt im Speicher.
+    mem_limit: 1536m
     cpus: 1
     restart: unless-stopped
     stop_grace_period: 2m

@@ -5,11 +5,17 @@ FROM python:3.13-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 \
     WR_HOST=0.0.0.0 WR_PORT=8000 WR_LOG_DIR=/data/logs
-RUN useradd --uid 10001 --home-dir /data --no-create-home wissensraum \
+# Phase 6 (decision 11.11.2026): Tesseract with German and English in the shared image; only the worker
+# calls it (the server service sets WISSENSRAUM_OCR=0). One Tesseract thread per call (OMP_THREAD_LIMIT).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-deu tesseract-ocr-eng \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --uid 10001 --home-dir /data --no-create-home wissensraum \
     && mkdir -p /data/logs /data/exports && chown -R wissensraum /data
+ENV OMP_THREAD_LIMIT=1
 WORKDIR /app
-COPY requirements.txt requirements-server.txt ./
-RUN pip install --no-compile -r requirements-server.txt
+COPY requirements.txt requirements-server.txt requirements-ocr.txt ./
+RUN pip install --no-compile -r requirements-server.txt -r requirements-ocr.txt
 COPY *.py schema.sql ./
 COPY templates templates
 COPY static static

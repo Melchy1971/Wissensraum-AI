@@ -3,10 +3,12 @@
 All files are synthetic and built in memory; the worker runs in the test process.
 """
 import io
+import os
 import sys
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 import zipfile
 from pathlib import Path
 from unittest import mock
@@ -170,6 +172,7 @@ class UploadPageTests(test_rights.EndpointTests):
         self.assertEqual(self.clients['oid-editor'].post(f'/importe/{job}/fortsetzen').status_code, 303)
         self.assertEqual(self.work()['imported'], 1)  # the kept bytes are imported on resume
 
+    @patch.dict(os.environ, {'WISSENSRAUM_OCR': '0'})  # without OCR; with it see test_ocr_server
     def test_image_waits_in_quarantine_for_ocr(self):
         job = self.upload(self.clients['oid-editor'], [('scan.png', b'\x89PNG\r\n\x1a\n' + b'0' * 64, 'image/png')])
         self.work()

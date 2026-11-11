@@ -20,7 +20,7 @@ Stand: 10.11.2026, Commit `bf3b126`. Grundlage: `docs/desktop-web-parity.md` (Ma
 | 3 | Worker-Dienst und Import (umgesetzt, Vorschau mit Abwahl offen) | P1 | 9 bis 14 PT | M | 1 |
 | 4 | Dokumentpflege und Organisation (umgesetzt außer Zahlenwert B05 und Datenschutzlöschung E03) | P1/P2 | 18 bis 29 PT | N | 1 |
 | 5 | Administration, Datenschutz, Betrieb (umgesetzt, Exportordner auf VPS einrichten) | P2 | 10 bis 15 PT | M | 1, 3 |
-| 6 | OCR im Server | P2 | 4 bis 6 PT | M | 3 |
+| 6 | OCR im Server (umgesetzt, Image-Bau auf dem VPS offen) | P2 | 4 bis 6 PT | M | 3 |
 | 7 | Wissensgraph im Web | P3 | 10 bis 16 PT | M | 4 |
 | 8 | E-Mail- und PST-Import | P3 | 15 bis 25 PT | H | 3, ADR Geheimnisse |
 | 9 | Oberfläche und Barrierefreiheit | P3 | 3 bis 6 PT | N | 4 |

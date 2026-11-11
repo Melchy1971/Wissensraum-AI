@@ -16,7 +16,7 @@
 
 **Legende:** ✅ vollständig implementiert und gesamtes Gate nachweislich bestanden · 🟡 implementiert oder teilweise geprüft, aber noch nicht vollständig abgenommen · ❌ Gate fehlgeschlagen oder Freigabe blockiert · ⬜ geplant und noch nicht begonnen
 
-## Aktualisierung 11.11.2026 – Paritäts-Roadmap Phase 0 bis 5 (Betrieb, Service-Schicht, semantische Suche, Importaufträge, Dokumentpflege, Organisation und Administration im Server) 🟡
+## Aktualisierung 11.11.2026 – Paritäts-Roadmap Phase 0 bis 6 (Betrieb, Service-Schicht, semantische Suche, Importaufträge, Dokumentpflege, Organisation, Administration und Texterkennung im Server) 🟡
 
 **Grundlage:** Analyse Desktop/Web an `bf3b126` in `docs/desktop-web-parity.md`, `docs/web-architecture-review.md`, `docs/web-parity-roadmap.md`, `docs/web-parity-testplan.md`. Die Roadmap-Phasen sind nicht die Teilschritte 11.1 bis 11.5 dieses Plans. Sie gehören zum Abschluss von 10.8 und zu 11.1 und 11.2.
 
@@ -34,11 +34,13 @@
 
 **Phase 5:** Seiten `/verwaltung/betrieb` (Übersicht nur mit Zahlen und Codes, Diagnose, Prüfung von Schema, Prüfsummen und Audit-Kette), `/verwaltung/einstellungen` (KI-Budgets, Aufbewahrung, Importregeln mit Anwenden und Zurücknehmen, Abschnittslänge je Typ) und `/verwaltung/datenschutz`, nur für Administratoren, jede Änderung mit Audit `settings_changed`. Entscheidungen 11.11.2026: Selektive Löschung nur durch Administratoren mit Vorschau und Bestätigungswort (Audit `privacy_erase`). Datenschutzexport als Auskunft je Konto (`/konto/auskunft`, JSON ohne Dokumentinhalte) und als Installationsexport, den der Worker in das Volume `exports` schreibt und nach einem Tag entfernt (neues Audit-Ereignis `privacy_export`). Der KI-Verlauf blendet Antworten aus, deren Quellen das Konto nicht mehr sieht (S-10). Ablaufwarnung für das Client-Geheimnis über `WR_OIDC_CLIENT_SECRET_EXPIRES` (S-11). Keine Migration. Neu im Betrieb: `WR_EXPORT_DIR`, Volume `exports`, Ordner `/data/exports` im Image, also Image neu bauen. Parität 46 / 69 = 66,7 %. Nachweise: Linux, Python 3.12 mit Tk unter Xvfb 782 Tests, 1 Fehlschlag (bekannter GUI-Pixelfehler), 64 übersprungen. PostgreSQL 16: 54 von 54. bandit `-lll` ohne Befund. Mutationsproben für Adminprüfung, Bestätigungswort, Verlaufsfilter, Compare-and-set des Exportauftrags, Sichtbarkeit in der Auskunft, Audit der Budgets, Ablauf des Exports und Integritätsbefund.
 
+**Phase 6:** Tesseract mit Deutsch und Englisch liegt im gemeinsamen Image (Entscheidung 11.11.2026), nur der Worker erkennt Text, der Server läuft mit `WISSENSRAUM_OCR=0`. Hochgeladene Bilder und Scans werden durchsuchbar. Ohne erkannten Text geht eine Datei in Quarantäne und behält ihre Bytes 30 Tage, Besitzer und Administratoren können sie erneut verarbeiten (D05, Entscheidung 11.11.2026), danach entfernt der Worker die Bytes. Der Herzschlag des Workers läuft während langer Scans weiter, jede Tesseract-Seite hat ihre Zeitgrenze. Speichergrenze des Workers 1,5 GB. Die Desktop-Wiederholung der Quarantäne lässt Server-Uploads aus. Keine Migration. Parität 48 / 69 = 69,6 %. Nachweise: Linux, Python 3.12 mit Tk und Tesseract 5.3.4 unter Xvfb mit `WISSENSRAUM_REQUIRE_OCR=1`: 787 Tests, 1 Fehlschlag (bekannter GUI-Pixelfehler), 55 übersprungen (52 PostgreSQL ohne Konfiguration, 3 nur Windows), die OCR-Tests laufen erstmals. PostgreSQL 16: 55 von 55. bandit `-lll` ohne Befund. Mutationsproben für Halten der Bytes, Wiederholung, Ablauf nach 30 Tagen, Ausschluss aus der Desktop-Wiederholung, OCR im Worker, Herzschlag und Auftragszugriff. Nicht ausgeführt: Bau des Images mit Tesseract (hier läuft kein Docker-Daemon).
+
 **Nachweise Phase 0 und 1:** Linux, Python 3.12 mit Tk unter Xvfb: 743 Tests, 1 Fehlschlag (`test_settings_pages_scroll_to_their_last_widget_at_minimum_size`, Seite `mail`, 1 Pixel, bestand schon an `bf3b126`), 60 übersprungen (47 PostgreSQL ohne Konfiguration im Gesamtlauf, 10 Tesseract, 3 nur Windows). PostgreSQL 16 Wegwerf-Cluster: 50 von 50. PostgreSQL 18, Windows und das Matrix-Gate liefen nicht. Mutationsprobe: ohne Filter, ohne Transaktion im Dienst und ohne Einklinken in `connect()` scheitern die neuen Tests.
 
 **Offen:** Matrix-Gate 7 von 7, Einrichtung von Sicherung und Übung auf VPS und Unraid, Neuanlage des Server-Containers zum Verwerfen alter Logs, Prüfung des GUI-Fehlschlags auf Windows.
 
-**Status:** Phase 0 bis 5 der Paritäts-Roadmap 🟡. 10.8 bleibt 🟡.
+**Status:** Phase 0 bis 6 der Paritäts-Roadmap 🟡. 10.8 bleibt 🟡.
 
 ## Aktualisierung 05.11.2026 (Mittag) – Phase 8A, Schritt 8A.1 Metadaten bearbeiten ✅
 

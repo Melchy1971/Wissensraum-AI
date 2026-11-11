@@ -31,7 +31,9 @@ UPLOAD = 'upload'
 MAX_ARCHIVE_ENTRIES = 1000
 MAX_ARCHIVE_BYTES = 300 * 1024 * 1024
 MAX_ARCHIVE_RATIO = 100
-ITEM_COLUMNS = ('id,job_id,ordinal,path,locator,status,reason,size,sha256,document_id,attempts,updated_at')
+ITEM_COLUMNS = ('id,job_id,ordinal,path,locator,status,reason,size,sha256,document_id,attempts,updated_at,'
+                '(upload IS NOT NULL) AS kept')
+KEEP_NO_TEXT_DAYS = 30  # decision 11.11.2026: an upload without readable text stays retryable this long
 
 
 def upload_name(name):
@@ -195,11 +197,11 @@ class ImportJobs:
         An item counts once per place (job kind, source and locator); a later successful or
         duplicate outcome for the same place removes it, so repeating a retry creates nothing twice.
         """
-        with self.store.connect() as db:
+        with self.store.connect() as db:  # server uploads have no path to read again: retry_uploads
             rows = db.execute('SELECT j.kind,j.root,j.category,i.path,i.locator,i.status,i.reason '
                               'FROM import_items i JOIN import_jobs j ON j.id=i.job_id '
-                              "WHERE j.kind <> 'folder' OR i.reason <> 'unreadable' "
-                              'ORDER BY j.id,i.ordinal').fetchall()
+                              "WHERE (j.kind <> 'folder' OR i.reason <> 'unreadable') AND j.kind <> ? "
+                              'ORDER BY j.id,i.ordinal', (UPLOAD,)).fetchall()
         latest = {}
         for row in rows:
             mail = row['kind'] in MAIL_KINDS
@@ -213,6 +215,30 @@ class ImportJobs:
                 group = (kind, row['root'] if kind in MAIL_KINDS else '', row['category'])
                 groups.setdefault(group, []).append((row['path'], row['locator']))
         return groups
+
+    def retry_uploads(self, job_id):
+        """Put the kept items without readable text of a server job back to pending; returns their count."""
+        with self.store.connect() as db:
+            count = db.execute("UPDATE import_items SET status='pending',reason='',updated_at=CURRENT_TIMESTAMP "
+                               "WHERE job_id=? AND status='quarantined' AND reason='no_text' AND upload IS NOT NULL",
+                               (job_id,)).rowcount
+            if count:
+                db.execute("UPDATE import_jobs SET status='pending',updated_at=CURRENT_TIMESTAMP WHERE id=? AND kind=?",
+                           (job_id, UPLOAD))
+        return count
+
+    def drop_kept_uploads(self, now=None, days=KEEP_NO_TEXT_DAYS):
+        """Remove the bytes of uploads without readable text older than ``days``; returns their count."""
+        from datetime import datetime, timedelta, timezone
+        from retention import _utc
+        cutoff = (now or datetime.now(timezone.utc)) - timedelta(days=days)
+        with self.store.connect() as db:
+            # ponytail: compares the time in Python, the same on both backends (as retention.py); few rows.
+            old = [row['id'] for row in db.execute(
+                "SELECT id,updated_at FROM import_items WHERE status='quarantined' AND reason='no_text' "
+                'AND upload IS NOT NULL') if _utc(row['updated_at']) < cutoff]
+            db.executemany('UPDATE import_items SET upload=NULL WHERE id=?', [(i,) for i in old])
+        return len(old)
 
     def retry_quarantined(self, reason='no_text'):
         """Create one job per source for quarantined items, e.g. after OCR was installed."""
@@ -285,11 +311,9 @@ class ImportJobs:
         def handle(item, recovering):
             with self.store.connect() as db:
                 data = bytes(db.execute('SELECT upload FROM import_items WHERE id=?', (item['id'],)).fetchone()['upload'])
-            try:
-                title, text, filename, original = extract_document(item['locator'], data, allow_ocr=False)
-            except OcrDeferred:  # quarantine, so that a later run with OCR can take it up again
-                raise ImportRejected('no_text', 'Bilder brauchen die Texterkennung; der Server verarbeitet '
-                                                'sie noch nicht.') from None
+            # Phase 6: the worker image has Tesseract; without it (or with WISSENSRAUM_OCR=0) images and
+            # scans go to quarantine no_text and keep their bytes for a later run.
+            title, text, filename, original = extract_document(item['locator'], data, allow_ocr=True)
             # The same file name from the same account is the same place: a changed file becomes a new version,
             # as on the desktop. The account in the source keeps lineages of different accounts apart.
             source = ('file', f'server:{account["id"]}', item['locator'])
@@ -345,7 +369,9 @@ class ImportJobs:
             db.execute('UPDATE import_items SET status=?,reason=?,document_id=?,size=COALESCE(?,size),sha256=?,'
                        'updated_at=CURRENT_TIMESTAMP WHERE id=?',
                        (status, reason, document_id, size, sha256, item_id))
-            if status in FINAL_STATUSES:  # an upload's bytes are not kept once the item is decided
+            # An upload's bytes are not kept once the item is decided, except without readable text: those
+            # stay KEEP_NO_TEXT_DAYS days so that the owner can run them again (D05, decision 11.11.2026).
+            if status in FINAL_STATUSES and not (status == 'quarantined' and reason == 'no_text'):
                 db.execute('UPDATE import_items SET upload=NULL WHERE id=? AND upload IS NOT NULL', (item_id,))
             if error is not None:
                 db.execute('INSERT INTO import_item_errors(item_id,attempt,reason,message) VALUES(?,?,?,?)',

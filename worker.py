@@ -4,7 +4,8 @@ Runs as its own container from the server image (``python worker.py``), next to 
 it embeds sections without a vector while semantic search is switched on (``vector_sync.VectorSync``),
 so new uploads become findable by meaning without a web request waiting for Ollama. Since phase 3 it
 also imports uploaded files (``import_jobs.ImportJobs.create_uploads``), one job after the other. Since
-phase 5 it builds the installation export an administrator requested into ``WR_EXPORT_DIR``.
+phase 5 it builds the installation export an administrator requested into ``WR_EXPORT_DIR``. Since phase 6
+the image carries Tesseract (deu, eng): uploaded images and scans are recognized here, never in the server.
 
 Same database and runtime role as the server, no web port, no sign-in settings. Ollama address from
 ``WR_OLLAMA_URL``. After every round the worker touches a heartbeat file; the container health check
@@ -34,16 +35,30 @@ def run_once(store, should_stop=lambda: False):
     return sync.run(should_stop=should_stop)
 
 
-def import_once(store, stop, heartbeat=HEARTBEAT):
+def import_once(store, stop, heartbeat=HEARTBEAT, beat=INTERVAL_SECONDS):
     """Run the oldest open upload job to its end (or until ``stop``); returns its summary or None.
 
-    The heartbeat is touched after every item, so a long job does not look like a hanging worker.
+    The heartbeat is touched after every item and every ``beat`` seconds while one item runs: a scan of many
+    pages takes minutes in Tesseract. A hanging Tesseract call is ended by its own time limit per page
+    (``ocr.OCR_PAGE_TIMEOUT_SECONDS``), so the worker does not hang for good behind a living heartbeat.
     """
     jobs = ImportJobs(store)
+    jobs.drop_kept_uploads()  # bytes of uploads without text after 30 days (decision 11.11.2026)
     job_id = jobs.next_upload_job()
     if job_id is None:
         return None
-    return jobs.run(job_id, pause=stop, progress=lambda *_: heartbeat.touch())  # shutdown: resumed later
+    done = threading.Event()
+
+    def keep_alive():
+        while not done.wait(beat):
+            heartbeat.touch()
+    beater = threading.Thread(target=keep_alive, daemon=True)
+    beater.start()
+    try:
+        return jobs.run(job_id, pause=stop, progress=lambda *_: heartbeat.touch())  # shutdown: resumed later
+    finally:
+        done.set()
+        beater.join()
 
 
 def export_once(store, folder, now=None):
@@ -94,7 +109,8 @@ def main():  # pragma: no cover - starts the real worker
                 logger.event(event, severity=severity, metadata=metadata or None)
             except Exception:  # logging never stops the worker
                 pass
-    log('worker_started')
+    import ocr
+    log('worker_started', status='ocr' if ocr.available() else 'ohne_ocr')
     loop(store, stop, log, int(os.environ.get('WR_WORKER_INTERVAL') or INTERVAL_SECONDS),
          export_folder=os.environ.get('WR_EXPORT_DIR') or None)
     log('worker_stopped')
