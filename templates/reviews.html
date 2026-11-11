@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<table>
+<thead><tr><th>Wiedervorlage</th><th>Titel</th><th>Status</th><th>Verantwortlich</th></tr></thead>
+<tbody>
+{% for row in rows %}
+<tr><td>{{ row.review_date }}</td><td><a href="/dokument/{{ row.id }}">{{ row.title }}</a></td><td>{{ labels.get(row.status, row.status) }}</td><td>{{ row.owner }}</td></tr>
+{% else %}
+<tr><td colspan="4">Keine fälligen Wiedervorlagen.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% endblock %}

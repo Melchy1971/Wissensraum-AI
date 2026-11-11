@@ -1,16 +1,17 @@
 {% extends "base.html" %}
 {% block content %}
-<p>{{ total }} Dokumente</p>
+<form method="get" action="/">{% include "tag_filter.html" %} <button type="submit">Filtern</button></form>
+<p>{{ total }} Dokumente{% if tag %} mit Tag {{ tag }}{% endif %}</p>
 <table>
-<thead><tr><th>Titel</th><th>Bereich</th><th>Angelegt</th></tr></thead>
+<thead><tr><th>Titel</th><th>Bereich</th><th>Tags</th><th>Angelegt</th></tr></thead>
 <tbody>
 {% for row in documents %}
-<tr><td><a href="/dokument/{{ row.id }}">{{ row.title }}</a></td><td>{{ row.category }}</td><td>{{ row.created_at }}</td></tr>
+<tr><td><a href="/dokument/{{ row.id }}">{{ row.title }}</a></td><td>{{ row.category }}</td><td>{{ row.tags | join(', ') }}</td><td>{{ row.created_at }}</td></tr>
 {% else %}
-<tr><td colspan="3">Keine Dokumente freigegeben.</td></tr>
+<tr><td colspan="4">Keine Dokumente freigegeben.</td></tr>
 {% endfor %}
 </tbody>
 </table>
-<p>{% if page > 1 %}<a href="/?seite={{ page - 1 }}">Zurück</a>{% endif %}
-{% if more %}<a href="/?seite={{ page + 1 }}">Weiter</a>{% endif %}</p>
+<p>{% if page > 1 %}<a href="/?seite={{ page - 1 }}{% if tag %}&amp;tag={{ tag | urlencode }}{% endif %}">Zurück</a>{% endif %}
+{% if more %}<a href="/?seite={{ page + 1 }}{% if tag %}&amp;tag={{ tag | urlencode }}{% endif %}">Weiter</a>{% endif %}</p>
 {% endblock %}

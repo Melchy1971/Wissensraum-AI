@@ -19,7 +19,8 @@ import audit
 import worker
 from core import Store
 from import_jobs import MAX_ARCHIVE_RATIO, UPLOAD, ImportJobs, archive_entries, upload_name
-from test_rights import EndpointTests, TENANT
+import test_rights
+from test_rights import TENANT
 
 
 def archive(entries, compression=zipfile.ZIP_DEFLATED):
@@ -89,9 +90,9 @@ class ArchiveTests(unittest.TestCase):
                              [('gross.zip/a.txt', 'too_large', 'Datei im Archiv ist zu groß.')])
 
 
-class UploadPageTests(EndpointTests):
+class UploadPageTests(test_rights.EndpointTests):
     """Jobs through the pages: own and foreign jobs, ZIP, cancel and resume, locked account, report."""
-    locals().update({name: None for name in dir(EndpointTests) if name.startswith('test_')})
+    locals().update({name: None for name in dir(test_rights.EndpointTests) if name.startswith('test_')})
 
     def setUp(self):
         super().setUp()

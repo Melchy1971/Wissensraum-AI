@@ -19,7 +19,8 @@ import core
 import server
 import worker
 from core import Embedder, Store
-from test_rights import COMMON, SECRET, EndpointTests
+import test_rights
+from test_rights import COMMON, SECRET
 from test_vector_sync import FakeEmbedder
 from vector_sync import VectorSync
 
@@ -83,9 +84,9 @@ class WorkerTests(unittest.TestCase):
         self.assertFalse(self.heartbeat.exists())
 
 
-class SemanticSearchPageTests(EndpointTests):
+class SemanticSearchPageTests(test_rights.EndpointTests):
     """Switch for administrators with audit, status of search and answers on the pages."""
-    locals().update({name: None for name in dir(EndpointTests) if name.startswith('test_')})
+    locals().update({name: None for name in dir(test_rights.EndpointTests) if name.startswith('test_')})
 
     def setUp(self):
         super().setUp()

@@ -18,7 +18,8 @@ import server
 import services
 from core import AI, ProviderError, Store
 from oidc import Provider
-from test_rights import COMMON, EndpointTests
+import test_rights
+from test_rights import COMMON
 from test_server import AUTHORITY, BASE, CLIENT_ID, CLIENT_SECRET, TENANT
 
 
@@ -75,10 +76,10 @@ def failing_ai(kind):
     return build
 
 
-class ServiceEndpointTests(EndpointTests):
+class ServiceEndpointTests(test_rights.EndpointTests):
     """Atomicity (S-07), AI failures (S-08) and rate limits (S-06) through API and pages."""
-    # Reuses setUp and sign-in of EndpointTests; its own tests run there, not twice.
-    locals().update({name: None for name in dir(EndpointTests) if name.startswith('test_')})
+    # Reuses setUp and sign-in of test_rights.EndpointTests; its own tests run there, not twice.
+    locals().update({name: None for name in dir(test_rights.EndpointTests) if name.startswith('test_')})
 
     def documents(self):
         return len(self.store.list(all_versions=True))

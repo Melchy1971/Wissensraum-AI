@@ -1,0 +1,1 @@
+<label>Tag <select name="tag"><option value="">alle</option>{% for name, count in tags %}<option value="{{ name }}"{% if tag and tag.casefold() == name.casefold() %} selected{% endif %}>{{ name }} ({{ count }})</option>{% endfor %}</select></label>

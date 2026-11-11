@@ -136,4 +136,6 @@ Erst Betrieb absichern (S-01 bis S-04), dann eine dünne Service-Schicht und ein
 | 10.11.2026 | Hintergrundarbeit | eigener Dienst `worker` aus dem Server-Image, nicht Thread im Serverprozess |
 | 10.11.2026 | Ablage von Uploads bis zum Import | in PostgreSQL (`import_items.upload`), Bytes werden nach dem Import entfernt (Annahme der Empfehlung, keine ausdrückliche Wahl) |
 | 10.11.2026 | Antwortmodell | `qwen3:4b` wird auf Bestand V2 gemessen, Wechsel auf `qwen3:8b` nur bei verfehltem Gate |
+| 11.11.2026 | Löschen | nur Besitzer des Dokuments (Freigabe owner direkt am Dokument) oder Administratoren, Schreibrecht genügt nicht |
+| 11.11.2026 | Favoriten und gespeicherte Suchen | je Konto, bestehende Einträge gehören dem ersten Administrator |
 | 10.11.2026 | Dublette über Kontogrenzen (S-05) | Verhalten bleibt: 409 ohne Zugriff. Restrisiko: ein Bearbeiter erfährt, dass ein exakt gleicher Text existiert. Kein Titel, keine Kennung wird preisgegeben. |

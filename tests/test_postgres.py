@@ -488,6 +488,10 @@ class PostgresStoreTests(unittest.TestCase):
         from test_audit import check_audit_contract
         check_audit_contract(self, PostgresStore(self.profile, self.password))
 
+    def test_document_care_on_real_postgresql(self):
+        from test_document_care import check_care_contract
+        check_care_contract(self, PostgresStore(self.profile, self.password))
+
     def test_upload_jobs_on_real_postgresql(self):
         from test_uploads import check_upload_contract
         check_upload_contract(self, PostgresStore(self.profile, self.password))

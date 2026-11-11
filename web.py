@@ -22,6 +22,10 @@ from core import Conflict
 
 ROOT = Path(__file__).resolve().parent
 PAGE_SIZE = 50
+STATUS_LABELS = {'new': 'neu', 'reviewed': 'geprüft', 'outdated': 'veraltet', 'archived': 'archiviert'}  # app.py
+FIELD_LABELS = {'title': 'Titel', 'category': 'Bereich', 'tag': 'Tag', 'status': 'Status', 'owner': 'Verantwortlich',
+                'review_date': 'Wiedervorlage', 'relation': 'Beziehung', 'collection': 'Sammlung', 'favorite': 'Favorit'}
+METHOD_LABELS = {'fulltext': 'Volltext', 'vector': 'Bedeutung', 'hybrid': 'Volltext und Bedeutung'}
 MAX_UPLOAD = 50 * 1024 * 1024  # core.MAX_DOCUMENT_BYTES, per file
 MAX_REQUEST = 100 * 1024 * 1024  # all files of one upload together
 MAX_FILES = 200
@@ -69,34 +73,52 @@ def register(app, ctx):
             raise HTTPException(422, 'Ungültige Angabe.') from None
 
     @app.get('/', response_class=HTMLResponse)
-    def start(request: Request, seite: int = 1):
+    def start(request: Request, seite: int = 1, tag: str = ''):
         if request.state.account is None:
             return render(request, 'message.html', 'Wissensraum', message='Bitte melde dich an.',
                           link='/login', link_text='Anmelden')
-        rows = ctx.viewer(request).list()
+        scoped, tag = ctx.viewer(request), tag.strip()[:100]
+        rows = scoped.list(tag=tag or None)
         page = max(1, seite)
         return render(request, 'documents.html', 'Dokumente', documents=rows[(page - 1) * PAGE_SIZE:page * PAGE_SIZE],
-                      total=len(rows), page=page, more=len(rows) > page * PAGE_SIZE)
+                      total=len(rows), page=page, more=len(rows) > page * PAGE_SIZE, tag=tag,
+                      tags=scoped.visible_tags(), labels=STATUS_LABELS)
 
     @app.get('/suche', response_class=HTMLResponse)
-    def search(request: Request, q: str = ''):
+    def search(request: Request, q: str = '', tag: str = ''):
         from retrieval import Retriever, snippet
-        scoped, q = ctx.viewer(request), q.strip()[:500]
+        scoped, q, tag = ctx.viewer(request), q.strip()[:500], tag.strip()[:100]
         results, search_status = [], ''
         if q:
             ctx.limited(request, 'search')
-            found = Retriever(scoped).search(q, limit=20)
+            found = Retriever(scoped).search(q, limit=20, tag=tag or None)
             results = [{'document_id': r['document_id'], 'title': r['title'], 'ordinal': r['ordinal'],
-                        'snippet': snippet(r['content'], q)} for r in found.results]
+                        'snippet': snippet(r['content'], q), 'method': METHOD_LABELS.get(r.get('retrieval_method'), '')}
+                       for r in found.results]
             search_status = found.status
-        return render(request, 'search.html', 'Suche', q=q, results=results, search_status=search_status)
+        return render(request, 'search.html', 'Suche', q=q, results=results, search_status=search_status, tag=tag,
+                      tags=scoped.visible_tags())
 
     @app.get('/dokument/{doc_id}', response_class=HTMLResponse)
     def document(request: Request, doc_id: int):
         scoped = ctx.viewer(request)
         doc = ctx.document(scoped, doc_id)
-        return render(request, 'document.html', doc['title'], doc=doc, collections=scoped.document_collections(doc_id),
-                      writable=accounts.can_write(store, request.state.account, doc_id))
+        return render(request, 'document.html', doc['title'], **document_view(scoped, doc))
+
+    def document_view(scoped, doc, notice=''):
+        account = scoped.viewer
+        # The history also logs collections, relations and favorites. Names of collections and ids of related
+        # documents may be invisible to the reader, favorites are another account's action: administrators see
+        # collections and relations, nobody sees favorite entries on the server.
+        hidden = {'favorite'} if account['role'] == 'admin' else {'favorite', 'collection', 'relation'}
+        history = [{**h, 'label': FIELD_LABELS.get(h['field'], h['field']),
+                    'old_value': STATUS_LABELS.get(h['old_value'], h['old_value']) if h['field'] == 'status' else h['old_value'],
+                    'new_value': STATUS_LABELS.get(h['new_value'], h['new_value']) if h['field'] == 'status' else h['new_value']}
+                   for h in scoped.metadata_history(doc['id']) if h['field'] not in hidden]
+        return {'doc': doc, 'collections': scoped.document_collections(doc['id']), 'tags': scoped.document_tags(doc['id']),
+                'history': history, 'labels': STATUS_LABELS, 'notice': notice,
+                'writable': accounts.can_write(store, account, doc['id']),
+                'deletable': accounts.can_delete(store, account, doc['id'])}
 
     @app.post('/dokument/{doc_id}/metadaten', response_class=HTMLResponse)
     async def metadata(request: Request, doc_id: int):
@@ -105,17 +127,64 @@ def register(app, ctx):
         if not accounts.can_write(store, account, doc_id):
             raise HTTPException(403, 'Keine Berechtigung.')
         values = await form(request)
-        changes = {key: values.get(key, '').strip() for key in ('title', 'category') if values.get(key, '').strip()}
+        fields = {key: values.get(key) for key in ('title', 'category', 'status', 'owner', 'review_date', 'tags')
+                  if values.get(key) is not None}
         status, notice = 200, 'Gespeichert.'
         try:
-            services.change_metadata(store, ctx.recorder(request), account, doc_id, number(values.get('revision')),
-                                     **changes)
+            services.change_document(store, ctx.recorder(request), account, doc_id, number(values.get('revision')),
+                                     **fields)
         except Conflict:
             status, notice = 409, ('Jemand hat das Dokument inzwischen geändert. Angezeigt ist der aktuelle Stand; '
                                    'bitte die Änderung erneut eintragen.')
         except ValueError as error:
             raise HTTPException(422, str(error)) from None
-        return render(request, 'metadata_result.html', '', status, doc=store.get(doc_id), notice=notice)
+        return render(request, 'metadata_result.html', '', status, **document_view(ctx.viewer(request),
+                                                                                    store.get(doc_id), notice))
+
+    @app.post('/dokument/{doc_id}/loeschen', response_class=HTMLResponse)
+    async def delete(request: Request, doc_id: int):
+        account = ctx.signed_in(request)
+        ctx.document(ctx.viewer(request), doc_id)  # not visible: 404 before any role answer
+        if not accounts.can_delete(store, account, doc_id):
+            raise HTTPException(403, 'Löschen dürfen nur der Besitzer des Dokuments und Administratoren.')
+        values = await form(request)
+        try:
+            services.delete_document(store, ctx.recorder(request), account, doc_id, number(values.get('revision')))
+        except Conflict:
+            raise HTTPException(409, 'Jemand hat das Dokument inzwischen geändert. Bitte die Seite neu laden.') from None
+        response = HTMLResponse('<p>Gelöscht.</p>')
+        response.headers['HX-Redirect'] = '/'
+        return response
+
+    @app.get('/wiedervorlagen', response_class=HTMLResponse)
+    def reviews(request: Request):
+        ctx.signed_in(request)
+        return render(request, 'reviews.html', 'Fällige Wiedervorlagen', rows=ctx.viewer(request).due_reviews(),
+                      labels=STATUS_LABELS)
+
+    @app.get('/notiz', response_class=HTMLResponse)
+    def note_page(request: Request):
+        ctx.require_role(request, 'admin', 'editor')
+        return render(request, 'note.html', 'Notiz erfassen')
+
+    @app.post('/notiz', response_class=HTMLResponse)
+    async def note(request: Request):
+        account = ctx.require_role(request, 'admin', 'editor')
+        ctx.limited(request, 'upload')
+        values = await form(request, max_part_size=1024 * 1024)
+        title, content = ' '.join((values.get('title') or '').split()), (values.get('content') or '').strip()
+        if not title or not content:
+            raise HTTPException(422, 'Titel und Text angeben.')
+        try:
+            doc_id = services.create_document(store, ctx.recorder(request), account, title[:300], content,
+                                              (values.get('category') or 'Allgemein').strip()[:100] or 'Allgemein')
+        except services.Duplicate as error:
+            raise HTTPException(409, str(error)) from None
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from None
+        response = HTMLResponse('<p>Gespeichert.</p>', 201)
+        response.headers['HX-Redirect'] = f'/dokument/{doc_id}'
+        return response
 
     @app.get('/hochladen', response_class=HTMLResponse)
     def upload_page(request: Request):
@@ -218,7 +287,17 @@ def register(app, ctx):
 
     @app.get('/fragen', response_class=HTMLResponse)
     def questions(request: Request):
-        return render(request, 'questions.html', 'Fragen', history=ctx.viewer(request).history())
+        from core import run_sources
+        history = []
+        for run in ctx.viewer(request).history():
+            try:
+                cited, _ = run_sources(run.get('sources_json') or '[]')
+            except (ValueError, AttributeError):
+                cited = []
+            # Titles and numbers as recorded with the answer; the link answers 404 if access was revoked since.
+            sources = [s for s in cited if isinstance(s, dict) and s.get('document_id') is not None]
+            history.append({**run, 'sources': sources})
+        return render(request, 'questions.html', 'Fragen', history=history)
 
     @app.post('/fragen', response_class=HTMLResponse)
     async def ask(request: Request):
@@ -259,6 +338,7 @@ def register(app, ctx):
         sync = VectorSync(store)
         vectors = {**sync.config(), 'progress': sync.progress()}
         return render(request, 'admin.html', 'Verwaltung', status, notice=notice, vectors=vectors,
+                      exclude_retired=store.exclude_retired(),
                       accounts=accounts.accounts(store),
                       roles=accounts.ROLES, access=accounts.ACCESS, grants=grants,
                       documents=[{'id': k, 'title': v} for k, v in documents.items()],
@@ -314,6 +394,13 @@ def register(app, ctx):
             services.grant(store, ctx.recorder(request), admin_account, account_id, values.get('access', ''), **target)
         except ValueError as error:
             return admin_page(request, str(error), 422)
+        return RedirectResponse('/verwaltung', status_code=303)
+
+    @app.post('/verwaltung/veraltete-dokumente', response_class=HTMLResponse)
+    async def admin_exclude_retired(request: Request):
+        admin_account = ctx.require_role(request, 'admin')
+        values = await form(request)
+        services.set_exclude_retired(store, ctx.recorder(request), admin_account, values.get('enabled') == '1')
         return RedirectResponse('/verwaltung', status_code=303)
 
     @app.post('/verwaltung/semantische-suche', response_class=HTMLResponse)

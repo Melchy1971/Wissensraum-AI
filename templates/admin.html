@@ -29,6 +29,13 @@
 <select name="role">{% for r in roles %}<option value="{{ r }}">{{ r }}</option>{% endfor %}</select>
 <button type="submit">Anlegen</button>
 </form>
+<h2>KI-Antworten</h2>
+<p>Veraltete und archivierte Dokumente werden in Antworten {% if exclude_retired %}ausgeschlossen{% else %}berücksichtigt{% endif %}.</p>
+<form method="post" action="/verwaltung/veraltete-dokumente">
+<input type="hidden" name="csrf_token" value="{{ csrf }}">
+<input type="hidden" name="enabled" value="{{ '0' if exclude_retired else '1' }}">
+<button type="submit">{{ 'Berücksichtigen' if exclude_retired else 'Ausschließen' }}</button>
+</form>
 <h2>Semantische Suche</h2>
 <p>Status: {% if vectors.enabled %}eingeschaltet, Modell {{ vectors.model }}{% else %}ausgeschaltet{% endif %} · Abschnitte mit Vektor: {{ vectors.progress[0] }} von {{ vectors.progress[1] }}{% if vectors.last_result %} · Letzter Lauf: {{ vectors.last_result }}{% endif %}</p>
 <form method="post" action="/verwaltung/semantische-suche">

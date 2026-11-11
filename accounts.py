@@ -199,6 +199,19 @@ def can_write_collection(store, acting, collection_id):
                           (acting['id'], collection_id)).fetchone() is not None
 
 
+def can_delete(store, acting, document_id):
+    """Whether ``acting`` may delete a document: admin, or an editor with owner access to exactly this
+    document. Write access, or ownership through a collection, is not enough (decision 11.11.2026).
+    """
+    if acting['disabled'] or acting['role'] == 'reader':
+        return False
+    if acting['role'] == 'admin':
+        return True
+    with store.connect() as db:
+        return db.execute("SELECT 1 FROM grants WHERE account_id=? AND document_id=? AND access='owner'",
+                          (acting['id'], document_id)).fetchone() is not None
+
+
 def can_write(store, acting, document_id):
     """Whether ``acting`` may change a document: admin, or editor with write or owner access."""
     if acting['disabled'] or acting['role'] == 'reader':

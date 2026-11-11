@@ -1,12 +1,26 @@
 {% extends "base.html" %}
 {% block content %}
-<p>Bereich: {{ doc.category }} · Status: {{ doc.status }} · Revision {{ doc.revision }}
+<p>Bereich: {{ doc.category }} · Status: {{ labels.get(doc.status, doc.status) }}{% if doc.owner %} · Verantwortlich: {{ doc.owner }}{% endif %}{% if doc.review_date %} · Wiedervorlage: {{ doc.review_date }}{% endif %} · Revision {{ doc.revision }}
 {% if doc.original is not none %} · <a href="/api/documents/{{ doc.id }}/original">Original herunterladen</a>{% endif %}</p>
+{% if tags %}<p>Tags: {% for t in tags %}<a href="/?tag={{ t | urlencode }}">{{ t }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
 {% if collections %}<p>Sammlungen: {% for c in collections %}{{ c.name }}{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
 {% if writable %}
 <form id="metadata" hx-post="/dokument/{{ doc.id }}/metadaten" hx-target="#metadata" hx-swap="outerHTML">
 {% include "metadata_form.html" %}
 </form>
 {% endif %}
+{% if deletable %}
+<form hx-post="/dokument/{{ doc.id }}/loeschen" hx-confirm="Dokument endgültig löschen?">
+<input type="hidden" name="revision" value="{{ doc.revision }}">
+<button type="submit">Dokument löschen</button>
+</form>
+{% endif %}
 <pre class="content">{{ doc.content }}</pre>
+{% if history %}
+<h2>Verlauf der Metadaten</h2>
+<table>
+<thead><tr><th>Zeitpunkt (UTC)</th><th>Feld</th><th>Vorher</th><th>Nachher</th></tr></thead>
+<tbody>{% for h in history %}<tr><td>{{ h.created_at }}</td><td>{{ h.label }}</td><td>{{ h.old_value }}</td><td>{{ h.new_value }}</td></tr>{% endfor %}</tbody>
+</table>
+{% endif %}
 {% endblock %}

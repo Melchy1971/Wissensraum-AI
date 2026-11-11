@@ -108,6 +108,11 @@ class DocumentChange(BaseModel):
     revision: int
     title: str | None = Field(default=None, min_length=1, max_length=300)
     category: str | None = Field(default=None, min_length=1, max_length=100)
+    status: str | None = Field(default=None, max_length=20)
+    owner: str | None = Field(default=None, max_length=200)
+    review_date: str | None = Field(default=None, max_length=10)  # '' removes the date
+    tags: list[str] | None = Field(default=None, max_length=50)  # the complete new list
+
 
 
 class CollectionChange(BaseModel):
@@ -321,8 +326,8 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
             raise HTTPException(404, NOT_FOUND) from None
 
     @app.get('/api/documents')
-    def list_documents(request: Request, offset: int = 0, limit: int = 50):
-        rows = viewer(request).list()
+    def list_documents(request: Request, offset: int = 0, limit: int = 50, tag: str = ''):
+        rows = viewer(request).list(tag=tag.strip()[:100] or None)
         offset, limit = max(0, offset), max(1, min(limit, 200))
         return {'total': len(rows), 'documents': rows[offset:offset + limit]}
 
@@ -350,15 +355,15 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
                         headers={'Content-Disposition': f"attachment; filename*=UTF-8''{urllib.parse.quote(name)}"})
 
     @app.get('/api/search')
-    def search(request: Request, q: str = '', limit: int = 20):
+    def search(request: Request, q: str = '', limit: int = 20, tag: str = ''):
         from retrieval import Retriever, snippet
-        if not 0 < len(q) <= 500:
+        if not 0 < len(q) <= 500 or len(tag) > 100:
             raise HTTPException(422, 'Suchbegriff mit 1 bis 500 Zeichen angeben.')
         limited(request, 'search')
-        result = Retriever(viewer(request)).search(q, limit=max(1, min(limit, 50)))
+        result = Retriever(viewer(request)).search(q, limit=max(1, min(limit, 50)), tag=tag.strip() or None)
         return {'mode': result.mode, 'status': result.status, 'results': [
             {'document_id': r['document_id'], 'title': r['title'], 'ordinal': r['ordinal'],
-             'snippet': snippet(r['content'], q)} for r in result.results]}
+             'method': r.get('retrieval_method'), 'snippet': snippet(r['content'], q)} for r in result.results]}
 
     @app.get('/api/graph')
     def graph(request: Request, focus: int | None = None):
@@ -426,14 +431,28 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
         document(viewer(request), doc_id)  # not visible: 404 before any role answer
         if not accounts.can_write(store, account, doc_id):
             raise HTTPException(403, 'Keine Berechtigung.')
-        changes = {key: value for key, value in (('title', body.title), ('category', body.category)) if value}
+        fields = body.model_dump(exclude={'revision'}, exclude_none=True)
         try:
-            services.change_metadata(store, recorder(request), account, doc_id, body.revision, **changes)
+            services.change_document(store, recorder(request), account, doc_id, body.revision, **fields)
         except Conflict as error:
             row = store.get(doc_id)
-            return conflict(error, {key: row[key] for key in ('id', 'title', 'category', 'revision')})
+            return conflict(error, {key: row[key] for key in ('id', 'title', 'category', 'status', 'owner',
+                                                               'review_date', 'revision')})
         except ValueError as error:
             raise HTTPException(422, str(error)) from None
+        return {'id': doc_id}
+
+    @app.delete('/api/documents/{doc_id}')
+    def delete_document(request: Request, doc_id: int, revision: int):
+        account = signed_in(request)
+        document(viewer(request), doc_id)  # not visible: 404 before any role answer
+        if not accounts.can_delete(store, account, doc_id):
+            raise HTTPException(403, 'Löschen dürfen nur der Besitzer des Dokuments und Administratoren.')
+        try:
+            services.delete_document(store, recorder(request), account, doc_id, revision)
+        except Conflict as error:
+            row = store.get(doc_id)
+            return conflict(error, {key: row[key] for key in ('id', 'title', 'revision')})
         return {'id': doc_id}
 
     @app.post('/api/accounts', status_code=201)

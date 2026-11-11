@@ -17,7 +17,8 @@
     <a href="/suche">Suche</a>
     <a href="/fragen">Fragen</a>
     <a href="/sammlungen">Sammlungen</a>
-    {% if account.role in ('admin', 'editor') %}<a href="/hochladen">Hochladen</a> <a href="/importe">Importe</a>{% endif %}
+    <a href="/wiedervorlagen">Wiedervorlagen</a>
+    {% if account.role in ('admin', 'editor') %}<a href="/notiz">Notiz</a> <a href="/hochladen">Hochladen</a> <a href="/importe">Importe</a>{% endif %}
     {% if account.role == 'admin' %}<a href="/verwaltung">Verwaltung</a>{% endif %}
   </nav>
   <span class="who">Angemeldet als {{ account.display_name or account.object_id }} ({{ account.role }})</span>

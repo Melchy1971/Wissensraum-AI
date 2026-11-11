@@ -16,7 +16,7 @@
 
 **Legende:** ✅ vollständig implementiert und gesamtes Gate nachweislich bestanden · 🟡 implementiert oder teilweise geprüft, aber noch nicht vollständig abgenommen · ❌ Gate fehlgeschlagen oder Freigabe blockiert · ⬜ geplant und noch nicht begonnen
 
-## Aktualisierung 10.11.2026 – Paritäts-Roadmap Phase 0 bis 3 (Betrieb, Service-Schicht, semantische Suche, Importaufträge im Server) 🟡
+## Aktualisierung 11.11.2026 – Paritäts-Roadmap Phase 0 bis 4a (Betrieb, Service-Schicht, semantische Suche, Importaufträge, Dokumentpflege im Server) 🟡
 
 **Grundlage:** Analyse Desktop/Web an `bf3b126` in `docs/desktop-web-parity.md`, `docs/web-architecture-review.md`, `docs/web-parity-roadmap.md`, `docs/web-parity-testplan.md`. Die Roadmap-Phasen sind nicht die Teilschritte 11.1 bis 11.5 dieses Plans. Sie gehören zum Abschluss von 10.8 und zu 11.1 und 11.2.
 
@@ -28,11 +28,13 @@
 
 **Phase 3 (Schema 24):** `import_jobs.account_id` und `import_items.upload` für beide Backends, mit Katalogen, Gesundheitsprüfung und eingefrorenen Testmigrationen (dort fehlte bisher Migration 23). Hochladen legt einen Auftrag an (mehrere Dateien, ZIP mit Grenzen für Einträge, Größe und Kompression), der Worker importiert je Datei Dokument, Besitzerfreigabe und Audit in einer Transaktion. Seiten `/importe` mit Fortschritt, Abbrechen, Fortsetzen und CSV-Bericht, nur für das eigene Konto (Administratoren alle). Gesperrte Konten stoppen ihren Auftrag. Bilder gehen bis zur Texterkennung in Quarantäne. Desktop-Aufträge unverändert. Offen: Vorschau mit Abwahl vor dem Import. Nachweise: Linux, Python 3.12 mit Tk unter Xvfb 773 Tests, 1 Fehlschlag (bekannter GUI-Pixelfehler), 61 übersprungen. PostgreSQL 16: 51 von 51. Mutationsproben für Kontoprüfung, Auftragszugriff, Entfernen der Bytes und Transaktion je Datei.
 
+**Phase 4a:** Dokumentseite mit Status, Verantwortlich, Wiedervorlage, Tags und Metadatenverlauf, Löschen nur durch Besitzer des Dokuments oder Administratoren (Entscheidung 11.11.2026), fällige Wiedervorlagen, Notiz erfassen, Tag-Filter in Liste und Suche, Fundweg je Treffer, eigener KI-Verlauf mit Quellen, Schalter für veraltete Dokumente in Antworten. `due_reviews` filtert jetzt nach Rechten, neu `visible_tags`. Befund beim Bau: Der Metadatenverlauf enthält Sammlungs- und Beziehungseinträge, die Namen unsichtbarer Sammlungen und Kennungen unsichtbarer Dokumente zeigen würden. Sie erscheinen nur für Administratoren, Favoriten-Einträge für niemanden. Testdateien der Phasen 1 bis 3 führten die Tests von `EndpointTests` doppelt aus, korrigiert. Nachweise: Linux, Python 3.12 mit Tk unter Xvfb 762 Tests (ohne Doppelungen), 1 Fehlschlag (bekannter GUI-Pixelfehler), 62 übersprungen. PostgreSQL 16: 52 von 52. Mutationsproben für Rechtefilter der Wiedervorlagen und Tags, Verlaufsfilter und Löschrecht.
+
 **Nachweise Phase 0 und 1:** Linux, Python 3.12 mit Tk unter Xvfb: 743 Tests, 1 Fehlschlag (`test_settings_pages_scroll_to_their_last_widget_at_minimum_size`, Seite `mail`, 1 Pixel, bestand schon an `bf3b126`), 60 übersprungen (47 PostgreSQL ohne Konfiguration im Gesamtlauf, 10 Tesseract, 3 nur Windows). PostgreSQL 16 Wegwerf-Cluster: 50 von 50. PostgreSQL 18, Windows und das Matrix-Gate liefen nicht. Mutationsprobe: ohne Filter, ohne Transaktion im Dienst und ohne Einklinken in `connect()` scheitern die neuen Tests.
 
 **Offen:** Matrix-Gate 7 von 7, Einrichtung von Sicherung und Übung auf VPS und Unraid, Neuanlage des Server-Containers zum Verwerfen alter Logs, Prüfung des GUI-Fehlschlags auf Windows.
 
-**Status:** Phase 0 bis 3 der Paritäts-Roadmap 🟡. 10.8 bleibt 🟡.
+**Status:** Phase 0 bis 4a der Paritäts-Roadmap 🟡. 10.8 bleibt 🟡.
 
 ## Aktualisierung 05.11.2026 (Mittag) – Phase 8A, Schritt 8A.1 Metadaten bearbeiten ✅
 

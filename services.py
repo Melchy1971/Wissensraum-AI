@@ -37,11 +37,49 @@ def create_document(store, record, account, title, content, category='Allgemein'
     return doc_id
 
 
-def change_metadata(store, record, account, doc_id, revision, **changes):
-    """Title or area with the revision read (``Conflict`` if stale) and audit entry ``document_changed``."""
+def change_document(store, record, account, doc_id, revision, title=None, category=None, status=None, owner=None,
+                    review_date=None, tags=None):
+    """All metadata of the document page at once; ``tags`` is the complete new list (comma separated).
+
+    The tag list becomes additions and removals against the current tags, as on the desktop. Only
+    changed fields count; the audit entry names them, never their values.
+    """
+    import rules
+    changes = {key: value for key, value in (('title', title), ('category', category), ('status', status),
+                                              ('owner', owner), ('review_date', review_date)) if value is not None}
     with store.transaction():
-        store.update_metadata(doc_id, revision=revision, **changes)
-        record('document_changed', account['id'], f'document:{doc_id}', fields=','.join(sorted(changes)))
+        if tags is not None:
+            wanted = rules.parse_tags(tags)
+            current = store.document_tags(doc_id)
+            keep = {name.casefold() for name in wanted}
+            have = {name.casefold() for name in current}
+            changes['add_tags'] = [name for name in wanted if name.casefold() not in have]
+            changes['remove_tags'] = [name for name in current if name.casefold() not in keep]
+        changed = store.update_metadata(doc_id, revision=revision, **changes)
+        if changed:
+            record('document_changed', account['id'], f'document:{doc_id}',
+                   fields=','.join(sorted({c['field'] for c in changed})))
+    return changed
+
+
+def delete_document(store, record, account, doc_id, revision=None):
+    """Delete with everything that hangs on it (sections, vectors, grants); audit ``document_deleted``.
+
+    ``revision`` as read by the caller; a document changed meanwhile raises ``Conflict`` and stays.
+    """
+    from core import _revise
+    with store.transaction() as db:
+        if revision is not None:
+            _revise(db, 'documents', doc_id, revision, 'Das Dokument')
+        store.delete(doc_id)
+        record('document_deleted', account['id'], f'document:{doc_id}')
+
+
+def set_exclude_retired(store, record, admin, enabled):
+    """Whether AI answers leave out outdated and archived documents, for the whole installation."""
+    with store.transaction():
+        store.set_exclude_retired(bool(enabled))
+        record('settings_changed', admin['id'], 'settings:exclude_retired', enabled=bool(enabled))
 
 
 def grant(store, record, admin, account_id, access, document_id=None, collection_id=None, revision=None):

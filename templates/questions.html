@@ -8,7 +8,7 @@
 <h2>Eigener Verlauf</h2>
 <ul>
 {% for run in history %}
-<li><strong>{{ run.question }}</strong><br>{{ run.answer }}</li>
+<li><strong>{{ run.question }}</strong><br>{{ run.answer }}{% if run.sources %}<br><small>Quellen: {% for s in run.sources %}<a href="/dokument/{{ s.document_id }}">{{ s.title }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</small>{% endif %}</li>
 {% else %}
 <li>Noch keine Fragen.</li>
 {% endfor %}

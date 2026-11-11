@@ -1,5 +1,9 @@
 <input type="hidden" name="revision" value="{{ doc.revision }}">
 <label>Titel <input name="title" value="{{ doc.title }}" maxlength="300" required></label>
 <label>Bereich <input name="category" value="{{ doc.category }}" maxlength="100" required></label>
+<label>Status <select name="status">{% for key, text in labels.items() %}<option value="{{ key }}"{% if doc.status == key %} selected{% endif %}>{{ text }}</option>{% endfor %}</select></label>
+<label>Verantwortlich <input name="owner" value="{{ doc.owner }}" maxlength="200"></label>
+<label>Wiedervorlage <input type="date" name="review_date" value="{{ doc.review_date or '' }}"></label>
+<label>Tags (mit Komma getrennt) <input name="tags" value="{{ tags | join(', ') }}" maxlength="1000"></label>
 <button type="submit">Speichern</button>
 {% if notice %}<p class="notice">{{ notice }}</p>{% endif %}

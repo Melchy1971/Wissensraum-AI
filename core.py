@@ -242,11 +242,30 @@ class DocumentMetadata:
     def due_reviews(self, until=None):
         """Documents whose review date is on or before ``until`` (default today), oldest date first."""
         until = parse_review_date(until) if until else datetime.date.today().isoformat()
+        visible, params = self._visible()  # server: only what the account may see (parity roadmap phase 4)
         with self.connect() as db:
             return [dict(row) for row in db.execute(
-                'SELECT id,title,status,owner,review_date FROM documents '
-                "WHERE review_date IS NOT NULL AND review_date<>'' AND review_date<=? "
-                'ORDER BY review_date,id', (until,))]
+                'SELECT d.id,d.title,d.status,d.owner,d.review_date FROM documents d '
+                "WHERE d.review_date IS NOT NULL AND d.review_date<>'' AND d.review_date<=? "
+                f'AND {visible} ORDER BY d.review_date,d.id', (until, *params))]
+
+    def visible_tags(self):
+        """[(name, number of documents)] of the tags on documents the viewer sees, alphabetically.
+
+        The desktop sees every tag (``rules.tag_counts``); on the server a tag only on invisible
+        documents does not appear, and the counts leave those documents out.
+        """
+        visible, params = self._visible()
+        with self.connect() as db:
+            return [(row['name'], row['documents']) for row in db.execute(
+                'SELECT t.name,COUNT(d.id) AS documents FROM tags t JOIN document_tags dt ON dt.tag_id=t.id '
+                f'JOIN documents d ON d.id=dt.document_id WHERE {visible} '
+                'GROUP BY t.id,t.name,t.normalized ORDER BY t.normalized', params)]
+
+    def document_tags(self, doc_id):
+        import rules
+        with self.connect() as db:
+            return rules.document_tags(db, doc_id)
 
     def exclude_retired(self):
         """Whether AI answers leave out outdated and archived documents (default yes)."""
