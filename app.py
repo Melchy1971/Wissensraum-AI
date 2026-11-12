@@ -1775,15 +1775,22 @@ class App(tk.Tk if tk is not None else object):
             width=canvas.winfo_width()
             if width<=1: return
             canvas.itemconfigure(item,width=width)
-            content.update_idletasks()
-            for widget in descendants(content):
-                if not widget.winfo_ismapped(): continue
-                available=max(200,width-(widget.winfo_rootx()-content.winfo_rootx())-24)
-                if widget.winfo_class()=='TLabel':
-                    limit=wrap_limits.setdefault(widget,int(str(widget.cget('wraplength') or 0)))
-                    widget.configure(wraplength=min(limit,available) if limit else available)
-                elif button_row(widget):
-                    flow(widget,available)
+            # A narrower label can move itself: grid columns with weight share the freed space,
+            # so its position is only known after the new wrap is laid out. Repeat until stable.
+            for _ in range(3):
+                content.update_idletasks()
+                changed=False
+                for widget in descendants(content):
+                    if not widget.winfo_ismapped(): continue
+                    available=max(200,width-(widget.winfo_rootx()-content.winfo_rootx())-24)
+                    if widget.winfo_class()=='TLabel':
+                        limit=wrap_limits.setdefault(widget,int(str(widget.cget('wraplength') or 0)))
+                        wrap=min(limit,available) if limit else available
+                        if int(str(widget.cget('wraplength') or 0))!=wrap:
+                            widget.configure(wraplength=wrap); changed=True
+                    elif button_row(widget):
+                        flow(widget,available)
+                if not changed: break
         canvas.bind('<Configure>',lambda _:self.refit_settings_page())
         self.settings_fitters[str(page)]=fit
         def wheel(event):
