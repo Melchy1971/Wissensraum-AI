@@ -14,7 +14,7 @@ Stand: 11.11.2026, Commit `1298469`, Schema 26. Grundlage: `docs/desktop-web-par
 
 | Phase | Ziel | Prio | Aufwand | Unsicherheit | Abhängig von |
 |---|---|---|---|---|---|
-| 0 | Betrieb absichern (umgesetzt, Einrichtung auf VPS und Unraid offen) | P0 | 3 bis 5 PT | N | keine |
+| 0 | Betrieb absichern (umgesetzt, Einrichtung auf VPS und Windows-Rechner offen) | P0 | 3 bis 5 PT | N | keine |
 | 1 | Service-Schicht und atomare Änderungen (umgesetzt, Gate offen) | P1 | 5 bis 8 PT | N | 0 |
 | 2 | KI und Suche im Server vollständig (umgesetzt außer C03, C06, Messungen C09 und B10) | P1 | 7 bis 12 PT | M | 1 |
 | 3 | Worker-Dienst und Import (umgesetzt, Vorschau mit Abwahl seit 11.11.2026) | P1 | 9 bis 14 PT | M | 1 |

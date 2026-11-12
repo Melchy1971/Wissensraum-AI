@@ -1,17 +1,22 @@
 #!/usr/bin/env bash
-# Wiederherstellungsübung für die Server-Datenbank (Paritäts-Roadmap Phase 0, S-03). Läuft auf Unraid.
+# Wiederherstellungsübung für die Server-Datenbank (Paritäts-Roadmap Phase 0, S-03). Läuft auf dem VPS.
 #
 # Entschlüsselt eine Sicherung, spielt sie in einen Wegwerf-Container postgres:18 ohne Netzwerk ein,
 # zählt die Zeilen je Tabelle und prüft die Audit-Kette mit dem Server-Image gegen den Stand, der vor
 # dem Dump notiert wurde (server.py audit-verify --expect). Danach wird alles entfernt.
 #
-# Voraussetzungen: age, docker, der private age-Schlüssel (WR_AGE_IDENTITY) und das Image
-# wissensraum-server:3.0 im selben Stand wie auf dem VPS (docker build -t wissensraum-server:3.0 .).
-# Aufruf: WR_AGE_IDENTITY=/pfad/zum/schluessel deploy/restore-drill.sh [sicherung.dump.age]
+# Der private age-Schlüssel liegt nicht auf dem VPS. WR_AGE_IDENTITY=- liest ihn von stdin, so berührt er
+# die Platte nie. Aufruf von deinem Rechner aus (PowerShell), Schlüssel und Sicherung bleiben getrennt:
+#
+#   Get-Content wissensraum-backup.key | ssh root@10.13.13.1 "WR_AGE_IDENTITY=- /opt/docker/wissen/app/deploy/restore-drill.sh"
+#
+# Voraussetzungen: age, docker und das laufende Image wissensraum-server:3.0. WR_PG_IMAGE=pgvector/pgvector:pg18
+# nutzt das vorhandene Datenbank-Image statt postgres:18 nachzuladen. Anderer Ort: WR_BACKUP_DEST.
+# Aufruf auf einem Rechner mit Schlüsseldatei: WR_AGE_IDENTITY=/pfad/zum/schluessel deploy/restore-drill.sh [datei.dump.age]
 set -euo pipefail
 umask 077
 
-DEST=${WR_BACKUP_DEST:-/mnt/user/backups/wissensraum}
+DEST=${WR_BACKUP_DEST:-/var/backups/wissensraum}
 IDENTITY=${WR_AGE_IDENTITY:?WR_AGE_IDENTITY: privater age-Schlüssel fehlt}
 PG_IMAGE=${WR_PG_IMAGE:-postgres:18}
 SERVER_IMAGE=${WR_SERVER_IMAGE:-wissensraum-server:3.0}

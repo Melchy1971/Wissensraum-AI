@@ -2,7 +2,7 @@
 
 Stand 11.11.2026. Diese Liste fasst die Schritte aus `deploy/BETRIEB.md` (Phasen 0 bis 8) in eine Reihenfolge. Die Einzelheiten stehen dort. Jeder Schritt hat einen Prüfpunkt. Erst weiter, wenn er stimmt. Schlägt ein Prüfpunkt fehl, steht darunter, was zu tun ist.
 
-Grundregel: erst sichern, dann ändern. Die Migrationen 24, 25 und 26 laufen beim Start. Vorher muss eine geprüfte Sicherung der Server-Datenbank auf Unraid liegen.
+Grundregel: erst sichern, dann ändern. Die Migrationen 24, 25 und 26 laufen beim Start. Vorher muss eine geprüfte Sicherung der Server-Datenbank auf deinem Rechner liegen.
 
 ## A. Vorbereitung am eigenen Rechner (vor dem VPS)
 
@@ -14,7 +14,8 @@ Grundregel: erst sichern, dann ändern. Die Migrationen 24, 25 und 26 laufen bei
    Wenn rot: hier aufhören. Der Fehler geht vor den Betrieb.
 3. **Neue Geheimnisse erzeugen**, in `deploy/secrets/`, Rechte 600:
    - `openssl rand -base64 32 > mail_key.txt` (Postfächer, D-030)
-   - eine Kopie von `mail_key.txt` mit age für deinen öffentlichen Schlüssel verschlüsseln und neben dem Sicherungsschlüssel ablegen
+   - die mit age verschlüsselte Kopie legt `backup-setup.sh` in Schritt 6 an, sie kommt mit dem Abholen auf deinen Rechner
+   - Rechte wie die übrigen Secrets: `chown 10001:10001 mail_key.txt && chmod 600 mail_key.txt`
    Prüfpunkt: `wc -c mail_key.txt` ergibt 45 (44 Zeichen Base64 und Zeilenende).
 4. **Entra ID**, App-Registrierung der Server-Anmeldung:
    - Umleitungs-URI ergänzen: `https://wissen.melchy.cloud/postfaecher/microsoft/rueckruf`
@@ -24,15 +25,17 @@ Grundregel: erst sichern, dann ändern. Die Migrationen 24, 25 und 26 laufen bei
 
 ## B. Sicherung zuerst (G03, BETRIEB.md „Sicherung und Wiederherstellungsübung“)
 
-5. **age-Schlüssel**, falls noch nicht vorhanden: `age-keygen -o wissensraum-backup.key`, sicher ablegen, `Public key` notieren.
-6. **VPS einrichten:** age und rsync installieren, `deploy/backup-recipient.txt` schreiben, Benutzer `wrbackup` mit Ordner und ACL anlegen, eingeschränkten SSH-Schlüssel von Unraid eintragen, Service und Timer kopieren und einschalten.
-7. **Erster Lauf:** `systemctl start wissensraum-backup.service && journalctl -u wissensraum-backup -n 20`.
+Alle Befehle laufen in PowerShell auf deinem Rechner, im Ordner `%USERPROFILE%\Wissensraum-Sicherung`. In die Shell des VPS wird nichts eingefügt.
+
+5. **Schlüssel**, falls noch nicht vorhanden: `age-keygen -o wissensraum-backup.key` und `ssh-keygen -t ed25519 -N '""' -f wrbackup_ed25519`. Den öffentlichen age-Schlüssel in `deploy/backup-recipient.txt` auf dem VPS.
+6. **VPS einrichten und erster Lauf:** `Get-Content wrbackup_ed25519.pub | ssh root@10.13.13.1 bash /opt/docker/wissen/app/deploy/backup-setup.sh --run`.
    Prüfpunkt: Das Journal nennt die Datei und den Audit-Stand (Anzahl und Kopf). In `/var/backups/wissensraum/` liegt eine `.age`-Datei.
-8. **Unraid holt ab:** `deploy/backup-pull.sh` einmal von Hand.
-   Prüfpunkt: Die Datei liegt auf Unraid, das Skript meldet keinen Fehler.
-9. **Übung auf Unraid:** Image im alten Stand bauen, dann `WR_AGE_IDENTITY=… deploy/restore-drill.sh`.
-   Prüfpunkt: `restore-drill.log` meldet Zeilenzahlen und eine gültige Audit-Kette mit demselben Stand wie in Schritt 7.
+7. **Abholen:** `powershell -ExecutionPolicy Bypass -File backup-pull.ps1`.
+   Prüfpunkt: Exit 0, die Sicherung liegt unter `sicherungen`, dazu `mail_key.txt.age`.
+8. **Übung:** `Get-Content wissensraum-backup.key | ssh root@10.13.13.1 "WR_AGE_IDENTITY=- WR_PG_IMAGE=pgvector/pgvector:pg18 /opt/docker/wissen/app/deploy/restore-drill.sh"`.
+   Prüfpunkt: „Ergebnis: bestanden“, gültige Audit-Kette mit demselben Stand wie in Schritt 6.
    Wenn nicht: kein Update. Erst die Sicherung reparieren.
+9. **Dauerbetrieb:** `backup-pull.ps1 -Register` und `backup-setup.sh --timer` (Aufruf wie in Schritt 6, mit `--timer` statt `--run`).
 
 ## C. Update auf dem VPS
 
@@ -50,7 +53,7 @@ Grundregel: erst sichern, dann ändern. Die Migrationen 24, 25 und 26 laufen bei
 13. **Alte Logs verwerfen** (S-01): `docker compose -f deploy/compose.yaml up -d --force-recreate server`.
     Prüfpunkt: `docker compose -f deploy/compose.yaml logs server | grep -c 'code='` ergibt 0.
 14. **Audit und Integrität:** `docker compose -f deploy/compose.yaml run --rm server python server.py audit-verify`.
-    Prüfpunkt: gültige Kette, Anzahl mindestens so groß wie in Schritt 7. In der Weboberfläche unter Verwaltung, Betrieb „Schema, Prüfsummen und Audit-Kette prüfen“: keine Probleme. Die Diagnose zeigt das Client-Geheimnis ohne Warnung.
+    Prüfpunkt: gültige Kette, Anzahl mindestens so groß wie in Schritt 6. In der Weboberfläche unter Verwaltung, Betrieb „Schema, Prüfsummen und Audit-Kette prüfen“: keine Probleme. Die Diagnose zeigt das Client-Geheimnis ohne Warnung.
 
 ## D. Funktionsproben im Browser (über WireGuard)
 
@@ -72,9 +75,9 @@ Grundregel: erst sichern, dann ändern. Die Migrationen 24, 25 und 26 laufen bei
 ## F. Nachtragen
 
 23. In `deploy/BETRIEB.md`: Datum der Kennwortrotation, erster Sicherungslauf, erste Übung, Entra-Zustimmung.
-24. In `masterplan.md`: Ergebnisse aus 2, 9, 21 und 22 mit Zahlen. Phasen erst auf ✅, wenn das Gate aus Schritt 2 mit 7 von 7 vorliegt und die Proben aus D bestanden sind.
+24. In `masterplan.md`: Ergebnisse aus 2, 8, 21 und 22 mit Zahlen. Phasen erst auf ✅, wenn das Gate aus Schritt 2 mit 7 von 7 vorliegt und die Proben aus D bestanden sind.
 25. Bedienung mit einem Screenreader (H06), zum Beispiel NVDA unter Windows: Anmeldung, Suche, Upload mit Vorschau, Fragen. Ergebnis in der Paritätsmatrix eintragen.
 
 ## Rückweg
 
-Läuft nach Schritt 12 etwas nicht: `docker compose -f deploy/compose.yaml down`, altes Image starten. Die Migrationen 24 bis 26 fügen nur Spalten und Tabellen hinzu, der alte Server prüft aber die Schemaversion und startet mit Stand 26 nicht. Für einen vollständigen Rückweg die Sicherung aus Schritt 7 einspielen, wie in der Übung aus Schritt 9.
+Läuft nach Schritt 12 etwas nicht: `docker compose -f deploy/compose.yaml down`, altes Image starten. Die Migrationen 24 bis 26 fügen nur Spalten und Tabellen hinzu, der alte Server prüft aber die Schemaversion und startet mit Stand 26 nicht. Für einen vollständigen Rückweg die Sicherung aus Schritt 6 einspielen, wie in der Übung aus Schritt 8.
