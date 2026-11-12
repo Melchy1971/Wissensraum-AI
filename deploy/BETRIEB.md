@@ -31,30 +31,37 @@ Der Server schreibt im Zugriffsprotokoll nur noch den Pfad, keine Query. Vorher 
 
 ## Sicherung und Wiederherstellungsübung (Paritäts-Roadmap Phase 0, S-03)
 
-Ablauf: Der VPS erzeugt täglich einen mit age verschlüsselten Dump (`deploy/backup.sh`). Unraid holt ihn über WireGuard ab (`deploy/backup-pull.sh`). Die Übung läuft auf Unraid (`deploy/restore-drill.sh`). Der private age-Schlüssel liegt nur bei dir, nie auf dem VPS. Der VPS hat keinen Zugang zu Unraid.
+Ablauf: Der VPS erzeugt täglich einen mit age verschlüsselten Dump (`deploy/backup.sh`). Dein Windows-Rechner holt ihn über WireGuard ab (`deploy/backup-pull.ps1`). Die Übung läuft auf dem VPS (`deploy/restore-drill.sh`), der private Schlüssel kommt dabei über ssh von deinem Rechner und berührt die Platte des VPS nicht. Der VPS hat keinen Zugang zu deinem Rechner. Unraid ist nicht beteiligt (Entscheidung 12.11.2026). Für einen Linux-Rechner als Abholer bleibt `deploy/backup-pull.sh`.
 
-Einmalige Einrichtung auf deinem Rechner oder Unraid:
+Einmalig auf deinem Rechner (PowerShell), Ordner `%USERPROFILE%\Wissensraum-Sicherung`:
 
-1. `age-keygen -o wissensraum-backup.key`. Die Datei sicher ablegen (Passwortmanager plus Offline-Kopie). Ohne sie ist keine Sicherung lesbar.
-2. Die Zeile `Public key: age1...` notieren.
+1. `winget install FiloSottile.age`, dann `age-keygen -o wissensraum-backup.key`. Die Datei zusätzlich in den Passwortmanager und auf ein Offline-Medium. Ohne sie ist keine Sicherung lesbar.
+2. `ssh-keygen -t ed25519 -N '""' -f wrbackup_ed25519` für das Abholen.
+3. Den öffentlichen age-Schlüssel (Zeile `# public key: age1...`) auf dem VPS in `deploy/backup-recipient.txt` schreiben. Er ist kein Geheimnis.
 
-Auf dem VPS:
+Einrichtung des VPS ohne Eingaben in dessen Shell, von deinem Rechner aus:
 
-1. `dnf install age rsync` (age liegt in EPEL).
-2. Den öffentlichen Schlüssel (nur `age1...`) in `deploy/backup-recipient.txt` schreiben. Er ist kein Geheimnis.
-3. Benutzer und Ordner: `useradd --system --create-home --shell /bin/bash wrbackup`, dann `install -d -m 750 -g wrbackup /var/backups/wissensraum` und `setfacl -m g:wrbackup:rx /var/backups/wissensraum && setfacl -d -m g:wrbackup:r /var/backups/wissensraum`. Die Standard-ACL gibt jeder neuen Sicherung Leserecht für `wrbackup`, alle anderen Benutzer sehen nichts.
-4. In `~wrbackup/.ssh/authorized_keys` den öffentlichen SSH-Schlüssel von Unraid mit Einschränkung eintragen: `restrict,from="10.13.13.0/24" ssh-ed25519 AAAA... unraid`. Wenn `rrsync` vorhanden ist, zusätzlich `command="rrsync -ro /var/backups/wissensraum"` und auf Unraid `WR_REMOTE_DIR=` (leer) setzen.
-5. `deploy/wissensraum-backup.service` und `.timer` nach `/etc/systemd/system/` kopieren, Containername eintragen, `systemctl daemon-reload && systemctl enable --now wissensraum-backup.timer`.
-6. Erster Lauf von Hand: `systemctl start wissensraum-backup.service && journalctl -u wissensraum-backup -n 20`.
+```powershell
+Get-Content wrbackup_ed25519.pub | ssh root@10.13.13.1 bash /opt/docker/wissen/app/deploy/backup-setup.sh --run
+```
 
-Auf Unraid:
+`backup-setup.sh` installiert age und acl, legt den Benutzer `wrbackup` an, gibt ihm über eine Standard-ACL Leserecht auf `/var/backups/wissensraum`, trägt den Schlüssel mit `restrict,from="10.13.13.2"` ein, installiert Service und Timer mit dem erkannten PostgreSQL-Container und legt eine mit age verschlüsselte Kopie von `secrets/mail_key.txt` in den Sicherungsordner. `--run` startet den ersten Lauf und zeigt das Journal. Prüfpunkt: In `/var/backups/wissensraum/` liegen `.dump.age`, `.audit` und `.sha256`. Der Aufruf lässt sich gefahrlos wiederholen. Andere Adresse des Abholers: `WR_PULL_FROM`, anderer Container: `WR_PG_CONTAINER`.
 
-1. SSH-Schlüssel erzeugen: `ssh-keygen -t ed25519 -N '' -f /boot/config/ssh/wrbackup_ed25519`, einmal `ssh -i ... wrbackup@10.13.13.1` zum Bestätigen des Host-Schlüssels.
-2. `deploy/backup-pull.sh` im Plugin User Scripts täglich nach dem VPS-Lauf ausführen, zum Beispiel 04:00. Das Skript meldet einen Fehler, wenn die neueste Sicherung älter als 36 Stunden ist.
-3. Für die Übung das Server-Image im gleichen Stand bauen: im Repository auf Unraid `docker build -t wissensraum-server:3.0 .`.
-4. Übung vierteljährlich: `WR_AGE_IDENTITY=/pfad/wissensraum-backup.key deploy/restore-drill.sh`. Sie spielt die neueste Sicherung in einen Container ohne Netzwerk ein, zählt die Zeilen und prüft die Audit-Kette gegen den Stand vor dem Dump. Ergebnis steht in `restore-drill.log`. Den Schlüssel danach wieder aus dem Arbeitsordner entfernen.
+Abholen auf deinem Rechner:
 
-Nachweis im Repository: Dump mit der Eigentümerrolle, Rückspielen mit `--no-owner --no-privileges` und `server.py audit-verify --expect` auf der Kopie wurden am 10.11.2026 gegen PostgreSQL 16 geprüft, ebenso `backup.sh` mit echtem age und pg_dump und einem Ersatz für docker. `restore-drill.sh` lief noch nicht mit echtem Docker. Der erste Lauf auf Unraid ist die Abnahme.
+1. Einmal von Hand: `powershell -ExecutionPolicy Bypass -File deploy\backup-pull.ps1`. Beim ersten Mal merkt sich ssh den Host-Schlüssel des VPS. Das Skript prüft alle Prüfsummen und meldet Exit 1, wenn die neueste Sicherung älter als 36 Stunden ist.
+2. Täglich einplanen: dasselbe mit `-Register` (Standard 12:00, verpasste Läufe werden nachgeholt).
+3. Danach auf dem VPS den Timer einschalten: `Get-Content wrbackup_ed25519.pub | ssh root@10.13.13.1 bash /opt/docker/wissen/app/deploy/backup-setup.sh --timer`.
+
+Übung vierteljährlich, von deinem Rechner aus:
+
+```powershell
+Get-Content wissensraum-backup.key | ssh root@10.13.13.1 "WR_AGE_IDENTITY=- WR_PG_IMAGE=pgvector/pgvector:pg18 /opt/docker/wissen/app/deploy/restore-drill.sh"
+```
+
+Sie spielt die neueste Sicherung in einen Container ohne Netzwerk ein, zählt die Zeilen und prüft die Audit-Kette gegen den Stand vor dem Dump. `WR_PG_IMAGE` nutzt das vorhandene Datenbank-Image statt `postgres:18` nachzuladen. Ergebnis steht in `/var/backups/wissensraum/restore-drill.log` und kommt mit dem nächsten Abholen auf deinen Rechner.
+
+Nachweis im Repository: Dump mit der Eigentümerrolle, Rückspielen mit `--no-owner --no-privileges` und `server.py audit-verify --expect` auf der Kopie wurden am 10.11.2026 gegen PostgreSQL 16 geprüft, ebenso `backup.sh` mit echtem age und pg_dump und einem Ersatz für docker. Am 12.11.2026: `backup-setup.sh` mit echtem useradd, setfacl und age und Ersatz für dnf, docker und systemctl (Wiederholung, Schlüssel aus stdin mit Windows-Zeilenende, Ablehnung falscher Eingaben), `backup-pull.ps1` unter Windows PowerShell mit Ersatz für ssh und scp (Abholen ohne `.tmp`, falsche Prüfsumme und zu alte Sicherung ergeben Exit 1), age mit Schlüssel aus stdin. `restore-drill.sh` lief noch nicht mit echtem Docker. Der erste Lauf auf dem VPS ist die Abnahme.
 
 ## Worker und semantische Suche (Paritäts-Roadmap Phase 2)
 
@@ -120,7 +127,7 @@ Liegen False Reject und False Accept innerhalb der Grenzen, bleibt `qwen3:4b`. S
 
 ## Offen bis zur Abnahme von 10.8
 
-- erster Lauf von Sicherung, Abholung und Wiederherstellungsübung auf VPS und Unraid
+- erster Lauf von Sicherung, Abholung auf deinen Rechner und Wiederherstellungsübung auf dem VPS
 - wöchentlicher `pip-audit` und Prüfung des Basis-Images
 - Ablaufdatum des Entra-Client-Geheimnisses in `WR_OIDC_CLIENT_SECRET_EXPIRES` eintragen (Warnung seit Phase 5 eingebaut)
 - Probelauf mit zwei echten Konten im Browser
