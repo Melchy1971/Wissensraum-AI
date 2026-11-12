@@ -289,9 +289,15 @@ def disposable_postgres(pg_bin):
     if created.returncode:  # initdb refuses root: run the postgres job as an unprivileged user
         shutil.rmtree(data, ignore_errors=True)
         raise SystemExit('postgres: initdb fehlgeschlagen: ' + (created.stderr.strip() or created.stdout.strip()))
-    subprocess.run([str(pg_bin / 'pg_ctl'), '-D', str(data / 'cluster'), '-l', str(data / 'server.log'), '-w',
-                    '-o', f'-p {port} -k {data} -c listen_addresses=127.0.0.1', 'start'],
-                   check=True, capture_output=True)
+    # No pipes: on Windows the server inherits pg_ctl's handles, and reading them would wait until the
+    # server stops. pg_ctl writes its log to server.log anyway.
+    started = subprocess.run([str(pg_bin / 'pg_ctl'), '-D', str(data / 'cluster'), '-l', str(data / 'server.log'), '-w',
+                              '-o', f'-p {port} -k {data} -c listen_addresses=127.0.0.1', 'start'],
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+    if started.returncode:
+        log = (data / 'server.log').read_text(errors='replace') if (data / 'server.log').exists() else ''
+        shutil.rmtree(data, ignore_errors=True)
+        raise SystemExit('postgres: pg_ctl start fehlgeschlagen: ' + log.strip()[-2000:])
     env = {**os.environ, 'PGPASSWORD': password}
     subprocess.run([str(pg_bin / 'createdb'), '-h', '127.0.0.1', '-p', str(port), '-U', 'wissensraum_test',
                     'wissensraum_test'], check=True, capture_output=True, env=env)
