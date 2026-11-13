@@ -50,7 +50,9 @@
 
 **Gate (12.11.2026):** Lokales Matrix-Gate an `8483177`: 7 von 7 (`local-ci-gate-8483177.md`). Windows 3.11, 3.12, 3.13 je 812 Tests bestanden, 62 übersprungen, nichts wiederholt; Linux 3.11, 3.12, 3.13 je 812 bestanden, 58 übersprungen, alle drei mit Tk; PostgreSQL 18.7 unter Windows 58 von 58. GitHub Actions für `8483177`: Tests und `Security` grün. Der GUI-Fehlschlag (Seite `mail`, 1 Pixel) ist behoben (`ad8ae9d`, PR #50). Der postgres-Job lief erstmals unter Windows, dafür startet `local_ci.py` pg_ctl ohne Pipes (`d26e195`, PR #51).
 
-**Offen:** Einrichtung von Sicherung und Übung auf VPS und Windows-Rechner (G03, VPS-ABLAUF.md Block B), Neuanlage des Server-Containers zum Verwerfen alter Logs, Messungen C09 (`qwen3:4b`) und B10 (Antwortzeiten), Screenreader-Prüfung H06. Bis dahin bleibt die Paritäts-Roadmap 🟡.
+**G03 abgenommen (13.11.2026):** VPS-ABLAUF.md Block B vollständig. `backup-setup.sh --run` auf dem VPS, erste Sicherung `wissensraum_server-20261113T074428Z` (98.872 Byte, Audit 19 Einträge), `backup-pull.ps1` auf dem Windows-Rechner mit geprüften Prüfsummen, Übung mit dem Schlüssel über stdin bestanden (Kette gültig, 19 Einträge, gleicher Kopf wie vor dem Dump; erster Versuch scheiterte am alten Image, behoben in `fd09cc3`, PR #53). Timer auf dem VPS und geplante Aufgabe 12:00 auf dem Rechner aktiv. Paritätsmatrix 65 von 68 (95,6 %).
+
+**Offen:** Neuanlage des Server-Containers zum Verwerfen alter Logs, Messungen C09 (`qwen3:4b`) und B10 (Antwortzeiten), Screenreader-Prüfung H06. Bis dahin bleibt die Paritäts-Roadmap 🟡.
 
 **Status:** Phase 0 bis 9 der Paritäts-Roadmap 🟡. 10.8 bleibt 🟡.
 
