@@ -48,7 +48,9 @@
 
 **Nachweise Phase 0 und 1:** Linux, Python 3.12 mit Tk unter Xvfb: 743 Tests, 1 Fehlschlag (`test_settings_pages_scroll_to_their_last_widget_at_minimum_size`, Seite `mail`, 1 Pixel, bestand schon an `bf3b126`), 60 übersprungen (47 PostgreSQL ohne Konfiguration im Gesamtlauf, 10 Tesseract, 3 nur Windows). PostgreSQL 16 Wegwerf-Cluster: 50 von 50. PostgreSQL 18, Windows und das Matrix-Gate liefen nicht. Mutationsprobe: ohne Filter, ohne Transaktion im Dienst und ohne Einklinken in `connect()` scheitern die neuen Tests.
 
-**Offen:** Matrix-Gate 7 von 7, Einrichtung von Sicherung und Übung auf VPS und Windows-Rechner, Neuanlage des Server-Containers zum Verwerfen alter Logs, Prüfung des GUI-Fehlschlags auf Windows.
+**Gate (12.11.2026):** Lokales Matrix-Gate an `8483177`: 7 von 7 (`local-ci-gate-8483177.md`). Windows 3.11, 3.12, 3.13 je 812 Tests bestanden, 62 übersprungen, nichts wiederholt; Linux 3.11, 3.12, 3.13 je 812 bestanden, 58 übersprungen, alle drei mit Tk; PostgreSQL 18.7 unter Windows 58 von 58. GitHub Actions für `8483177`: Tests und `Security` grün. Der GUI-Fehlschlag (Seite `mail`, 1 Pixel) ist behoben (`ad8ae9d`, PR #50). Der postgres-Job lief erstmals unter Windows, dafür startet `local_ci.py` pg_ctl ohne Pipes (`d26e195`, PR #51).
+
+**Offen:** Einrichtung von Sicherung und Übung auf VPS und Windows-Rechner (G03, VPS-ABLAUF.md Block B), Neuanlage des Server-Containers zum Verwerfen alter Logs, Messungen C09 (`qwen3:4b`) und B10 (Antwortzeiten), Screenreader-Prüfung H06. Bis dahin bleibt die Paritäts-Roadmap 🟡.
 
 **Status:** Phase 0 bis 9 der Paritäts-Roadmap 🟡. 10.8 bleibt 🟡.
 
