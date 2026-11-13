@@ -51,11 +51,28 @@ counts=$(docker exec "$container" psql -U postgres -d "$DATABASE" -At -F ' ' -c 
   FROM information_schema.tables WHERE table_schema = 'wissensraum' AND table_type = 'BASE TABLE' ORDER BY 1")
 
 # Das Server-Image teilt sich den Netzwerkraum des Containers: localhost ohne TLS ist dort zulässig.
+# Images vor der Paritäts-Roadmap lesen vor audit-verify die Anmeldeeinstellungen und kennen --expect nicht.
+# Die Platzhalter erfüllen nur die Formprüfung, der Container hat kein Netzwerk und nutzt sie nie.
 status=0
 verify=$(docker run --rm --network "container:$container" \
   -e DB_HOST=127.0.0.1 -e DB_PORT=5432 -e DB_DATABASE="$DATABASE" -e DB_USERNAME=postgres \
   -e DB_PASSWORD="$password" -e DB_SSLMODE=disable \
+  -e WR_BASE_URL=https://restore-drill.invalid -e WR_OIDC_TENANT_ID=restore-drill \
+  -e WR_OIDC_CLIENT_ID=restore-drill -e WR_OIDC_CLIENT_SECRET=restore-drill \
   "$SERVER_IMAGE" python server.py audit-verify --expect "$expect") || status=$?
+
+# Abgleich mit dem Stand vor dem Dump hier selbst, damit ein altes Image ihn nicht still auslässt:
+# weniger Einträge sind ein Fehler, bei gleicher Anzahl muss der Kopf übereinstimmen. Mehr Einträge
+# prüft nur ein Image mit --expect (Eintrag ANZAHL muss den Hash von damals tragen).
+if [ "$status" -eq 0 ]; then
+  python3 -c '
+import json, sys
+count, _, head = sys.argv[2].partition(":")
+result = json.loads(sys.argv[1].strip().splitlines()[-1])
+ok = result.get("ok") is True and (result["entries"] > int(count) or
+                                   (result["entries"] == int(count) and result["head"] == head))
+sys.exit(0 if ok else 1)' "$verify" "$expect" || status=1
+fi
 
 {
   echo "== $(date -Iseconds) Übung mit $(basename "$file")"
