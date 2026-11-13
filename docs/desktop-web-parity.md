@@ -42,8 +42,8 @@ Gemeinsamer Kern: `core.py` (`Store`, `PostgresStore`, `AI`, `Embedder`, Extrakt
 
 | Status | Anzahl Desktop-Funktionen |
 |---|---:|
-| FULL | 64 |
-| PARTIAL | 2 |
+| FULL | 65 |
+| PARTIAL | 1 |
 | MISSING | 0 |
 | DIFFERENT | 2 |
 | NOT_APPLICABLE | 9 |
@@ -51,7 +51,7 @@ Gemeinsamer Kern: `core.py` (`Store`, `PostgresStore`, `AI`, `Embedder`, Extrakt
 | Summe Desktop-Funktionen | 78 |
 | WEB_ONLY (zusätzlich) | 13 |
 
-Funktionsparität = FULL / (FULL + PARTIAL + MISSING + DIFFERENT) = 64 / 68 = 94,1 % (Stand nach A03, Importvorschau. Nach Phase 8: 63 / 68 = 92,6 %. D06 und D12 sind seitdem NOT_APPLICABLE, PST nach D-030 nur im Desktop. Nach Phase 9: 59 / 70 = 84,3 %. H06 ist seitdem bewertet und zählt mit, daher 70. Nach Phase 7: 54 / 69 = 78,3 %, nach Phase 6: 48 / 69 = 69,6 %, nach Phase 5: 46 / 69 = 66,7 %, nach Phase 4b: 37 / 69 = 53,6 %, nach Phase 4a: 27 / 69 = 39,1 %, nach Phase 3: 18 / 69 = 26,1 %, nach Phase 2: 16 / 69 = 23,2 %, nach Phase 1: 12 / 69 = 17,4 %, nach Phase 0: 11 / 69 = 15,9 %, vor Phase 0: 10 / 69 = 14,5 %).
+Funktionsparität = FULL / (FULL + PARTIAL + MISSING + DIFFERENT) = 65 / 68 = 95,6 % (Stand nach der Abnahme von G03 am 13.11.2026. Nach A03, Importvorschau: 64 / 68 = 94,1 %. Nach Phase 8: 63 / 68 = 92,6 %. D06 und D12 sind seitdem NOT_APPLICABLE, PST nach D-030 nur im Desktop. Nach Phase 9: 59 / 70 = 84,3 %. H06 ist seitdem bewertet und zählt mit, daher 70. Nach Phase 7: 54 / 69 = 78,3 %, nach Phase 6: 48 / 69 = 69,6 %, nach Phase 5: 46 / 69 = 66,7 %, nach Phase 4b: 37 / 69 = 53,6 %, nach Phase 4a: 27 / 69 = 39,1 %, nach Phase 3: 18 / 69 = 26,1 %, nach Phase 2: 16 / 69 = 23,2 %, nach Phase 1: 12 / 69 = 17,4 %, nach Phase 0: 11 / 69 = 15,9 %, vor Phase 0: 10 / 69 = 14,5 %).
 
 ## 5. Funktionsmatrix
 
@@ -125,7 +125,7 @@ Spalte Desktop: Status der Referenz (GUI oder CLI). Spalte Web: Status im Web. A
 | F11 | Wissensgraph | Entitäts- und Relationsarten verwalten | FULL (CLI) | FULL | `/verwaltung/graph`, nur Admin, Audit | test_graph_web | erledigt | 0 |
 | G01 | Administration | Betriebsübersicht | FULL (GUI, CLI) | FULL | `/verwaltung/betrieb` mit `operations.overview`, nur Zahlen und Codes | test_administration | erledigt | 0 |
 | G02 | Administration | Integritätsprüfung | FULL (GUI, CLI) | FULL | Schema, Prüfsummen und Audit-Kette per Knopf auf `/verwaltung/betrieb` | test_administration | erledigt | 0 |
-| G03 | Administration | Sicherung und Wiederherstellungsübung | FULL (GUI, CLI, SQLite) | PARTIAL | `deploy/backup.sh`, `backup-setup.sh`, `backup-pull.ps1` (Windows) und `backup-pull.sh` (Linux), `restore-drill.sh`, `server.audit_check` (Paritäts-Roadmap Phase 0) | test_audit ServerAuditCheckTests, manuelle Probe PG 16 | P0 | 0,5 (Einrichtung, Erstlauf) |
+| G03 | Administration | Sicherung und Wiederherstellungsübung | FULL (GUI, CLI, SQLite) | FULL | `deploy/backup.sh`, `backup-setup.sh`, `backup-pull.ps1` (Windows) und `backup-pull.sh` (Linux), `restore-drill.sh`, `server.audit_check` (Paritäts-Roadmap Phase 0) | test_audit ServerAuditCheckTests, manuelle Probe PG 16; auf dem VPS 13.11.2026: Sicherung (Audit 19), Abholung auf den Windows-Rechner, Übung bestanden (Kette 19, gleicher Kopf), Timer und geplante Aufgabe aktiv | P0 | erledigt |
 | G04 | Administration | Geführte Wiederherstellung | FULL (GUI, SQLite) | NOT_APPLICABLE | Betriebsprozess statt Web-Funktion | test_backups | keine | 0 |
 | G05 | Administration | Datenbankprofil, Verbindungstest, Schema-Reset | FULL (GUI) | NOT_APPLICABLE | Server: Umgebung und Migrationsdienst | test_database | keine | 0 |
 | G06 | Administration | Konfigurationstransfer | FULL (GUI) | NOT_APPLICABLE | `configuration.py` | test_configuration | keine | 0 |
@@ -161,7 +161,7 @@ Spalte Desktop: Status der Referenz (GUI oder CLI). Spalte Web: Status im Web. A
 | E05 | `uvicorn.run` ohne `access_log=False`. Uvicorn schreibt Pfad mit Querystring, also `/auth/callback?code=...&state=...`, in stdout, Docker speichert es per `json-file` | Zugriffsprotokoll abschalten oder Query für `/auth/callback` schwärzen, Traefik-Accesslog prüfen |
 | F02 | Kein Endpunkt für `create_collection` und `delete_collection`. Ein Bearbeiter kann damit keine Sammlung anlegen und Freigaben je Sammlung nicht nutzen | Endpunkte, Besitzerfreigabe für Ersteller, Audit |
 | F10 | `graph_view.py` zeichnet auf Tk-Canvas | serverseitiges SVG oder Liste |
-| G03 | `backups.py` arbeitet nur mit SQLite. `BETRIEB.md` Abschnitt „Offen“ nennt `pg_dump` als offen | Sicherungsjob außerhalb des VPS, Wiederherstellungsübung |
+| G03 | Erledigt 13.11.2026: tägliche Sicherung mit `pg_dump` und age auf dem VPS, Abholung auf den Windows-Rechner, Übung bestanden (D-031) | vierteljährliche Übung |
 
 ## 7. Funktionen nur im Web
 
