@@ -39,15 +39,15 @@ def run_once(store, should_stop=lambda: False):
     return sync.run(should_stop=should_stop)
 
 
-def mail_importer(store, keys, provider):
+def mail_importer(store, keys, provider, personal=None):
     """Importer over every server mailbox for the worker, or None without a mail key (then no mail jobs)."""
     if keys[0] is None:
         return None
     from importer import Importer
     from mail_vault import MailVault
-    from server_mail import GRAPH_SCOPE, ServerMailboxes
-    refresh = (lambda token: provider.refresh(token, GRAPH_SCOPE)) if provider is not None else None
-    return Importer(store, ServerMailboxes(store, MailVault(store, keys[0], keys[1]), refresh=refresh))
+    from server_mail import ServerMailboxes, refresher
+    return Importer(store, ServerMailboxes(store, MailVault(store, keys[0], keys[1]),
+                                           refresh=refresher(provider, personal)))
 
 
 def sync_once(store, importer, clock=time.time):
@@ -173,7 +173,8 @@ def main():  # pragma: no cover - starts the real worker
     log('worker_started', status='ocr' if ocr.available() else 'ohne_ocr')
     loop(store, stop, log, int(os.environ.get('WR_WORKER_INTERVAL') or INTERVAL_SECONDS),
          export_folder=os.environ.get('WR_EXPORT_DIR') or None, graph_model=server.graph_model(os.environ),
-         importer=mail_importer(store, server.mail_keys(os.environ), server.mail_provider(os.environ)))
+         importer=mail_importer(store, server.mail_keys(os.environ), server.mail_provider(os.environ),
+                                server.mail_personal_provider(os.environ)))
     log('worker_stopped')
 
 

@@ -21,6 +21,7 @@ Grundregel: erst sichern, dann ändern. Die Migrationen 24, 25 und 26 laufen bei
    - Umleitungs-URI ergänzen: `https://wissen.melchy.cloud/postfaecher/microsoft/rueckruf`
    - API-Berechtigungen: Microsoft Graph, delegiert, `Mail.Read` und `offline_access`, dann Administratorzustimmung erteilen
    - Ablaufdatum des Client-Geheimnisses notieren
+   - nur für Outlook.com-Postfächer (D-032): unter Authentifizierung die unterstützten Kontotypen auf „Konten in einem beliebigen Organisationsverzeichnis und persönliche Microsoft-Konten“ stellen, zweite Umleitungs-URI `https://wissen.melchy.cloud/postfaecher/microsoft/privat/rueckruf`. Lehnt das Portal die Umstellung ab, im Manifest zuerst `requestedAccessTokenVersion` auf 2 setzen.
    Prüfpunkt: Unter API-Berechtigungen steht bei beiden „Gewährt für <Mandant>“.
 
 ## B. Sicherung zuerst (G03, BETRIEB.md „Sicherung und Wiederherstellungsübung“)
@@ -60,7 +61,7 @@ Alle Befehle laufen in PowerShell auf deinem Rechner, im Ordner `%USERPROFILE%\W
 15. **Erreichbarkeit:** ohne VPN 403, mit VPN die Anmeldeseite. Ein Upload über 110 MB endet mit 413 von Traefik.
 16. **Semantische Suche:** Verwaltung, Semantische Suche, Einschalten. Prüfpunkt: Der Zähler „Abschnitte mit Vektor“ steigt mit jeder Worker-Runde.
 17. **Upload mit Vorschau:** zwei Textdateien und ein Foto einer Textseite hochladen, Vorschau abwarten, eine Datei abwählen, importieren. Prüfpunkt: zwei Dokumente, eins abgewählt, das Foto ist per Texterkennung durchsuchbar.
-18. **Postfach:** als Bearbeiter unter Postfächer das eigene Microsoft-Postfach verbinden, Vorschau, eine Nachricht mit Anhang importieren. Prüfpunkt: E-Mail und Anhang sind Dokumente des Kontos, ein zweites Konto sieht sie nicht.
+18. **Postfach:** als Bearbeiter unter Postfächer das eigene Microsoft-Postfach verbinden (bei Hotmail mit `WR_MAIL_PERSONAL_ACCOUNTS=1` über „Privates Microsoft-Postfach verbinden“), Vorschau, eine Nachricht mit Anhang importieren. Prüfpunkt: E-Mail und Anhang sind Dokumente des Kontos, ein zweites Konto sieht sie nicht.
 19. **Zwei echte Konten** (offen aus 10.8): ein Leser und ein Bearbeiter. Prüfpunkt: Der Leser sieht nur freigegebene Dokumente, keine fremden Postfächer, keine fremden Importe. Verwaltung gibt ihm 403.
 20. **Datenschutz:** Installationsexport anfordern, nach einer Runde herunterladen, löschen. Prüfpunkt: Das ZIP enthält `manifest.json` und keine `account_mailboxes`. „Meine Daten“ liefert die eigene Auskunft.
 

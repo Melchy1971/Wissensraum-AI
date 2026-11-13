@@ -34,6 +34,7 @@ THEMES = {'auto': 'wie System', 'light': 'hell', 'dark': 'dunkel'}
 LOGO_SETTING = 'branding.logo'
 MAIL_COOKIE = '__Host-wr_mail_connect'
 MAIL_CALLBACK = '/postfaecher/microsoft/rueckruf'
+MAIL_CALLBACK_PERSONAL = '/postfaecher/microsoft/privat/rueckruf'  # Outlook.com (D-032)
 PAGE_SIZE = 50
 STATUS_LABELS = {'new': 'neu', 'reviewed': 'geprüft', 'outdated': 'veraltet', 'archived': 'archiviert'}  # app.py
 FIELD_LABELS = {'title': 'Titel', 'category': 'Bereich', 'tag': 'Tag', 'status': 'Status', 'owner': 'Verantwortlich',
@@ -575,14 +576,14 @@ def register(app, ctx):
         """Mailboxes and importer of the signed-in account; 503 without a mail key on the server."""
         from importer import Importer
         from mail_vault import MailKeyMissing, MailVault
-        from server_mail import GRAPH_SCOPE, ServerMailboxes
+        from server_mail import ServerMailboxes, refresher
         account = ctx.require_role(request, 'admin', 'editor')  # importing creates documents
         current, previous = ctx.mail_keys
         try:
             vault = MailVault(store, current, previous, account['id'])
         except MailKeyMissing as error:
             raise HTTPException(503, str(error)) from None
-        boxes = ServerMailboxes(store, vault, account['id'], refresh=lambda token: ctx.provider.refresh(token, GRAPH_SCOPE))
+        boxes = ServerMailboxes(store, vault, account['id'], refresh=refresher(ctx.provider, ctx.mail_personal))
         return account, boxes, Importer(store, boxes)
 
     def own_mailbox(boxes, mailbox_id):
@@ -606,6 +607,7 @@ def register(app, ctx):
         sync = mail_sync(boxes, importer)
         rows = [{**box, 'sync': sync.config(box['id'])} for box in boxes.list()]
         return render(request, 'mailboxes.html', 'Postfächer', mailboxes=rows, ready=True,
+                      personal=ctx.mail_personal is not None,
                       intervals=[(i, interval_label(i)) for i in INTERVALS])
 
     @app.post('/postfaecher', response_class=HTMLResponse)
@@ -623,16 +625,12 @@ def register(app, ctx):
             raise HTTPException(422, str(error)) from None
         return RedirectResponse(f'/postfaecher/{mailbox_id}', status_code=303)
 
-    @app.get('/postfaecher/microsoft/verbinden')
-    def mailbox_connect(request: Request):
-        """Consent to Mail.Read for the own mailbox through the server's Entra app (D-030)."""
+    def mail_connect(request, chosen, callback, scope):
         import sessions
-        from server_mail import GRAPH_SCOPE
         mail_tools(request)
         state, nonce, verifier = sessions.start_login(store, ctx.clock())
         try:
-            target = ctx.provider.authorize_url(state, nonce, verifier, 'openid profile ' + GRAPH_SCOPE,
-                                                ctx.base + MAIL_CALLBACK)
+            target = chosen.authorize_url(state, nonce, verifier, scope, ctx.base + callback)
         except Exception:  # discovery unreachable
             raise HTTPException(503, 'Der Anmeldedienst ist nicht erreichbar.') from None
         response = RedirectResponse(target, status_code=303)
@@ -640,8 +638,7 @@ def register(app, ctx):
                             samesite='lax')
         return response
 
-    @app.get(MAIL_CALLBACK)
-    def mailbox_connected(request: Request):
+    def mail_connected(request, chosen, callback, personal):
         import secrets as random
         import sessions
         from oidc import SignInError
@@ -653,26 +650,54 @@ def register(app, ctx):
             raise HTTPException(422, 'Die Verbindung mit Microsoft wurde abgebrochen. Bitte erneut verbinden.')
         nonce_digest, verifier = pending
         try:
-            tokens = ctx.provider.redeem_tokens(params.get('code', ''), verifier, ctx.base + MAIL_CALLBACK)
-            claims = ctx.provider.verify(tokens['id_token'], nonce_digest)
+            tokens = chosen.redeem_tokens(params.get('code', ''), verifier, ctx.base + callback)
+            claims = chosen.verify(tokens['id_token'], nonce_digest)
         except SignInError:
             raise HTTPException(422, 'Microsoft hat die Verbindung nicht bestätigt. Bitte erneut verbinden.') from None
-        # Only the own mailbox: the consent must come from the signed-in person (tid and oid), not another one.
-        if (claims['tid'], claims['oid']) != (account['tenant_id'], account['object_id']):
+        # Work accounts: only the own mailbox, the consent must come from the signed-in person (tid and oid).
+        # A personal account has its own identity outside the tenant; as with IMAP, the mailbox belongs to the
+        # signed-in account and only who knows its Microsoft credentials can consent (D-032).
+        if not personal and (claims['tid'], claims['oid']) != (account['tenant_id'], account['object_id']):
             raise HTTPException(422, 'Bitte mit demselben Microsoft-Konto zustimmen, mit dem du angemeldet bist.')
         refresh_token, address = tokens.get('refresh_token'), claims.get('preferred_username') or claims.get('email')
         if not isinstance(refresh_token, str) or not isinstance(address, str):
             raise HTTPException(422, 'Microsoft hat keinen dauerhaften Zugriff erteilt (offline_access fehlt).')
+        label = ('Outlook.com · ' if personal else 'Microsoft 365 · ') + address
         try:
             with store.transaction():
-                mailbox_id = boxes.save_microsoft(address, 'Microsoft 365 · ' + address, refresh_token)
+                mailbox_id = boxes.save_microsoft(address, label, refresh_token, personal=personal)
                 ctx.audited(request, 'mailbox_changed', account['id'], f'mailbox:{mailbox_id}', change='connected',
-                            provider='microsoft')
+                            provider='microsoft_personal' if personal else 'microsoft')
         except ValueError as error:
             raise HTTPException(422, str(error)) from None
         response = RedirectResponse(f'/postfaecher/{mailbox_id}', status_code=303)
         response.delete_cookie(MAIL_COOKIE, path='/', secure=True, httponly=True, samesite='lax')
         return response
+
+    def personal_provider():
+        if ctx.mail_personal is None:
+            raise HTTPException(404, 'Nicht gefunden.')
+        return ctx.mail_personal
+
+    @app.get('/postfaecher/microsoft/verbinden')
+    def mailbox_connect(request: Request):
+        """Consent to Mail.Read for the own mailbox through the server's Entra app (D-030)."""
+        from server_mail import GRAPH_SCOPE
+        return mail_connect(request, ctx.provider, MAIL_CALLBACK, 'openid profile ' + GRAPH_SCOPE)
+
+    @app.get(MAIL_CALLBACK)
+    def mailbox_connected(request: Request):
+        return mail_connected(request, ctx.provider, MAIL_CALLBACK, personal=False)
+
+    @app.get('/postfaecher/microsoft/privat/verbinden')
+    def mailbox_connect_personal(request: Request):
+        """Consent for an Outlook.com mailbox over the consumers authority; only when switched on (D-032)."""
+        from server_mail import GRAPH_SCOPE
+        return mail_connect(request, personal_provider(), MAIL_CALLBACK_PERSONAL, 'openid profile email ' + GRAPH_SCOPE)
+
+    @app.get(MAIL_CALLBACK_PERSONAL)
+    def mailbox_connected_personal(request: Request):
+        return mail_connected(request, personal_provider(), MAIL_CALLBACK_PERSONAL, personal=True)
 
     @app.get('/postfaecher/{mailbox_id}', response_class=HTMLResponse)
     def mailbox_page(request: Request, mailbox_id: str, ordner: str = 'INBOX', anzahl: int = 50, vorschau: int = 0):
