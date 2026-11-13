@@ -6,7 +6,7 @@ Dokumente, Notizen, Originaldateien und KI-Verlauf werden wahlweise in einer lok
 
 ## Masterplan und Roadmap
 
-Der verbindliche [Masterplan mit Release-Roadmap](masterplan.md) beschreibt freigegebene Stände und geplante Arbeiten. Freigegeben sind Release 2.0 bis 2.4. Release 2.4 umfasst Betrieb und Governance; Release 3.0 ergänzt den Mehrbenutzer-Server. Der aktuelle Code-Stand `1298469` verwendet Schemaversion 26 und enthält die Paritäts-Roadmap Phase 0 bis 9 einschließlich Worker, Web-Importaufträgen, Organisation, Administration, OCR, Wissensgraph, Oberflächen und Postfachimport. Betriebsanweisungen stehen in `deploy/BETRIEB.md` und `deploy/VPS-ABLAUF.md`.
+Der verbindliche [Masterplan mit Release-Roadmap](masterplan.md) beschreibt freigegebene Stände und geplante Arbeiten. Freigegeben sind Release 2.0 bis 2.4. Release 2.4 umfasst Betrieb und Governance; Release 3.0 ergänzt den Mehrbenutzer-Server. Der aktuelle Code-Stand verwendet Schemaversion 26 und enthält die Paritäts-Roadmap Phase 0 bis 9 einschließlich Worker, Web-Importaufträgen, Organisation, Administration, OCR, Wissensgraph, Oberflächen und Postfachimport (Matrix-Gate 7 von 7 an `8483177`). Der Server läuft seit 13.11.2026 mit diesem Stand auf dem VPS. Im Server lassen sich auch Outlook.com-Postfächer verbinden, wenn die Administration `WR_MAIL_PERSONAL_ACCOUNTS=1` setzt (D-032). Betriebsanweisungen stehen in `deploy/BETRIEB.md` und `deploy/VPS-ABLAUF.md`.
 
 ### Startdiagnose (Release 1.9)
 

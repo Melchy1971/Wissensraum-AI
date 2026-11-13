@@ -1,6 +1,16 @@
 # Ablauf für den VPS-Tag: Paritäts-Roadmap Phase 0 bis 9 in Betrieb nehmen
 
-Stand 11.11.2026. Diese Liste fasst die Schritte aus `deploy/BETRIEB.md` (Phasen 0 bis 8) in eine Reihenfolge. Die Einzelheiten stehen dort. Jeder Schritt hat einen Prüfpunkt. Erst weiter, wenn er stimmt. Schlägt ein Prüfpunkt fehl, steht darunter, was zu tun ist.
+Stand 13.11.2026:
+
+| Block | Stand |
+|---|---|
+| A | 1 bis 3 erledigt (Gate 7 von 7 an `8483177`, `mail_key` angelegt), 4 Entra offen |
+| B | erledigt 13.11.2026, Übung bestanden |
+| C | erledigt 13.11.2026 09:04 UTC, Schema 26, Ablaufdatum des Client-Geheimnisses fehlt noch |
+| D | offen, 18 nach D-032 für Hotmail |
+| E, F | offen |
+
+Diese Liste fasst die Schritte aus `deploy/BETRIEB.md` (Phasen 0 bis 8) in eine Reihenfolge. Die Einzelheiten stehen dort. Jeder Schritt hat einen Prüfpunkt. Erst weiter, wenn er stimmt. Schlägt ein Prüfpunkt fehl, steht darunter, was zu tun ist.
 
 Grundregel: erst sichern, dann ändern. Die Migrationen 24, 25 und 26 laufen beim Start. Vorher muss eine geprüfte Sicherung der Server-Datenbank auf deinem Rechner liegen.
 
@@ -40,20 +50,22 @@ Alle Befehle laufen in PowerShell auf deinem Rechner, im Ordner `%USERPROFILE%\W
 
 ## C. Update auf dem VPS
 
+9a. **Vor dem Update:** `cp -p deploy/wissensraum.env deploy/wissensraum.env.vor-update`, `systemctl start wissensraum-backup.service`, `docker tag wissensraum-server:3.0 wissensraum-server:3.0-vor-update`.
+    Prüfpunkt: frische Sicherung im Journal, `docker image ls wissensraum-server` zeigt beide Tags mit derselben ID.
 10. **Umgebung ergänzen** in `deploy/wissensraum.env` (Vorlage `wissensraum.env.beispiel`):
     - `WR_OIDC_CLIENT_SECRET_EXPIRES=<JJJJ-MM-TT>` aus Schritt 4
     - `WR_EXPORT_DIR=/data/exports`
     - `WR_MAIL_KEY_FILE=/run/secrets/mail_key`
     - `WR_OLLAMA_URL` und `WR_AI_MODEL` prüfen (Messung in Schritt 21)
     Achtung: Ein stehengebliebener Platzhalter `<JJJJ-MM-TT>` verhindert den Start des Servers.
-11. **Ollama:** `docker exec <ollama-container> ollama pull qwen3-embedding:0.6b`. Prüfen, ob Ollama im Netz `datenbank` erreichbar ist, sonst das Netz beim Dienst `worker` in `compose.yaml` ergänzen.
+11. **Ollama:** `docker exec <ollama-container> ollama pull qwen3-embedding:0.6b`. Prüfen, ob Ollama im Netz `datenbank` erreichbar ist, sonst das Netz beim Dienst `worker` in `compose.yaml` ergänzen. Ist das Netz intern (`docker network inspect backend -f '{{.Internal}}'` ergibt `true`), für den Download kurz `docker network connect bridge ollama` und danach `docker network disconnect bridge ollama`.
 12. **Bauen und starten:** `docker compose -f deploy/compose.yaml up -d --build`.
     Das Image enthält jetzt Tesseract, die Ordner für Export und Logs und braucht das Secret `mail_key`. Der Dienst `migrate` hebt das Schema von 23 auf 26.
     Prüfpunkt: `docker compose -f deploy/compose.yaml ps` zeigt `server` und `worker` als healthy, `migrate` mit Exit 0. Im Worker-Log steht `worker_started` mit `status` `ocr`.
     Wenn `migrate` scheitert: `docker compose logs migrate`. Die Migration rollt vollständig zurück, die Daten bleiben auf Stand 23. Nicht von Hand am Schema ändern.
 13. **Alte Logs verwerfen** (S-01): `docker compose -f deploy/compose.yaml up -d --force-recreate server`.
     Prüfpunkt: `docker compose -f deploy/compose.yaml logs server | grep -c 'code='` ergibt 0.
-14. **Audit und Integrität:** `docker compose -f deploy/compose.yaml run --rm server python server.py audit-verify`.
+14. **Audit und Integrität:** `docker compose -f deploy/compose.yaml run --rm --no-deps -T server python server.py audit-verify </dev/null`.
     Prüfpunkt: gültige Kette, Anzahl mindestens so groß wie in Schritt 6. In der Weboberfläche unter Verwaltung, Betrieb „Schema, Prüfsummen und Audit-Kette prüfen“: keine Probleme. Die Diagnose zeigt das Client-Geheimnis ohne Warnung.
 
 ## D. Funktionsproben im Browser (über WireGuard)
@@ -81,4 +93,4 @@ Alle Befehle laufen in PowerShell auf deinem Rechner, im Ordner `%USERPROFILE%\W
 
 ## Rückweg
 
-Läuft nach Schritt 12 etwas nicht: `docker compose -f deploy/compose.yaml down`, altes Image starten. Die Migrationen 24 bis 26 fügen nur Spalten und Tabellen hinzu, der alte Server prüft aber die Schemaversion und startet mit Stand 26 nicht. Für einen vollständigen Rückweg die Sicherung aus Schritt 6 einspielen, wie in der Übung aus Schritt 8.
+Läuft nach Schritt 12 etwas nicht: `docker compose -f deploy/compose.yaml down`, `docker tag wissensraum-server:3.0-vor-update wissensraum-server:3.0`, `cp -p deploy/wissensraum.env.vor-update deploy/wissensraum.env`. Die Migrationen 24 bis 26 fügen nur Spalten und Tabellen hinzu, der alte Server prüft aber die Schemaversion und startet mit Stand 26 nicht. Für einen vollständigen Rückweg die Sicherung aus Schritt 6 einspielen, wie in der Übung aus Schritt 8.

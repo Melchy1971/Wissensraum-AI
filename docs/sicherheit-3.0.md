@@ -38,7 +38,7 @@ Dokumenttexte und Originale, Abschnitte und Vektoren (sie verraten Inhalte), KI-
 
 - Authorization Code mit PKCE (S256), `state` und `nonce` je Anmeldung, einmal verwendbar, 10 Minuten gültig.
 - Geprüft werden Signatur über die JWKS des Mandanten, `iss` mit der konfigurierten Mandanten-ID, `aud` gleich Client-ID, `exp`, `iat`, `nbf` mit höchstens 2 Minuten Uhrabweichung, `nonce`.
-- Zuordnung eines Kontos über `tid` und `oid`, nie über E-Mail-Adresse oder Anzeigename.
+- Zuordnung eines Kontos über `tid` und `oid`, nie über E-Mail-Adresse oder Anzeigename. Das gilt auch beim Verbinden eines Postfachs aus dem Mandanten. Ausnahme Outlook.com (D-032): Ein privates Microsoft-Konto hat eine eigene Identität außerhalb des Mandanten, sein Postfach gehört wie bei IMAP dem angemeldeten Server-Konto. Die Anmeldung am Server prüft unverändert den Mandanten.
 - Keine Selbstregistrierung. Ein Konto entsteht nur, wenn ein Administrator es vorher anlegt. Den ersten Administrator legt ein Befehl auf dem Server an.
 - Fehlgeschlagene Anmeldungen werden je Quelle begrenzt und protokolliert.
 

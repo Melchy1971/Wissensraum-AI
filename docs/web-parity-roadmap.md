@@ -1,6 +1,6 @@
 # Wissensraum-AI: Roadmap zur Web-Parität
 
-Stand: 11.11.2026, Commit `1298469`, Schema 26. Grundlage: `docs/desktop-web-parity.md` (Matrix, IDs) und `docs/web-architecture-review.md` (Befunde S-xx).
+Stand: 13.11.2026, Schema 26, Matrix-Gate 7 von 7 an `8483177`, VPS seit 13.11.2026 auf diesem Stand. Grundlage: `docs/desktop-web-parity.md` (Matrix, IDs) und `docs/web-architecture-review.md` (Befunde S-xx).
 
 ## 1. Leitlinien
 
@@ -14,15 +14,15 @@ Stand: 11.11.2026, Commit `1298469`, Schema 26. Grundlage: `docs/desktop-web-par
 
 | Phase | Ziel | Prio | Aufwand | Unsicherheit | Abhängig von |
 |---|---|---|---|---|---|
-| 0 | Betrieb absichern (umgesetzt, Einrichtung auf VPS und Windows-Rechner offen) | P0 | 3 bis 5 PT | N | keine |
-| 1 | Service-Schicht und atomare Änderungen (umgesetzt, Gate offen) | P1 | 5 bis 8 PT | N | 0 |
+| 0 | Betrieb absichern (umgesetzt, auf dem VPS eingerichtet und abgenommen 13.11.2026) | P0 | 3 bis 5 PT | N | keine |
+| 1 | Service-Schicht und atomare Änderungen (umgesetzt, Gate 7 von 7) | P1 | 5 bis 8 PT | N | 0 |
 | 2 | KI und Suche im Server vollständig (umgesetzt außer C03, C06, Messungen C09 und B10) | P1 | 7 bis 12 PT | M | 1 |
 | 3 | Worker-Dienst und Import (umgesetzt, Vorschau mit Abwahl seit 11.11.2026) | P1 | 9 bis 14 PT | M | 1 |
 | 4 | Dokumentpflege und Organisation (umgesetzt außer Zahlenwert B05, E03 kam mit Phase 5) | P1/P2 | 18 bis 29 PT | N | 1 |
-| 5 | Administration, Datenschutz, Betrieb (umgesetzt, Exportordner auf VPS einrichten) | P2 | 10 bis 15 PT | M | 1, 3 |
-| 6 | OCR im Server (umgesetzt, Image-Bau auf dem VPS offen) | P2 | 4 bis 6 PT | M | 3 |
+| 5 | Administration, Datenschutz, Betrieb (umgesetzt, Exportordner auf dem VPS eingerichtet, Probe offen) | P2 | 10 bis 15 PT | M | 1, 3 |
+| 6 | OCR im Server (umgesetzt, Image auf dem VPS gebaut, Worker mit OCR) | P2 | 4 bis 6 PT | M | 3 |
 | 7 | Wissensgraph im Web (umgesetzt) | P3 | 10 bis 16 PT | M | 4 |
-| 8 | E-Mail-Import (umgesetzt nach D-030, PST nur Desktop, Entra-Freigabe offen) | P3 | 15 bis 25 PT | H | 3, ADR Geheimnisse |
+| 8 | E-Mail-Import (umgesetzt nach D-030 und D-032, PST nur Desktop, Entra-Freigabe offen) | P3 | 15 bis 25 PT | H | 3, ADR Geheimnisse |
 | 9 | Oberfläche und Barrierefreiheit (umgesetzt außer Prüfung mit Screenreader) | P3 | 3 bis 6 PT | N | 4 |
 | Summe | | | 84 bis 136 PT | | |
 

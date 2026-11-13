@@ -67,7 +67,7 @@ Nachweis im Repository: Dump mit der Eigentümerrolle, Rückspielen mit `--no-ow
 
 Der Dienst `worker` läuft aus demselben Image wie `server` (`python worker.py`), ohne Port und ohne Anmeldedaten. Er bettet Abschnitte für die semantische Suche im Hintergrund ein. `WR_OLLAMA_URL` gilt jetzt auch für Einbettungen, nicht nur für Antworten.
 
-1. Auf dem VPS das Embedding-Modell laden: `docker exec <ollama-container> ollama pull qwen3-embedding:0.6b`.
+1. Auf dem VPS das Embedding-Modell laden: `docker exec <ollama-container> ollama pull qwen3-embedding:0.6b`. Hängt Ollama wie auf dem VPS nur im internen Netz `backend`, scheitert der Download an der Namensauflösung. Dann kurz verbinden und wieder trennen: `docker network connect bridge ollama`, Pull, `docker network disconnect bridge ollama`. Ollama bekommt dabei keinen veröffentlichten Port (so am 13.11.2026).
 2. Prüfen, in welchem Docker-Netz Ollama hängt. Der Worker ist nur im Netz `datenbank`. Liegt Ollama woanders, dieses Netz beim Dienst `worker` in `compose.yaml` ergänzen, nicht das Proxy-Netz.
 3. `docker compose -f deploy/compose.yaml up -d --build`, danach zeigt `docker compose -f deploy/compose.yaml ps` beide Dienste als healthy. Der Worker meldet sich alle 30 Sekunden (`WR_WORKER_INTERVAL`).
 4. Als Administrator unter Verwaltung, Semantische Suche, „Einschalten“. Der Server prüft einmal, ob Ollama das Modell liefert. Danach steigt der Zähler „Abschnitte mit Vektor“ mit jeder Runde um bis zu 256.
@@ -108,6 +108,8 @@ Dateien ohne erkannten Text bleiben 30 Tage in der Datenbank (`import_items.uplo
 4. Migration 26 läuft mit dem Dienst `migrate`, danach Container neu anlegen.
 5. Probe: als Bearbeiter unter Postfächer das eigene Microsoft-Postfach verbinden, Vorschau öffnen, eine Nachricht importieren, nach einer Worker-Runde ist sie ein Dokument des Kontos.
 
+Outlook.com, Hotmail, Live (D-032): Diese Postfächer liegen nicht im Mandanten, und Outlook.com nimmt seit 16.09.2024 kein IMAP mit Kennwort an. Einschalten mit `WR_MAIL_PERSONAL_ACCOUNTS=1` in `deploy/wissensraum.env`. Die Entra-App muss dafür unter Authentifizierung „Konten in einem beliebigen Organisationsverzeichnis und persönliche Microsoft-Konten“ zulassen (lehnt das Portal ab: im Manifest zuerst `requestedAccessTokenVersion` auf 2) und die Umleitungs-URI `https://wissen.melchy.cloud/postfaecher/microsoft/privat/rueckruf` haben. Die Server-Anmeldung prüft weiter den Mandanten. Danach erscheint unter Postfächer „Privates Microsoft-Postfach verbinden“.
+
 Schlüsselwechsel: neuen Schlüssel als `mail_key`, den alten als zweites Secret und `WR_MAIL_KEY_PREVIOUS_FILE`, Container neu anlegen, `docker compose exec server python server.py mail-rewrap`, danach den alten Schlüssel entfernen.
 
 ## Antwortqualität von qwen3:4b messen
@@ -121,13 +123,22 @@ python tests/eval/evaluate.py --own data/<eigene-fragen>.json --db data/<messkop
 
 Liegen False Reject und False Accept innerhalb der Grenzen, bleibt `qwen3:4b`. Sonst auf `qwen3:8b` wechseln (`WR_AI_MODEL`, rund 6 GB Speicher für Ollama). Ergebnis nur mit Frage-IDs in den Masterplan, Messkopie danach löschen.
 
+## Update auf neuen Code (Lehren vom 13.11.2026)
+
+- Vorher frisch sichern (`systemctl start wissensraum-backup.service`) und das laufende Image markieren (`docker tag wissensraum-server:3.0 wissensraum-server:3.0-vor-update`). `up --build` überschreibt sonst das Tag, und der Rückweg geht nur noch über die Image-ID.
+- `deploy/wissensraum.env` vor dem Ändern kopieren (`wissensraum.env.vor-update`).
+- Befehle per ssh von Windows aus als Skript auf stdin schicken (`… | ssh root@10.13.13.1 "tr -d '\r' | bash -s"`), nicht in die Shell des VPS einfügen. Dort stört Bracketed Paste. `docker compose run` und `docker exec -i` lesen sonst den Rest des Skripts: mit `-T` und `</dev/null` aufrufen.
+- Zwischen Build und Migration verlangt `audit-verify` im neuen Image Schema 26. Den Timer der Sicherung deshalb nicht mitten im Update laufen lassen, Build und `up -d` direkt hintereinander.
+
 ## Erledigt
 
 - Veröffentlichtes PostgreSQL-Kennwort rotiert (Angabe des Product Owners am 10.11.2026). Datum der Rotation und betroffene Rollen hier nachtragen.
+- Erste Sicherung auf dem VPS 13.11.2026 07:44 UTC, Abholung auf den Windows-Rechner, erste Wiederherstellungsübung bestanden 13.11.2026 08:44 UTC. Timer täglich 02:17 UTC, Abholung täglich 12:00.
+- Update auf Schema 26 am 13.11.2026 09:04 UTC, Server-Container neu angelegt (alte Logs verworfen), Worker mit OCR, Einbettungsmodell geladen.
 
 ## Offen bis zur Abnahme von 10.8
 
-- erster Lauf von Sicherung, Abholung auf deinen Rechner und Wiederherstellungsübung auf dem VPS
 - wöchentlicher `pip-audit` und Prüfung des Basis-Images
 - Ablaufdatum des Entra-Client-Geheimnisses in `WR_OIDC_CLIENT_SECRET_EXPIRES` eintragen (Warnung seit Phase 5 eingebaut)
+- Entra-Zustimmung für `Mail.Read` und `offline_access`, bei Hotmail zusätzlich die Kontotypen nach D-032
 - Probelauf mit zwei echten Konten im Browser
