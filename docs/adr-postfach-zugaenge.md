@@ -87,6 +87,19 @@ Aufwand Phase 8 mit Empfehlung: 9 bis 14 PT statt 15 bis 25 PT laut Roadmap.
 
 Umsetzung (11.11.2026): Migration 26 legt nur die Tabelle `account_mailboxes` an (Besitz und Chiffrat), `email_accounts` bleibt unverändert. Audit-Ereignis heißt `mailbox_changed`, Importe laufen als `import_started` mit `mail`. D12 (Anhänge alter E-Mails entfernen) entfällt im Server, weil er Anhänge nie im Original speichert.
 
+## 5a. Nachtrag 13.11.2026: private Microsoft-Konten (D-032)
+
+Anlass: Der Product Owner meldet sich als Gast mit einem Hotmail-Konto am Mandanten an, der Mandant hat kein Exchange. Das Postfach liegt bei Outlook.com. Ein Token aus dem Mandanten erreicht es nicht, und Outlook.com nimmt seit 16.09.2024 kein IMAP mit Kennwort mehr an. Ohne Erweiterung gibt es für ihn keinen Postfachzugang.
+
+Entscheidung: Dieselbe Entra-App verbindet Outlook.com-Postfächer über die Autorität `https://login.microsoftonline.com/consumers/v2.0`, nur mit `WR_MAIL_PERSONAL_ACCOUNTS=1`. Die App muss dafür auch private Microsoft-Konten zulassen. Die Anmeldung am Server ändert sich nicht: eigene Autorität des Mandanten und Prüfung von `tid`.
+
+- Eigener Start und Rückruf: `/postfaecher/microsoft/privat/verbinden` und `/postfaecher/microsoft/privat/rueckruf`. Zustand, Nonce und PKCE wie beim Mandanten, der Zustand ist an den Browser gebunden.
+- Das ID-Token muss von der consumers-Autorität stammen und den festen Mandanten privater Konten (`9188040d-6c67-4c5b-b112-36a304b66dad`) tragen.
+- Die Gleichheit von `tid` und `oid` mit dem angemeldeten Konto entfällt für private Konten. Ein privates Konto hat außerhalb des Mandanten eine eigene Identität, die zum Gastkonto nicht passt. Es gilt dieselbe Regel wie bei IMAP: Das Postfach gehört dem angemeldeten Server-Konto, und zustimmen kann nur, wer die Microsoft-Zugangsdaten des Postfachs hat.
+- `email_accounts.tenant` steht für solche Postfächer auf `consumers`. Server und Worker erneuern das Token dort, nie beim Mandanten. Ohne eingeschalteten Weg lehnt der Worker ein solches Postfach ab, statt den Mandanten zu fragen.
+- Audit: `mailbox_changed` mit `provider` `microsoft_personal`.
+- Keine Migration, die Spalte `tenant` gab es schon.
+
 ## 6. Offene Fragen an den Product Owner
 
 1. Welche Option für die Ablage: A, B, C oder D?

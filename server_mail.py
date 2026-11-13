@@ -8,7 +8,9 @@ There is no configuration file on the server, so mailboxes are written directly 
 With ``owner`` set (web requests) only that account's mailboxes exist; a foreign mailbox looks like a
 missing one. The worker uses ``owner=None`` and sees every server mailbox. Microsoft 365 mailboxes are
 connected through the server's Entra app with delegated ``Mail.Read`` (``web`` connect flow); the refresh
-token is the stored credential and is exchanged for a Graph token on use.
+token is the stored credential and is exchanged for a Graph token on use. Personal Microsoft accounts
+(Outlook.com, D-032) use the same app over the ``consumers`` authority; their mailbox row has the tenant
+``consumers``, so the token is renewed there.
 """
 import re
 import uuid
@@ -17,12 +19,23 @@ from importer import GMAIL_APP_PASSWORD, MAIL_PROVIDERS, MailLoginError
 from mail_vault import PREFIX
 
 GRAPH_SCOPE = 'offline_access https://graph.microsoft.com/Mail.Read'
+PERSONAL = 'consumers'
+
+
+def refresher(provider, personal=None):
+    """``refresh(token, tenant)`` for ``ServerMailboxes``: personal mailboxes at ``personal``, others at ``provider``."""
+    def refresh(token, tenant):
+        chosen = personal if tenant == PERSONAL else provider
+        if chosen is None:
+            raise ValueError('Für dieses Postfach ist keine Microsoft-Anmeldung eingerichtet.')
+        return chosen.refresh(token, GRAPH_SCOPE)
+    return refresh if provider is not None or personal is not None else None
 COLUMNS = 'e.id,e.label,e.provider,e.email,e.username,e.host,e.port,e.client_id,e.tenant,e.created_at,m.account_id'
 
 
 class ServerMailboxes:
     def __init__(self, store, vault, owner=None, refresh=None):
-        """``refresh(refresh_token)`` returns the token response of the Entra app (``oidc.Provider.refresh``)."""
+        """``refresh(refresh_token, tenant)`` returns the token response of the Entra app (``refresher``)."""
         self.store, self.vault, self.owner, self.refresh = store, vault, owner, refresh
 
     @staticmethod
@@ -85,26 +98,33 @@ class ServerMailboxes:
             raise ValueError('Kennwort oder App-Passwort eingeben.')
         return self._insert(provider, label, address, username, host, port, secret)
 
-    def save_microsoft(self, address, label, refresh_token):
-        """Microsoft 365 mailbox of ``owner`` after the Entra consent; an existing one gets the new token."""
+    def save_microsoft(self, address, label, refresh_token, personal=False):
+        """Microsoft mailbox of ``owner`` after the consent; an existing one gets the new token.
+
+        ``personal`` marks an Outlook.com mailbox (tenant ``consumers``), its token is renewed there.
+        """
         if self.owner is None:
             raise ValueError('Unbekanntes Konto.')
         label, address = self._clean({'label': label, 'email': address}, 'microsoft')
+        tenant = PERSONAL if personal else 'common'
         existing = next((row for row in self._rows() if row['provider'] == 'microsoft'
                          and row['email'].lower() == address.lower()), None)
         if existing:
+            if (existing['tenant'] == PERSONAL) != personal:
+                raise ValueError('Dieses E-Mail-Konto ist bereits mit der anderen Microsoft-Anmeldung verbunden.')
             self.vault.set(self.secret_name(existing['id']), refresh_token)
             return existing['id']
-        return self._insert('microsoft', label, address, address, '', 0, refresh_token)
+        return self._insert('microsoft', label, address, address, '', 0, refresh_token, tenant)
 
-    def _insert(self, provider, label, address, username, host, port, secret):
+    def _insert(self, provider, label, address, username, host, port, secret, tenant='common'):
         if any(row['provider'] == provider and row['email'].lower() == address.lower() for row in self._rows()):
             raise ValueError('Dieses E-Mail-Konto ist bereits angelegt.')
         mailbox_id = uuid.uuid4().hex
         with self.store.transaction():
             with self.store.connect() as db:
                 db.execute('INSERT INTO email_accounts(id,label,provider,email,username,host,port,client_id,tenant) '
-                           "VALUES(?,?,?,?,?,?,?,'','common')", (mailbox_id, label, provider, address, username, host, port))
+                           "VALUES(?,?,?,?,?,?,?,'',?)", (mailbox_id, label, provider, address, username, host, port,
+                                                          tenant))
             self.vault.set(self.secret_name(mailbox_id), secret, account_id=self.owner)
         return mailbox_id
 
@@ -125,7 +145,7 @@ class ServerMailboxes:
         if not saved or self.refresh is None:
             raise MailLoginError('Microsoft-Konto zuerst verbinden.')
         try:
-            tokens = self.refresh(saved)
+            tokens = self.refresh(saved, mailbox['tenant'])
         except Exception:  # refused or unreachable: the reason is never the provider's text
             raise MailLoginError('Microsoft-Anmeldung abgelaufen oder widerrufen. Postfach neu verbinden.') from None
         if not isinstance(tokens, dict) or not isinstance(tokens.get('access_token'), str):

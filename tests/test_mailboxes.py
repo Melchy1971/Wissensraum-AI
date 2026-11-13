@@ -26,12 +26,13 @@ from core import AI, Store
 from import_jobs import ImportJobs
 from mail_fakes import FakeGraph, FakeImapServer, graph_attachment, mail
 from mail_vault import MailKeyMissing, MailVault, key_id, load_key
-from server_mail import ServerMailboxes
+from server_mail import PERSONAL, ServerMailboxes, refresher
 import test_rights
 from test_rights import AUTHORITY, BASE, CLIENT_ID, CLIENT_SECRET, TENANT, fill, people
 from test_server import TestIdentityProvider
 
 KEY, OLD_KEY = bytes(range(32)), bytes(range(1, 33))
+MAIL_CALLBACK_TENANT = '/postfaecher/microsoft/rueckruf'
 PASSWORD = 'geheimes-imap-kennwort'
 ATTACHMENT = 'Rechnungsbetrag 120 Euro, fällig im Dezember.'.encode()
 
@@ -98,6 +99,21 @@ class VaultTests(unittest.TestCase):
         self.assertNotIn(KEY.hex(), repr(MailVault(None, KEY)))
 
 
+class PersonalSettingTests(unittest.TestCase):
+    def test_off_unless_switched_on(self):
+        with tempfile.TemporaryDirectory() as folder:
+            secret = Path(folder) / 'secret'
+            secret.write_text('geheim\n')
+            env = {'WR_OIDC_CLIENT_ID': 'app', 'WR_OIDC_CLIENT_SECRET_FILE': str(secret)}
+            self.assertIsNone(server.mail_personal_provider(env))
+            self.assertIsNone(server.mail_personal_provider({**env, 'WR_MAIL_PERSONAL_ACCOUNTS': 'ja'}))
+            self.assertIsNone(server.mail_personal_provider({'WR_MAIL_PERSONAL_ACCOUNTS': '1'}))  # no app
+            provider = server.mail_personal_provider({**env, 'WR_MAIL_PERSONAL_ACCOUNTS': '1'})
+            self.assertEqual((provider.authority, provider.tenant_id, provider.client_id),
+                             ('https://login.microsoftonline.com/consumers/v2.0', server.PERSONAL_TENANT, 'app'))
+            self.assertNotIn('geheim', repr(provider))
+
+
 class MailIdentityProvider(TestIdentityProvider):
     """Adds the mailbox consent (other redirect, refresh token) and the refresh grant."""
 
@@ -121,6 +137,39 @@ class MailIdentityProvider(TestIdentityProvider):
             return {'id_token': self.token(entry['nonce'], entry['oid']), 'refresh_token': 'refresh-1',
                     'access_token': 'graph-token'}
         return super().http(url, form)
+
+
+PERSONAL_AUTHORITY = 'https://login.personal.example.test/consumers/v2.0'
+
+
+class PersonalIdentityProvider(MailIdentityProvider):
+    """The consumers authority for Outlook.com: own discovery and token endpoint, Microsoft's personal tenant."""
+
+    def __init__(self):
+        super().__init__()
+        self.personal_refreshes = []
+
+    def http(self, url, form=None):
+        if not url.startswith(PERSONAL_AUTHORITY):
+            return super().http(url, form)
+        path = url[len(PERSONAL_AUTHORITY):]
+        if path == '/.well-known/openid-configuration':
+            return {'issuer': PERSONAL_AUTHORITY, 'authorization_endpoint': PERSONAL_AUTHORITY + '/authorize',
+                    'token_endpoint': PERSONAL_AUTHORITY + '/token', 'jwks_uri': PERSONAL_AUTHORITY + '/keys'}
+        if path == '/keys':
+            return super().http(AUTHORITY + '/keys')
+        if path == '/token' and form.get('grant_type') == 'refresh_token':
+            self.personal_refreshes.append((form['refresh_token'], form['scope']))
+            return {'access_token': 'graph-token-privat', 'refresh_token': 'privat-2'}
+        if path == '/token' and form.get('redirect_uri') == BASE + '/postfaecher/microsoft/privat/rueckruf':
+            entry = self.codes.pop(form['code'])
+            previous, self.overrides = self.overrides, {**self.overrides, 'iss': PERSONAL_AUTHORITY,
+                                                        'tid': server.PERSONAL_TENANT}
+            try:
+                return {'id_token': self.token(entry['nonce'], entry['oid']), 'refresh_token': 'privat-1'}
+            finally:
+                self.overrides = previous
+        raise OSError('unknown endpoint')
 
 
 class MailboxPageTests(test_rights.EndpointTests):
@@ -222,7 +271,7 @@ class MailboxPageTests(test_rights.EndpointTests):
         done = editor.get('/postfaecher/microsoft/rueckruf', params={'code': code, 'state': state})
         self.assertEqual(done.status_code, 303, done.text[-300:])
         mailbox = done.headers['location'].rsplit('/', 1)[1]
-        boxes = ServerMailboxes(self.store, MailVault(self.store, KEY), refresh=lambda t: self.provider.refresh(t, 'x'))
+        boxes = ServerMailboxes(self.store, MailVault(self.store, KEY), refresh=refresher(self.provider))
         self.assertEqual(boxes.vault.get(boxes.secret_name(mailbox)), 'refresh-1')
         self.assertEqual(boxes.microsoft_token(mailbox), 'graph-token')
         self.assertEqual(boxes.vault.get(boxes.secret_name(mailbox)), 'refresh-2')  # rotated token stored
@@ -250,6 +299,55 @@ class MailboxPageTests(test_rights.EndpointTests):
         MailVault(self.store, KEY).set(boxes.secret_name(mailbox), 'widerrufen')
         with self.assertRaisesRegex(ValueError, 'neu verbinden'):
             boxes.microsoft_token(mailbox)
+
+    def test_personal_microsoft_account_only_when_switched_on(self):
+        """Outlook.com (D-032): consumers authority, no tid/oid binding, token renewed at consumers."""
+        editor = self.clients['oid-editor']
+        self.assertEqual(editor.get('/postfaecher/microsoft/privat/verbinden').status_code, 404)
+        self.assertNotIn('/privat/verbinden', editor.get('/postfaecher').text)
+        self.idp = PersonalIdentityProvider()
+        personal = test_rights.Provider(PERSONAL_AUTHORITY, server.PERSONAL_TENANT, CLIENT_ID, CLIENT_SECRET, '',
+                                        http=self.idp.http)
+        self.rebuild(mail_keys=(KEY, None), mail_personal=personal)
+        editor = self.clients['oid-editor']
+        self.assertIn('/postfaecher/microsoft/privat/verbinden', editor.get('/postfaecher').text)
+        start = editor.get('/postfaecher/microsoft/privat/verbinden')
+        self.assertEqual(start.status_code, 303)
+        self.assertTrue(start.headers['location'].startswith(PERSONAL_AUTHORITY + '/authorize?'))
+        # The personal identity is not the guest account in the tenant; it is accepted all the same.
+        self.idp.overrides = {'preferred_username': 'markus@hotmail.example.test'}
+        code, state = self.idp.authorize(start.headers['location'], 'msa-person')
+        done = editor.get('/postfaecher/microsoft/privat/rueckruf', params={'code': code, 'state': state})
+        self.assertEqual(done.status_code, 303, done.text[-300:])
+        mailbox = done.headers['location'].rsplit('/', 1)[1]
+        boxes = ServerMailboxes(self.store, MailVault(self.store, KEY), refresh=refresher(self.provider, personal))
+        row = boxes.get(mailbox)
+        self.assertEqual((row['tenant'], row['email'], row['label']),
+                         (PERSONAL, 'markus@hotmail.example.test', 'Outlook.com · markus@hotmail.example.test'))
+        with self.store.connect() as db:
+            owner = db.execute("SELECT id FROM accounts WHERE object_id='oid-editor'").fetchone()[0]
+        self.assertEqual(row['account_id'], owner)
+        self.assertEqual(boxes.microsoft_token(mailbox), 'graph-token-privat')
+        self.assertEqual(self.idp.personal_refreshes, [('privat-1', 'offline_access https://graph.microsoft.com/Mail.Read')])
+        self.assertEqual(self.idp.refreshes, [])  # never at the tenant
+        self.assertEqual(boxes.vault.get(boxes.secret_name(mailbox)), 'privat-2')
+        # The worker renews at the same place.
+        mailboxes = worker.mail_importer(self.store, (KEY, None), self.provider, personal).accounts
+        self.assertEqual(mailboxes.microsoft_token(mailbox), 'graph-token-privat')
+        self.assertEqual(len(self.idp.personal_refreshes), 2)
+        # Without the personal provider the worker refuses this mailbox instead of asking the tenant.
+        with self.assertRaisesRegex(ValueError, 'neu verbinden'):
+            worker.mail_importer(self.store, (KEY, None), self.provider).accounts.microsoft_token(mailbox)
+        self.assertEqual(self.idp.refreshes, [])
+        # The state of a personal consent does not finish at the work-account callback: the code belongs to
+        # the consumers authority, the tenant refuses it.
+        start = editor.get('/postfaecher/microsoft/privat/verbinden')
+        code, state = self.idp.authorize(start.headers['location'], 'msa-person')
+        self.assertEqual(editor.get(MAIL_CALLBACK_TENANT, params={'code': code, 'state': state}).status_code, 422)
+        self.assertEqual(len(boxes.list()), 1)
+        # The consent goes into the audit trail with its own provider name.
+        details = [e['details'] for e in audit.entries(self.store, 100) if e['event'] == 'mailbox_changed']
+        self.assertIn('"provider":"microsoft_personal"', ''.join(details))
 
     def test_sync_only_after_switching_on(self):
         editor = self.clients['oid-editor']

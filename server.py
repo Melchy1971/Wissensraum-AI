@@ -148,13 +148,14 @@ class NewGrant(BaseModel):
 
 
 def create_app(store, provider, base_url, development=False, logger=None, clock=time.time, ai=None, limits=None,
-               secret_expires=None, export_dir=None, graph_model=None, mail_keys=(None, None)):
+               secret_expires=None, export_dir=None, graph_model=None, mail_keys=(None, None), mail_personal=None):
     """``ai`` builds the answering component for a store (``core.AI``); None: questions answer 503.
 
     ``secret_expires`` is the expiry date of the Entra client secret (S-11); administrators see a warning.
     ``export_dir`` is the folder the worker writes the installation export to (``WR_EXPORT_DIR``).
     ``graph_model`` is the Ollama model for AI graph suggestions; None: suggestions are not offered (D-023).
     ``mail_keys`` (current, previous) encrypt mailbox credentials (D-030); without a key there are no mailboxes.
+    ``mail_personal`` is the provider for personal Microsoft accounts (Outlook.com, D-032); None: not offered.
 
     ``limits`` (``services.Limits``) replaces the default rate limits per account, for tests.
     """
@@ -578,7 +579,7 @@ def create_app(store, provider, base_url, development=False, logger=None, clock=
                                       document=document, audited=audited, ai=ai, recorder=recorder, limited=limited,
                                       secret_expires=secret_expires, clock=clock, export_dir=export_dir,
                                       graph_model=graph_model, mail_keys=mail_keys, provider=provider,
-                                      base=base))
+                                      mail_personal=mail_personal, base=base))
     return app
 
 
@@ -631,7 +632,8 @@ def settings_from_env(environ=None):
             'provider': Provider(authority, tenant, client_id, secret, base + '/auth/callback'),
             'ai': ai, 'secrets': tuple(value for value in (secret, password, ai_key) if value),
             'secret_expires': secret_expiry(environ), 'export_dir': environ.get('WR_EXPORT_DIR') or None,
-            'graph_model': graph_model(environ), 'mail_keys': mail_keys(environ)}
+            'graph_model': graph_model(environ), 'mail_keys': mail_keys(environ),
+            'mail_personal': mail_personal_provider(environ)}
 
 
 SECRET_WARNING_DAYS = 30
@@ -651,6 +653,24 @@ def mail_provider(environ):
         return None
     authority = environ.get('WR_OIDC_AUTHORITY') or f'https://login.microsoftonline.com/{tenant}/v2.0'
     return Provider(authority, tenant, client_id, secret, '')
+
+
+PERSONAL_TENANT = '9188040d-6c67-4c5b-b112-36a304b66dad'  # Microsoft's fixed tenant of all personal accounts
+
+
+def mail_personal_provider(environ):
+    """Outlook.com mailboxes through the same Entra app, only with ``WR_MAIL_PERSONAL_ACCOUNTS=1`` (D-032).
+
+    The app registration must then allow personal Microsoft accounts. Server sign-in is not affected: it keeps
+    its own authority and checks the tenant. None when switched off or without the app's settings.
+    """
+    if environ.get('WR_MAIL_PERSONAL_ACCOUNTS', '').strip() != '1':
+        return None
+    client_id, secret = environ.get('WR_OIDC_CLIENT_ID', '').strip(), _secret(environ, 'WR_OIDC_CLIENT_SECRET')
+    if not (client_id and secret):
+        return None
+    authority = environ.get('WR_MAIL_PERSONAL_AUTHORITY') or 'https://login.microsoftonline.com/consumers/v2.0'
+    return Provider(authority, PERSONAL_TENANT, client_id, secret, '')
 
 
 def graph_model(environ):
@@ -835,7 +855,8 @@ def main(argv=None):  # pragma: no cover - starts the real server
                                        'server', known_secrets=settings['secrets'])
     app = create_app(store, settings['provider'], settings['base_url'], settings['development'], logger,
                      ai=settings['ai'], secret_expires=settings['secret_expires'], export_dir=settings['export_dir'],
-                     graph_model=settings['graph_model'], mail_keys=settings['mail_keys'])
+                     graph_model=settings['graph_model'], mail_keys=settings['mail_keys'],
+                     mail_personal=settings['mail_personal'])
     # Behind Traefik the client address comes from X-Forwarded-For, trusted only from the proxy.
     config = uvicorn.Config(app, host=os.environ.get('WR_HOST', '127.0.0.1'),
                             port=int(os.environ.get('WR_PORT', '8000')),

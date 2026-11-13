@@ -18,6 +18,18 @@
 
 **Legende:** ✅ vollständig implementiert und gesamtes Gate nachweislich bestanden · 🟡 implementiert oder teilweise geprüft, aber noch nicht vollständig abgenommen · ❌ Gate fehlgeschlagen oder Freigabe blockiert · ⬜ geplant und noch nicht begonnen
 
+## Aktualisierung 13.11.2026 – Betrieb auf dem VPS: Sicherung, Update auf Schema 26, Outlook.com (D-031, D-032) 🟡
+
+**VPS-ABLAUF.md Block B (G03) ✅:** siehe Abschnitt darunter. Sicherung täglich 02:17 UTC auf dem VPS, Abholung täglich 12:00 auf den Windows-Rechner, Übung am 13.11.2026 bestanden.
+
+**VPS-ABLAUF.md Block C ✅ (13.11.2026):** Vorher frische Sicherung `wissensraum_server-20261113T090008Z` (Audit 19) und das alte Image als `wissensraum-server:3.0-vor-update` markiert, `wissensraum.env` als `wissensraum.env.vor-update` kopiert. `WR_EXPORT_DIR` und `WR_MAIL_KEY_FILE` ergänzt, `WR_OIDC_CLIENT_SECRET_EXPIRES` fehlt noch (optional, Datum vom Product Owner). Build und `up -d` um 09:04 UTC: `migrate` mit Exit 0 („Schema aktuell, Rechte der Laufzeitrolle gesetzt“), Schema 23 auf 26, `server` und `worker` healthy, Worker meldet `worker_started` mit `status` `ocr`. Server-Container neu angelegt, 0 Anmeldecodes im Log (S-01). `audit-verify` mit dem neuen Code: gültig, 19 Einträge, gleicher Kopf wie vor dem Update. Sicherung mit dem neuen Image: 107.273 Byte, Audit 19. Ollama hängt nur im internen Netz `backend`; `qwen3-embedding:0.6b` über eine kurze Verbindung zum Netz `bridge` geladen, danach wieder getrennt. Auf dem VPS bereits geladen: `qwen3:4b`.
+
+**D-032 (Code, PR #55):** Outlook.com-Postfächer über die Autorität `consumers`, weil der Product Owner als Gast mit Hotmail angemeldet ist und der Mandant kein Exchange hat. Volle Suite 814 Tests, 0 Fehlschläge, 58 übersprungen; PostgreSQL 16 58 von 58. Auf dem VPS erst nach Merge, Umstellung der Kontotypen der Entra-App, zweiter Umleitungs-URI und `WR_MAIL_PERSONAL_ACCOUNTS=1`.
+
+**Bekannt, nicht dringend:** Betriebsprotokolle liegen unter `/data/logs/data/logs/wissensraum.jsonl`, weil `WR_LOG_DIR` auf `/data/logs` zeigt und der Logger `data/logs` selbst anhängt. Windows 3.13 scheiterte im ersten Gate-Lauf an `e86ff28` einmal und lief im zweiten Lauf durch; Ursache nicht untersucht, das Gate an `8483177` lief ohne Wiederholung.
+
+**Offen:** Block D (Proben 15 bis 20 im Browser), Probe 18 nach D-032 mit Hotmail, Block E (Messungen C09 `qwen3:4b` und B10 Antwortzeiten), Block F (Nachträge, Screenreader H06), Ablaufdatum des Client-Geheimnisses. Phase 10 und die Paritäts-Roadmap bleiben 🟡.
+
 ## Aktualisierung 11.11.2026 – Paritäts-Roadmap Phase 0 bis 9 (Betrieb, Service-Schicht, semantische Suche, Importaufträge, Dokumentpflege, Organisation, Administration, Texterkennung, Wissensgraph, Oberfläche und E-Mail-Import im Server) 🟡
 
 **Grundlage:** Analyse Desktop/Web an `bf3b126` in `docs/desktop-web-parity.md`, `docs/web-architecture-review.md`, `docs/web-parity-roadmap.md`, `docs/web-parity-testplan.md`. Die Roadmap-Phasen sind nicht die Teilschritte 11.1 bis 11.5 dieses Plans. Sie gehören zum Abschluss von 10.8 und zu 11.1 und 11.2.
@@ -52,7 +64,7 @@
 
 **G03 abgenommen (13.11.2026):** VPS-ABLAUF.md Block B vollständig. `backup-setup.sh --run` auf dem VPS, erste Sicherung `wissensraum_server-20261113T074428Z` (98.872 Byte, Audit 19 Einträge), `backup-pull.ps1` auf dem Windows-Rechner mit geprüften Prüfsummen, Übung mit dem Schlüssel über stdin bestanden (Kette gültig, 19 Einträge, gleicher Kopf wie vor dem Dump; erster Versuch scheiterte am alten Image, behoben in `fd09cc3`, PR #53). Timer auf dem VPS und geplante Aufgabe 12:00 auf dem Rechner aktiv. Paritätsmatrix 65 von 68 (95,6 %).
 
-**Offen:** Neuanlage des Server-Containers zum Verwerfen alter Logs, Messungen C09 (`qwen3:4b`) und B10 (Antwortzeiten), Screenreader-Prüfung H06. Bis dahin bleibt die Paritäts-Roadmap 🟡.
+**Offen:** (Stand 13.11.2026 siehe oben; die Neuanlage des Server-Containers ist mit Block C erledigt) Messungen C09 (`qwen3:4b`) und B10 (Antwortzeiten), Screenreader-Prüfung H06. Bis dahin bleibt die Paritäts-Roadmap 🟡.
 
 **Status:** Phase 0 bis 9 der Paritäts-Roadmap 🟡. 10.8 bleibt 🟡.
 
@@ -1510,6 +1522,7 @@ Ein Arbeitspaket ist abgeschlossen, wenn:
 | D-029 | Release 3.0 läuft nicht auf Unraid, sondern auf dem IONOS-VPS (Rocky Linux 9, Docker) unter `wissen.melchy.cloud`, erreichbar nur über WireGuard (Traefik mit IP-Freigabe für das VPN-Netz, HTTPS über Let's Encrypt). Eigene Datenbank `wissensraum_server` mit Eigentümer- und Laufzeitrolle im vorhandenen PostgreSQL 18, die Datenbank der Desktop-Anwendung bleibt unberührt. KI über das vorhandene Ollama. Öffentliche Erreichbarkeit bleibt Release 3.1 | Entschieden 09.11.2026 (Product Owner) |
 | D-030 | Postfach-Zugänge im Server (Paritäts-Roadmap Phase 8, `docs/adr-postfach-zugaenge.md`, Product Owner 11.11.2026): Microsoft 365 über die Entra-App des Servers mit delegiertem `Mail.Read` und `offline_access` (Zustimmung erteilt der Product Owner), IMAP-Kennwörter mit AES-256-GCM in PostgreSQL, Schlüssel als Docker-Secret `mail_key` mit age-Kopie außerhalb des VPS. Ausnahme von der Schlüsselspeicher-Regel nur für den Server, der Desktop bleibt beim OS-Schlüsselspeicher. PST nur im Desktop. || Entschieden 11.11.2026 (Product Owner) |
 | D-031 | Sicherung der Server-Datenbank ohne Unraid: Dein Windows-Rechner holt die mit age verschlüsselten Dumps über WireGuard ab (`deploy/backup-pull.ps1`, Benutzer `wrbackup` nur mit Leserecht, Zugang nur von 10.13.13.2), der private age-Schlüssel liegt nur dort. Die Wiederherstellungsübung läuft auf dem VPS, der Schlüssel kommt über ssh auf stdin und wird nicht gespeichert. Ersetzt die Abholung durch Unraid aus Phase 0 | Entschieden 12.11.2026 (Product Owner) |
+| D-032 | Outlook.com-Postfächer (Hotmail, Live) über dieselbe Entra-App und die Autorität `consumers`, nur mit `WR_MAIL_PERSONAL_ACCOUNTS=1`. Für private Konten entfällt die Gleichheit von `tid` und `oid` mit dem angemeldeten Konto, es gilt die Regel von IMAP. Token-Erneuerung je Postfach am richtigen Endpunkt (`email_accounts.tenant`). Nachtrag in `docs/adr-postfach-zugaenge.md` 5a | Entschieden 13.11.2026 (Product Owner) |
 
 ## 14. Hauptrisiken
 

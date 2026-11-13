@@ -7,6 +7,8 @@
 <ul>{% for m in mailboxes %}<li><a href="/postfaecher/{{ m.id }}">{{ m.label }}</a> ({{ m.email }}){% if m.sync.enabled %} · Synchronisation alle {{ m.sync.interval }} Min.{% if m.sync.stopped %}, gestoppt: {{ m.sync.stopped }}{% endif %}{% endif %}</li>{% else %}<li>Noch kein Postfach.</li>{% endfor %}</ul>
 <h2>Microsoft 365</h2>
 <p><a href="/postfaecher/microsoft/verbinden">Eigenes Microsoft-Postfach verbinden</a> (Zustimmung zu Mail.Read bei Microsoft)</p>
+{% if personal %}<h2>Outlook.com</h2>
+<p><a href="/postfaecher/microsoft/privat/verbinden">Privates Microsoft-Postfach verbinden</a> (Outlook.com, Hotmail, Live: Zustimmung zu Mail.Read bei Microsoft)</p>{% endif %}
 <h2>IMAP-Postfach</h2>
 <form method="post" action="/postfaecher"><input type="hidden" name="csrf_token" value="{{ csrf }}">
 <label>Anbieter <select name="provider"><option value="imap">Sonstiges IMAP-Konto</option><option value="gmail">Gmail</option></select></label>
