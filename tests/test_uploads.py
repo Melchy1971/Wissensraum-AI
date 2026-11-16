@@ -60,6 +60,7 @@ def check_upload_contract(case, store):
                                     (first,)).fetchone()['n'], 0)
     case.assertEqual([s['job_id'] for s in jobs.upload_jobs(account)], [second, first])
     case.assertEqual(jobs.upload_jobs(account + 999), [])
+    case.assertEqual([s['job_id'] for s in jobs.upload_jobs(None)][:2], [second, first])  # administrators: all
     case.assertTrue(audit.verify(store)['ok'])
 
 
