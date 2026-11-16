@@ -123,6 +123,8 @@ python tests/eval/evaluate.py --own data/<eigene-fragen>.json --db data/<messkop
 
 Liegen False Reject und False Accept innerhalb der Grenzen, bleibt `qwen3:4b`. Sonst auf `qwen3:8b` wechseln (`WR_AI_MODEL`, rund 6 GB Speicher für Ollama). Ergebnis nur mit Frage-IDs in den Masterplan, Messkopie danach löschen.
 
+Ergebnis 13.11.2026: `qwen3:4b` nicht bestanden (Masterplan, Abschnitt 13.11.2026). `qwen3:8b` bleibt das freigegebene Modell. Ausgeführt mit `PYTHONIOENCODING=utf-8`, `--model qwen3-embedding:0.6b`, `--equivalents data/eval-gleichwertig.json` und `--json`, ein Lauf dauerte auf dem Windows-Rechner knapp drei Stunden.
+
 ## Update auf neuen Code (Lehren vom 13.11.2026)
 
 - Vorher frisch sichern (`systemctl start wissensraum-backup.service`) und das laufende Image markieren (`docker tag wissensraum-server:3.0 wissensraum-server:3.0-vor-update`). `up --build` überschreibt sonst das Tag, und der Rückweg geht nur noch über die Image-ID.

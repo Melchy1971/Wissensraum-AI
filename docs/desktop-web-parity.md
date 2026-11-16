@@ -92,7 +92,7 @@ Spalte Desktop: Status der Referenz (GUI oder CLI). Spalte Web: Status im Web. A
 | C06 | KI | Veraltete Dokumente aus Antworten ausschließen | FULL (CLI) | FULL | Schalter unter Verwaltung, Audit `settings_changed` | test_document_care | erledigt | 0 |
 | C07 | KI | Graphkontext in Antworten | aus (D-025) | NOT_APPLICABLE | `set_graph_context` | test_graph_context | keine | 0 |
 | C08 | KI | Fehler bei KI-Ausfall oder Budgetgrenze | FULL (GUI) | FULL | `services.ask` übersetzt `ProviderError` in 503 mit Meldung und Audit `unavailable` | test_services s08 | erledigt | 0 |
-| C09 | KI | Qualitäts-Gate mit eingesetztem Modell | gemessen mit `qwen3:8b` | DIFFERENT | `tests/eval/evaluate.py` | keine Messung `qwen3:4b` | P1 | 1 bis 2 |
+| C09 | KI | Qualitäts-Gate mit eingesetztem Modell | gemessen mit `qwen3:8b` | DIFFERENT | `tests/eval/evaluate.py` | `qwen3:4b` am 13.11.2026 gemessen: nicht bestanden (FA 3/24, FR 17/58, 14 abgebrochene Antworten) | P1 | Modellwechsel auf dem VPS |
 | C10 | KI | Anbieter, Modell und Schlüssel in der Oberfläche | FULL (GUI) | NOT_APPLICABLE | Server: `WR_AI_PROVIDER`, `WR_AI_MODEL`, `WR_AI_KEY_FILE` | test_rights | keine | 0 |
 | D01 | Import | Ordner rekursiv vom lokalen Dateisystem | FULL (GUI) | NOT_APPLICABLE | `discover_documents(folder)` | test_importer | keine | 0 |
 | D02 | Import | Persistente Importaufträge mit Fortschritt, Abbruch, Fortsetzen | FULL (GUI) | FULL | Worker `import_once`, `/importe`, Polling je 2 s, Abbrechen, Fortsetzen, Neustart setzt fort, Schema 24 | test_uploads, test_postgres | erledigt | 0 |
