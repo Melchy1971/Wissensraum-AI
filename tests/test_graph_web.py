@@ -138,6 +138,8 @@ class GraphPageTests(test_rights.EndpointTests):
         self.assertEqual(self.store.entity(erik)['name'], 'Erik N.')
         self.assertEqual(admin.post(posts[0][0], data=posts[0][1]).status_code, 409)  # stale revision
         self.assertEqual(admin.post(posts[3][0], data=posts[3][1]).status_code, 303)
+        many = admin.post(f'/graph/entitaet/{erik}/trennen', data={'name': 'X', 'mention': list(range(1, 41))})
+        self.assertNotIn('Formular konnte nicht gelesen', many.text)  # one checkbox per mention
         self.assertIn('Anlage', [t['name'] for t in self.store.entity_types()])
         rename = next(c['id'] for c in self.store.graph_changes() if c['action'] == 'rename')
         self.assertEqual(admin.post('/verwaltung/graph/zuruecknehmen', data={'change_id': rename}).status_code, 303)
