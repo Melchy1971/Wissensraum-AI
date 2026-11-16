@@ -241,10 +241,12 @@ class ImportJobs:
 
     def upload_jobs(self, account_id=None, limit=50):
         """Summaries of server jobs, newest first; ``account_id`` None: all (administrators)."""
+        # The account condition only when there is one: PostgreSQL cannot type a parameter in "? IS NULL".
+        owner, values = ('AND account_id=? ', (account_id,)) if account_id is not None else ('', ())
         with self.store.connect() as db:
             ids = [row['id'] for row in db.execute(
                 "SELECT id FROM import_jobs WHERE (kind=? OR kind IN ('imap','graph') AND account_id IS NOT NULL) "
-                'AND (? IS NULL OR account_id=?) ORDER BY id DESC LIMIT ?', (UPLOAD, account_id, account_id, limit))]
+                + owner + 'ORDER BY id DESC LIMIT ?', (UPLOAD, *values, limit))]
         return [self.summary(job_id) for job_id in ids]
 
     def set_status(self, job_id, status):
