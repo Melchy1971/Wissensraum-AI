@@ -123,6 +123,15 @@ class UploadPageTests(test_rights.EndpointTests):
         self.assertEqual(report.headers['content-type'], 'text/csv; charset=utf-8')
         self.assertIn('paket.zip/b.exe', report.content.decode('utf-8-sig'))
 
+    def test_too_large_names_the_file_and_the_limit(self):
+        editor = self.clients['oid-editor']
+        with mock.patch('web.MAX_UPLOAD', 10):  # the limit is checked per file, not the size of the test data
+            answer = editor.post('/hochladen', files=[('file', ('gross.zip', b'x' * 11, 'application/zip'))],
+                                 headers={'HX-Request': 'true'})
+        self.assertEqual(answer.status_code, 413)
+        self.assertIn('Die Datei gross.zip ist zu groß (höchstens 50 MB).', answer.text)
+        self.assertIsNone(self.jobs.next_upload_job())
+
     def test_foreign_jobs_stay_invisible(self):
         job = self.upload(self.clients['oid-editor'], [('a.txt', b'Nur meins.', 'text/plain')])
         accounts.create_account(self.store, TENANT, 'oid-editor-2', 'editor', 'Zweite')

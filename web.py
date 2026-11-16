@@ -50,7 +50,7 @@ MAX_FILES = 200
 FORM_LIMITS = {'max_files': 1, 'max_fields': 20, 'max_part_size': 64 * 1024}
 STATUS_TEXT = {401: 'Bitte zuerst anmelden.', 403: 'Dafür fehlt die Berechtigung.',
                404: 'Nicht gefunden.', 413: 'Die Datei ist zu groß.', 422: 'Die Eingabe ist ungültig.'}
-SHOWN = {409, 422, 429, 503}  # our own messages; for 401, 403 and 404 the fixed text (I3)
+SHOWN = {409, 413, 422, 429, 503}  # our own messages; for 401, 403 and 404 the fixed text (I3)
 
 
 def register(app, ctx):
