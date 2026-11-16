@@ -123,7 +123,7 @@ python tests/eval/evaluate.py --own data/<eigene-fragen>.json --db data/<messkop
 
 Liegen False Reject und False Accept innerhalb der Grenzen, bleibt `qwen3:4b`. Sonst auf `qwen3:8b` wechseln (`WR_AI_MODEL`, rund 6 GB Speicher für Ollama). Ergebnis nur mit Frage-IDs in den Masterplan, Messkopie danach löschen.
 
-Ergebnis 13.11.2026: `qwen3:4b` nicht bestanden (Masterplan, Abschnitt 13.11.2026). `qwen3:8b` bleibt das freigegebene Modell. Ausgeführt mit `PYTHONIOENCODING=utf-8`, `--model qwen3-embedding:0.6b`, `--equivalents data/eval-gleichwertig.json` und `--json`, ein Lauf dauerte auf dem Windows-Rechner knapp drei Stunden.
+Ergebnis 13.11.2026: `qwen3:4b` nicht bestanden (Masterplan, Abschnitt 13.11.2026). `qwen3:8b` bleibt das freigegebene Modell. Es passt nicht verlässlich auf den VPS mit 7,6 GB RAM: Gewichte rund 5,2 GB, mit Kontext von rund 9.200 Token rund 6,9 GB, dazu Einbettungsmodell, Server und Worker; der Ollama-Container ist auf 5 GiB begrenzt, Swap gibt es nicht. Deshalb sind die KI-Antworten im Server seit 16.11.2026 aus (D-033, `# WR_AI_PROVIDER=ollama` in `deploy/wissensraum.env`). Einschalten erst mit mindestens 12 GB RAM, Ollama-Limit dann auf rund 9 GiB im Stack des Ollama-Containers. Ausgeführt mit `PYTHONIOENCODING=utf-8`, `--model qwen3-embedding:0.6b`, `--equivalents data/eval-gleichwertig.json` und `--json`, ein Lauf dauerte auf dem Windows-Rechner knapp drei Stunden.
 
 ## Update auf neuen Code (Lehren vom 13.11.2026)
 
