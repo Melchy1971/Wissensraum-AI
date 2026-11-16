@@ -48,6 +48,9 @@ MAX_UPLOAD = 50 * 1024 * 1024  # core.MAX_DOCUMENT_BYTES, per file
 MAX_REQUEST = 100 * 1024 * 1024  # all files of one upload together
 MAX_FILES = 200
 FORM_LIMITS = {'max_files': 1, 'max_fields': 20, 'max_part_size': 64 * 1024}
+# Forms with one field per listed row: mailbox (up to 200 messages with subject, plus up to 2000 attachments),
+# erasure (up to 500 search hits), splitting an entity (one per mention or relation).
+SELECTION_FIELDS = 5000
 STATUS_TEXT = {401: 'Bitte zuerst anmelden.', 403: 'Dafür fehlt die Berechtigung.',
                404: 'Nicht gefunden.', 413: 'Die Datei ist zu groß.', 422: 'Die Eingabe ist ungültig.'}
 SHOWN = {409, 413, 422, 429, 503}  # our own messages; for 401, 403 and 404 the fixed text (I3)
@@ -374,7 +377,8 @@ def register(app, ctx):
     async def import_action(request: Request, job_id: int, action: str):
         jobs, job = own_job(request, job_id)
         if action == 'auswahl':  # A03: the chosen items of a job in review; the others are not imported
-            values = await form(request)
+            # One checkbox per item plus the CSRF token: the limit follows the job, not the general 20 fields.
+            values = await form(request, max_fields=len(jobs.items(job_id)) + 1)
             try:
                 with store.transaction():
                     dropped = jobs.start_selection(job_id, [number(v) for v in values.getlist('item')])
@@ -723,7 +727,7 @@ def register(app, ctx):
         from importer import MailLoginError
         account, boxes, importer = mail_tools(request)
         own_mailbox(boxes, mailbox_id)
-        values = await form(request)
+        values = await form(request, max_fields=SELECTION_FIELDS)
         if action == 'loeschen':
             with store.transaction():
                 boxes.delete(mailbox_id)
@@ -834,7 +838,7 @@ def register(app, ctx):
         account = ctx.signed_in(request)
         scoped = ctx.viewer(request)
         visible_entity(scoped, entity_id)  # 404 before any role answer
-        values = await form(request)
+        values = await form(request, max_fields=SELECTION_FIELDS)
         record, target = ctx.recorder(request), f'entity:{entity_id}'
         if action in ('bestaetigen', 'loeschen'):
             if not services.may_change_graph_item(store, account, 'entity', entity_id):
@@ -1201,7 +1205,7 @@ def register(app, ctx):
     @app.post('/verwaltung/datenschutz/loeschen', response_class=HTMLResponse)
     async def privacy_erase(request: Request):
         admin_account = ctx.require_role(request, 'admin')
-        values = await form(request)
+        values = await form(request, max_fields=SELECTION_FIELDS)
         ids = [number(v) for v in values.getlist('id')]
         if not ids:
             raise HTTPException(422, 'Keine Dokumente ausgewählt.')

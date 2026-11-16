@@ -232,7 +232,8 @@ class MailboxPageTests(test_rights.EndpointTests):
         self.assertIn('Rechnung', page)
         self.assertIn('rechnung.txt', page)
         self.assertFalse(any('BODY.PEEK[]' in spec or 'BODY[]' in spec for _, spec in self.server.fetches))
-        chosen = editor.post(f'/postfaecher/{mailbox}/import', data={'message': ['11'], 'subject:11': 'Rechnung',
+        listed = {f'subject:{n}': f'Betreff {n}' for n in range(100, 150)}  # the page sends one per listed message
+        chosen = editor.post(f'/postfaecher/{mailbox}/import', data={**listed, 'message': ['11'], 'subject:11': 'Rechnung',
                                                                       'attachment': ['11#2', '12#9'], 'folder': 'INBOX'})
         self.assertEqual(chosen.status_code, 303)
         job = int(chosen.headers['location'].rsplit('/', 1)[1])

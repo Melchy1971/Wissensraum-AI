@@ -96,6 +96,22 @@ class UploadPreviewTests(test_rights.EndpointTests):
         self.assertEqual([bool(i['kept']) for i in self.jobs.items(job)], [False, False, False])
         self.assertEqual(self.jobs.upload_preview(job), {})
 
+    def test_selection_with_many_files(self):
+        """More files than the general form limit (20 fields): the selection still reads every checkbox."""
+        editor = self.clients['oid-editor']
+        files = [(f'notiz-{n:02}.txt', f'Eigene Notiz Nummer {n} zur Halle.'.encode(), 'text/plain') for n in range(30)]
+        job = self.upload(editor, files)
+        self.assertIsNone(self.work())
+        chosen = [str(i['id']) for i in self.jobs.items(job)][1:]  # all but the first
+        self.assertEqual(editor.post(f'/importe/{job}/auswahl', data={'item': chosen}).status_code, 303)
+        summary = self.work()
+        self.assertEqual((summary['imported'], summary['deselected']), (29, 1))
+        # Not more fields than the job has items: the limit follows the job, not the request.
+        other = self.upload(editor, files[:2])
+        self.assertIsNone(self.work())
+        padded = [str(i['id']) for i in self.jobs.items(other)] + ['0'] * 5
+        self.assertEqual(editor.post(f'/importe/{other}/auswahl', data={'item': padded}).status_code, 422)
+
     def test_new_version_names_the_own_document_and_cancel_works(self):
         editor = self.clients['oid-editor']
         first = self.upload(editor, [('plan.txt', b'Plan eins.', 'text/plain')], preview=False)

@@ -201,6 +201,8 @@ class AdministrationTests(test_rights.EndpointTests):
         self.assertIn('Betroffen: 1 Dokumente', page)
         refused = admin.post('/verwaltung/datenschutz/loeschen', data={'id': doc, 'confirmation': 'ja'})
         self.assertEqual(refused.status_code, 422)
+        many = admin.post('/verwaltung/datenschutz/loeschen', data={'id': [doc] * 40, 'confirmation': 'ja'})
+        self.assertNotIn('Formular konnte nicht gelesen', many.text)  # many search hits chosen at once
         self.assertIsNotNone(self.store.get(doc))
         done = admin.post('/verwaltung/datenschutz/loeschen', data={'id': doc, 'confirmation': 'LÖSCHEN'})
         self.assertEqual(done.status_code, 200)
