@@ -8,7 +8,8 @@ Stand 13.11.2026:
 | B | erledigt 13.11.2026, Übung bestanden |
 | C | erledigt 13.11.2026 09:04 UTC, Schema 26, Ablaufdatum des Client-Geheimnisses fehlt noch |
 | D | offen, 18 nach D-032 für Hotmail |
-| E, F | offen |
+| E | C09 erledigt 13.11.2026, nicht bestanden, KI-Antworten aus (D-033), B10 offen |
+| F | offen |
 
 Diese Liste fasst die Schritte aus `deploy/BETRIEB.md` (Phasen 0 bis 8) in eine Reihenfolge. Die Einzelheiten stehen dort. Jeder Schritt hat einen Prüfpunkt. Erst weiter, wenn er stimmt. Schlägt ein Prüfpunkt fehl, steht darunter, was zu tun ist.
 
