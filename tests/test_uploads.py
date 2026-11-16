@@ -141,6 +141,9 @@ class UploadPageTests(test_rights.EndpointTests):
                                    ('b.txt', b'Zweiter Text zum Abbrechen.', 'text/plain')])
         self.assertEqual(editor.post(f'/importe/{job}/abbrechen').status_code, 303)
         self.assertIsNone(self.work())  # a cancelled job is not taken up
+        for page in ('/importe', f'/importe/{job}'):  # job states in plain German, not the stored English
+            self.assertIn('abgebrochen', editor.get(page).text)
+            self.assertNotIn('cancelled', editor.get(page).text)
         self.assertIn('Fortsetzen', editor.get(f'/importe/{job}').text)
         self.assertEqual(editor.post(f'/importe/{job}/fortsetzen').status_code, 303)
         stop = threading.Event()
@@ -148,6 +151,8 @@ class UploadPageTests(test_rights.EndpointTests):
         self.assertEqual(worker.import_once(self.store, stop, self.heartbeat)['status'], 'running')
         self.assertEqual(self.jobs.next_upload_job(), job)  # after the restart it continues
         self.assertEqual(self.work()['imported'], 2)
+        self.assertIn('abgeschlossen', editor.get('/importe').text)
+        self.assertNotIn('completed', editor.get('/importe').text)
         self.assertEqual(editor.post(f'/importe/{job}/abbrechen').status_code, 409)
         self.assertEqual(editor.post(f'/importe/{job}/loeschen').status_code, 404)
 

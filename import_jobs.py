@@ -23,6 +23,8 @@ STATUS_LABELS = {'pending': 'offen', 'running': 'in Bearbeitung', 'imported': 'i
                  'versioned': 'neue Version',
                  'duplicate': 'bereits vorhanden', 'quarantined': 'Quarantäne', 'failed': 'fehlgeschlagen',
                  'deselected': 'abgewählt', 'preview': 'Vorschau wird erstellt', 'review': 'wartet auf Auswahl'}
+# Jobs also end as completed or cancelled; kept apart because summary() counts items per key of STATUS_LABELS.
+JOB_LABELS = {**STATUS_LABELS, 'completed': 'abgeschlossen', 'cancelled': 'abgebrochen'}
 PREVIEW_SETTING = 'import.preview.'  # one JSON per server job in review: {item id: preview row} (phase 9, A03)
 REASON_LABELS = {**QUARANTINE_REASONS, 'error': 'Unerwarteter Fehler'}
 MAIL_KINDS = ('imap', 'graph', 'pst')

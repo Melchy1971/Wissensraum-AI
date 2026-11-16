@@ -331,7 +331,7 @@ def register(app, ctx):
         return jobs, job
 
     def job_view(jobs, job, request):
-        from import_jobs import REASON_LABELS, STATUS_LABELS
+        from import_jobs import JOB_LABELS, REASON_LABELS, STATUS_LABELS
         summary = jobs.summary(job['id'])
         items = [{**item, 'status_text': STATUS_LABELS[item['status']],
                   'reason_text': REASON_LABELS.get(item['reason'], item['reason'])} for item in jobs.items(job['id'])]
@@ -351,14 +351,14 @@ def register(app, ctx):
                          else OUTCOME_LABELS.get(row['outcome'], row['outcome']))
                 preview[int(item_id)] = {**row, 'existing': existing, 'label': label}
         return {'job': job, 'summary': summary, 'items': items, 'open': job['status'] in ('pending', 'running', 'preview'),
-                'labels': STATUS_LABELS, 'kept': kept, 'preview': preview}
+                'labels': JOB_LABELS, 'kept': kept, 'preview': preview}
 
     @app.get('/importe', response_class=HTMLResponse)
     def imports(request: Request):
-        from import_jobs import STATUS_LABELS, ImportJobs
+        from import_jobs import JOB_LABELS, ImportJobs
         account = ctx.require_role(request, 'admin', 'editor')
         rows = ImportJobs(store).upload_jobs(None if account['role'] == 'admin' else account['id'])
-        return render(request, 'imports.html', 'Importe', jobs=rows, labels=STATUS_LABELS)
+        return render(request, 'imports.html', 'Importe', jobs=rows, labels=JOB_LABELS)
 
     @app.get('/importe/{job_id}', response_class=HTMLResponse)
     def import_page(request: Request, job_id: int):
