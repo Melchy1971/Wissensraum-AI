@@ -42,16 +42,16 @@ Gemeinsamer Kern: `core.py` (`Store`, `PostgresStore`, `AI`, `Embedder`, Extrakt
 
 | Status | Anzahl Desktop-Funktionen |
 |---|---:|
-| FULL | 65 |
+| FULL | 66 |
 | PARTIAL | 1 |
 | MISSING | 0 |
 | DIFFERENT | 2 |
 | NOT_APPLICABLE | 9 |
-| UNKNOWN | 1 |
+| UNKNOWN | 0 |
 | Summe Desktop-Funktionen | 78 |
 | WEB_ONLY (zusätzlich) | 13 |
 
-Funktionsparität = FULL / (FULL + PARTIAL + MISSING + DIFFERENT) = 65 / 68 = 95,6 % (Stand nach der Abnahme von G03 am 13.11.2026. Nach A03, Importvorschau: 64 / 68 = 94,1 %. Nach Phase 8: 63 / 68 = 92,6 %. D06 und D12 sind seitdem NOT_APPLICABLE, PST nach D-030 nur im Desktop. Nach Phase 9: 59 / 70 = 84,3 %. H06 ist seitdem bewertet und zählt mit, daher 70. Nach Phase 7: 54 / 69 = 78,3 %, nach Phase 6: 48 / 69 = 69,6 %, nach Phase 5: 46 / 69 = 66,7 %, nach Phase 4b: 37 / 69 = 53,6 %, nach Phase 4a: 27 / 69 = 39,1 %, nach Phase 3: 18 / 69 = 26,1 %, nach Phase 2: 16 / 69 = 23,2 %, nach Phase 1: 12 / 69 = 17,4 %, nach Phase 0: 11 / 69 = 15,9 %, vor Phase 0: 10 / 69 = 14,5 %).
+Funktionsparität = FULL / (FULL + PARTIAL + MISSING + DIFFERENT) = 66 / 69 = 95,7 % (Stand nach der Messung B10 am 17.11.2026. Nach G03 am 13.11.2026: 65 / 68 = 95,6 %. Nach A03, Importvorschau: 64 / 68 = 94,1 %. Nach Phase 8: 63 / 68 = 92,6 %. D06 und D12 sind seitdem NOT_APPLICABLE, PST nach D-030 nur im Desktop. Nach Phase 9: 59 / 70 = 84,3 %. H06 ist seitdem bewertet und zählt mit, daher 70. Nach Phase 7: 54 / 69 = 78,3 %, nach Phase 6: 48 / 69 = 69,6 %, nach Phase 5: 46 / 69 = 66,7 %, nach Phase 4b: 37 / 69 = 53,6 %, nach Phase 4a: 27 / 69 = 39,1 %, nach Phase 3: 18 / 69 = 26,1 %, nach Phase 2: 16 / 69 = 23,2 %, nach Phase 1: 12 / 69 = 17,4 %, nach Phase 0: 11 / 69 = 15,9 %, vor Phase 0: 10 / 69 = 14,5 %).
 
 ## 5. Funktionsmatrix
 
@@ -83,7 +83,7 @@ Spalte Desktop: Status der Referenz (GUI oder CLI). Spalte Web: Status im Web. A
 | B07 | Suche | Filter Sammlung und Favoriten | FULL (GUI, CLI) | FULL | Sammlungsseite `/sammlungen/{id}` listet sichtbare Dokumente, Favoritenfilter in der Dokumentliste und API | test_organization_web | erledigt | 0 |
 | B08 | Suche | Gespeicherte Suchen | FULL (GUI, CLI) | FULL | Tabelle `account_saved_searches` (Schema 25) je Konto, Speichern und Löschen auf `/suche`. Fremde Suche ergibt 404 | test_organization_web (beide Backends) | erledigt | 0 |
 | B09 | Suche | Dokumentliste mit Seiten | FULL (GUI, CLI) | FULL | `Store.list`, `GET /`, `GET /api/documents` | test_web, test_rights | erledigt | 0 |
-| B10 | Suche | Antwortzeiten unter Last auf dem VPS | gemessen (Benchmark Desktop) | UNKNOWN | `tests/bench/benchmark.py` | keine Messung Server | P2 | 1 bis 2 |
+| B10 | Suche | Antwortzeiten unter Last auf dem VPS | gemessen (Benchmark Desktop) | FULL | `tests/bench/benchmark.py`, `tests/bench/server_latency.py` | 17.11.2026: 100 Suchen `/api/search`, 2 parallel, alle hybrid, Median 381 ms, P90 434 ms, P95 457 ms, Maximum 471 ms, einschließlich Netz und TLS. Ziel Desktop P95 unter 2 s. Bestand nur 44 Dokumente, 87 Abschnitte | P2 | erledigt |
 | C01 | KI | Frage mit Quellen und Evidenzprüfung | FULL (GUI, CLI) | FULL | `AI.ask`, `POST /fragen`, `POST /api/questions` | test_web, test_rights i2 | erledigt | 0 |
 | C02 | KI | Quellenlage und Ablehnungsgrund anzeigen | FULL (GUI) | FULL | `AnswerResult.label` in `answer.html`, ohne Antwort Treffer nur als Suchhinweise | test_worker | erledigt | 0 |
 | C03 | KI | KI-Verlauf | FULL (GUI) | FULL | Eigener Verlauf mit verlinkten Quellen (`core.run_sources`) | test_document_care | erledigt | 0 |
