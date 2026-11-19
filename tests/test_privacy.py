@@ -105,6 +105,9 @@ class PrivacyTests(unittest.TestCase):
         self.assertNotIn('daten/chunk_vectors.json', names)
         self.assertIn('daten/entities.json', names)
         self.assertEqual(manifest['format'], 'wissensraum-datenexport')
+        # The hint is true for both: desktop keyring and the server table that is never exported.
+        self.assertIn('account_mailboxes', manifest['hinweis'])
+        self.assertNotIn('daten/account_mailboxes.json', names)
         with self.assertRaisesRegex(ValueError, 'gibt es schon'):
             privacy.export(self.store, target)
         self.assertEqual(sorted(p.name for p in self.base.iterdir() if p.name.startswith('.datenexport')), [])

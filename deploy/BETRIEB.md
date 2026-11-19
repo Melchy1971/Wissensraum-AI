@@ -71,6 +71,7 @@ Der Dienst `worker` läuft aus demselben Image wie `server` (`python worker.py`)
 2. Prüfen, in welchem Docker-Netz Ollama hängt. Der Worker ist nur im Netz `datenbank`. Liegt Ollama woanders, dieses Netz beim Dienst `worker` in `compose.yaml` ergänzen, nicht das Proxy-Netz.
 3. `docker compose -f deploy/compose.yaml up -d --build`, danach zeigt `docker compose -f deploy/compose.yaml ps` beide Dienste als healthy. Der Worker meldet sich alle 30 Sekunden (`WR_WORKER_INTERVAL`).
 4. Als Administrator unter Verwaltung, Semantische Suche, „Einschalten“. Der Server prüft einmal, ob Ollama das Modell liefert. Danach steigt der Zähler „Abschnitte mit Vektor“ mit jeder Runde um bis zu 256.
+5. Solange der Worker einbettet, ist Ollama ausgelastet. Die Suche meldet dann „Volltext-Fallback – semantisches Modell nicht erreichbar“ und sucht nur im Volltext. Das ist kein Ausfall. Am 17.11.2026 dauerte das Einbetten von 81 Abschnitten rund vier Minuten, danach lief die hybride Suche wieder.
 5. Die Suche zeigt ihren Modus über der Trefferliste: „Hybride Suche“, sobald alle Abschnitte einen Vektor haben, vorher „Hybride Suche – Vektorbestand unvollständig“.
 
 Genau ein Worker. Zwei würden dieselben Abschnitte doppelt einbetten (harmlos, aber unnötige Last).

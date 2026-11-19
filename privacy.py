@@ -75,7 +75,9 @@ def export(store, target, overwrite=False):
                 'format': 'wissensraum-datenexport', 'format_version': 1, 'schema_version': CURRENT_SCHEMA_VERSION,
                 'exported_at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'), 'tabellen': counts,
                 'hinweis': 'Abschnitte und Vektoren fehlen, weil sie aus den Dokumenten berechnet werden. '
-                           'Zugangsschlüssel liegen im Schlüsselspeicher des Betriebssystems, nicht in der Datenbank.'},
+                           'Zugangsschlüssel sind nicht enthalten: Die Desktop-App hält sie im Schlüsselspeicher '
+                           'des Betriebssystems, der Server verschlüsselt in der Tabelle account_mailboxes, die nie '
+                           'exportiert wird.'},
                 ensure_ascii=False, indent=2))
         os.replace(temporary, target)
     except BaseException:

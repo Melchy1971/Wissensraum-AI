@@ -32,7 +32,13 @@
 
 **D-033 (16.11.2026):** KI-Antworten im Server aus, umgesetzt auf dem VPS um 10:19 Uhr: `WR_AI_PROVIDER` auskommentiert (Kopie `wissensraum.env.vor-ki-aus`), `up -d`, Server und Worker healthy, keine Fehler im Log. Messung vorher: 1,9 GB belegt, 5,7 GB verfügbar, Ollama-Container auf 5 GiB begrenzt, kein Swap.
 
-**Offen:** Block D (Proben 15 bis 20 im Browser), Probe 18 nach D-032 mit Hotmail, Block E (B10 Antwortzeiten; C09 erledigt, nicht bestanden), Block F (Nachträge, Screenreader H06), Ablaufdatum des Client-Geheimnisses. Phase 10 und die Paritäts-Roadmap bleiben 🟡.
+**Abnahme 17.11.2026:** Deployment von `dc9bd9a` (#59, #60) auf dem VPS, Server und Worker healthy, Schema 26 unverändert. Testbestand ohne private Inhalte: 40 erfundene Notizen und ein Foto mit gedrucktem Text, Import 6 und 7.
+- Probe 17 ✅: Vorschau setzt Haken nur bei neuen Dateien, die schon vorhandene Datei kam ohne Haken und blieb abgewählt (Import 7: 40 importiert, 1 abgewählt; Import 6 zeigte die Abwahl von 40 Dateien). Das Prüfwort aus dem Foto findet die Suche auf Platz 1 über Volltext und Vektor. Vektoren 87 von 87 nach rund vier Minuten. Während der Worker einbettet, fällt die Suche auf Volltext zurück (siehe BETRIEB.md).
+- Probe 20 ✅: Installationsexport nach rund 40 s fertig, 194.522 Byte, 80 Einträge (Manifest, 35 Tabellen, 44 Originale), Schema 26, ohne `account_mailboxes`. Im Browser geprüft, nicht gespeichert, danach auf dem Server gelöscht (404). Der Hinweis im Manifest nannte nur den Schlüsselspeicher des Betriebssystems, jetzt auch die Server-Tabelle.
+- B10 ✅: 100 Suchen, 2 parallel, alle hybrid, Median 381 ms, P95 457 ms, Maximum 471 ms. Gemessen im eingebauten Browser des Windows-Rechners mit gleicher Last wie `server_latency.py`, weil sich der Sitzungswert nicht in eine Datei übertragen ließ.
+- Probe 19 offen: kein zweites Microsoft-Konto verfügbar.
+
+**Offen:** Probe 15 (Handy ohne VPN), Probe 18 nach D-032 mit Hotmail, Probe 19 (zweites Konto), Block F (Nachträge, Screenreader H06), Ablaufdatum des Client-Geheimnisses, Dateinamen aus Import 4 und 5 in `import_items`. Phase 10 und die Paritäts-Roadmap bleiben 🟡.
 
 ## Aktualisierung 11.11.2026 – Paritäts-Roadmap Phase 0 bis 9 (Betrieb, Service-Schicht, semantische Suche, Importaufträge, Dokumentpflege, Organisation, Administration, Texterkennung, Wissensgraph, Oberfläche und E-Mail-Import im Server) 🟡
 

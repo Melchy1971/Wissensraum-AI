@@ -1,14 +1,14 @@
 # Ablauf für den VPS-Tag: Paritäts-Roadmap Phase 0 bis 9 in Betrieb nehmen
 
-Stand 13.11.2026:
+Stand 17.11.2026:
 
 | Block | Stand |
 |---|---|
 | A | 1 bis 3 erledigt (Gate 7 von 7 an `8483177`, `mail_key` angelegt), 4 Entra offen |
 | B | erledigt 13.11.2026, Übung bestanden |
 | C | erledigt 13.11.2026 09:04 UTC, Schema 26, Ablaufdatum des Client-Geheimnisses fehlt noch |
-| D | offen, 18 nach D-032 für Hotmail |
-| E | C09 erledigt 13.11.2026, nicht bestanden, KI-Antworten aus (D-033), B10 offen |
+| D | 16, 17 und 20 bestanden, 15, 18 (nach D-032 für Hotmail) und 19 offen |
+| E | C09 erledigt 13.11.2026, nicht bestanden, KI-Antworten aus (D-033), B10 erledigt 17.11.2026 (P95 457 ms) |
 | F | offen |
 
 Diese Liste fasst die Schritte aus `deploy/BETRIEB.md` (Phasen 0 bis 8) in eine Reihenfolge. Die Einzelheiten stehen dort. Jeder Schritt hat einen Prüfpunkt. Erst weiter, wenn er stimmt. Schlägt ein Prüfpunkt fehl, steht darunter, was zu tun ist.
@@ -84,6 +84,7 @@ Alle Befehle laufen in PowerShell auf deinem Rechner, im Ordner `%USERPROFILE%\W
 22. **Antwortzeiten** (B10), von einem Rechner im VPN: Sitzungswert `__Host-wr_session` aus den Entwicklerwerkzeugen in eine Datei legen, dann
     `python tests/bench/server_latency.py --base https://wissen.melchy.cloud --cookie-file <datei>`.
     Das Skript liest nur Suchen und bleibt unter dem Limit von 120 Suchen je Minute. Danach Datei löschen und abmelden.
+    Ohne Datei geht es auch im angemeldeten Browser: dieselben 100 Suchen per `fetch('/api/search?q=…')` in der Konsole, 2 parallel, Zeit je Anfrage messen.
     Prüfpunkt: Median und P95 notieren. Ziel aus dem Desktop-Benchmark zum Vergleich in `masterplan.md`, Phase 7.3.
 
 ## F. Nachtragen
