@@ -16,6 +16,9 @@ import re
 import uuid
 
 from importer import GMAIL_APP_PASSWORD, MAIL_PROVIDERS, MailLoginError
+
+# Form choices that fill in server, port and user name (the address); stored as plain IMAP.
+IMAP_PRESETS = {'ionos': ('imap.ionos.de', 993)}
 from mail_vault import PREFIX
 
 GRAPH_SCOPE = 'offline_access https://graph.microsoft.com/Mail.Read'
@@ -74,8 +77,17 @@ class ServerMailboxes:
         return label, address
 
     def save_imap(self, values, secret):
-        """New IMAP or Gmail mailbox of ``owner`` with its password; returns the mailbox id. Nothing is read yet."""
+        """New IMAP or Gmail mailbox of ``owner`` with its password; returns the mailbox id. Nothing is read yet.
+
+        A preset such as IONOS is a plain IMAP mailbox with fixed server and port and the address as user name;
+        it is stored as provider ``imap``, so desktop, worker and export need nothing new.
+        """
         provider = str(values.get('provider', '')).strip()
+        if provider in IMAP_PRESETS:
+            host, port = IMAP_PRESETS[provider]
+            values = {**{k: values.get(k) for k in ('label', 'email')}, 'provider': 'imap', 'host': host,
+                      'port': port, 'username': str(values.get('email', '')).strip()}
+            provider = 'imap'
         if provider not in ('imap', 'gmail') or self.owner is None:
             raise ValueError('Unbekannter E-Mail-Anbieter.')
         label, address = self._clean(values, provider)

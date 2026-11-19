@@ -225,6 +225,18 @@ class MailboxPageTests(test_rights.EndpointTests):
         self.assertIn('nicht eingerichtet', self.clients['oid-editor'].get('/postfaecher').text)
         self.assertEqual(self.clients['oid-editor'].get(f'/postfaecher/{mailbox}').status_code, 503)
 
+    def test_ionos_fills_in_server_port_and_user_name(self):
+        editor = self.clients['oid-editor']
+        self.assertIn('<option value="ionos">IONOS</option>', editor.get('/postfaecher').text)
+        # Whatever the form sends for server, port and user name, the preset decides.
+        mailbox = self.add(editor, provider='ionos', label='IONOS Info', email='info@example.test',
+                           host='imap.falsch.test', port='143', username='jemand')
+        row = ServerMailboxes(self.store, MailVault(self.store, KEY)).get(mailbox)
+        self.assertEqual((row['provider'], row['host'], row['port'], row['username'], row['email']),
+                         ('imap', 'imap.ionos.de', 993, 'info@example.test', 'info@example.test'))
+        self.assertEqual(editor.post('/postfaecher', data={'provider': 'ionos', 'label': 'Ohne', 'email': 'x@example.test',
+                                                           'secret': ''}).status_code, 422)
+
     def test_preview_selection_and_import_by_the_worker(self):
         editor, reader = self.clients['oid-editor'], self.clients['oid-reader']
         mailbox = self.add(editor)

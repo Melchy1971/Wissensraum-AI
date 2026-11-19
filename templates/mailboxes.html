@@ -11,7 +11,7 @@
 <p><a href="/postfaecher/microsoft/privat/verbinden">Privates Microsoft-Postfach verbinden</a> (Outlook.com, Hotmail, Live: Zustimmung zu Mail.Read bei Microsoft)</p>{% endif %}
 <h2>IMAP-Postfach</h2>
 <form method="post" action="/postfaecher"><input type="hidden" name="csrf_token" value="{{ csrf }}">
-<label>Anbieter <select name="provider"><option value="imap">Sonstiges IMAP-Konto</option><option value="gmail">Gmail</option></select></label>
+<label>Anbieter <select name="provider"><option value="imap">Sonstiges IMAP-Konto</option><option value="gmail">Gmail</option><option value="ionos">IONOS</option></select></label>
 <label>Name <input name="label" maxlength="120" required></label>
 <label>E-Mail-Adresse <input name="email" type="email" maxlength="254" required></label>
 <label>IMAP-Server <input name="host" maxlength="253"></label>
@@ -19,6 +19,6 @@
 <label>Benutzername <input name="username" maxlength="254"></label>
 <label>Kennwort oder App-Passwort <input name="secret" type="password" autocomplete="new-password" required></label>
 <button type="submit">Postfach anlegen</button></form>
-<p><small>Gmail: nur Name, Adresse und ein App-Passwort aus 16 Kleinbuchstaben. Server und Port setzt der Server selbst.</small></p>
+<p><small>Gmail: nur Name, Adresse und ein App-Passwort aus 16 Kleinbuchstaben. Server und Port setzt der Server selbst. IONOS: Name, Adresse und das Kennwort des Postfachs. Server, Port und Benutzername setzt der Server selbst.</small></p>
 {% endif %}
 {% endblock %}
