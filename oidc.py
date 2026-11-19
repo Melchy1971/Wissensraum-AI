@@ -79,12 +79,19 @@ class Provider:
             self._config = config
         return self._config
 
-    def authorize_url(self, state, nonce, verifier, scope='openid profile', redirect_uri=None):
-        """Sign-in by default; phase 8 asks with another ``scope`` and ``redirect_uri`` for mailbox access."""
-        query = urllib.parse.urlencode({
+    def authorize_url(self, state, nonce, verifier, scope='openid profile', redirect_uri=None, prompt=None):
+        """Sign-in by default; phase 8 asks with another ``scope`` and ``redirect_uri`` for mailbox access.
+
+        ``prompt='select_account'`` makes Microsoft ask which account to use instead of taking the one the
+        browser is already signed in with.
+        """
+        values = {
             'client_id': self.client_id, 'response_type': 'code', 'redirect_uri': redirect_uri or self.redirect_uri,
             'response_mode': 'query', 'scope': scope, 'state': state, 'nonce': nonce,
-            'code_challenge': challenge(verifier), 'code_challenge_method': 'S256'})
+            'code_challenge': challenge(verifier), 'code_challenge_method': 'S256'}
+        if prompt is not None:
+            values['prompt'] = prompt
+        query = urllib.parse.urlencode(values)
         return f"{self.config()['authorization_endpoint']}?{query}"
 
     def redeem(self, code, verifier):
