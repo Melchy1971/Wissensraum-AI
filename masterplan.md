@@ -38,7 +38,9 @@
 - B10 ✅: 100 Suchen, 2 parallel, alle hybrid, Median 381 ms, P95 457 ms, Maximum 471 ms. Gemessen im eingebauten Browser des Windows-Rechners mit gleicher Last wie `server_latency.py`, weil sich der Sitzungswert nicht in eine Datei übertragen ließ.
 - Probe 19 offen: kein zweites Microsoft-Konto verfügbar.
 
-**Offen:** Probe 15 (Handy ohne VPN), Probe 18 nach D-032 mit Hotmail, Probe 19 (zweites Konto), Block F (Nachträge, Screenreader H06), Ablaufdatum des Client-Geheimnisses, Dateinamen aus Import 4 und 5 in `import_items`. Phase 10 und die Paritäts-Roadmap bleiben 🟡.
+**Abnahme 19. und 20.11.2026, Probe 18 ✅ (Outlook.com nach D-032):** Entra-App auf „Alle Microsoft-Kontobenutzer“ umgestellt, zweite Umleitungs-URI, `WR_MAIL_PERSONAL_ACCOUNTS=1`. Zwei private Postfächer verbunden, Vorschau je 10 bis 50 Nachrichten unter einer Sekunde. Import 8 bis 10: Nachrichten über Graph geholt, Import 11: PDF-Anhang allein nachgeholt, Dokument 49, Suche findet es über Volltext und Vektor, Vektoren 96 von 96. Unterwegs behoben: Kontoauswahl bei Microsoft (#62, ein fremdes, im Browser angemeldetes Konto war verbunden worden und ist gelöscht), IONOS im IMAP-Formular (#63), eigenes Ausgangsnetz für den Worker, weil `backend` intern ist (#64), Betreff statt Graph-ID im Auftrag (#65), Anhang nach seiner Nachricht importierbar (#66).
+
+**Offen:** Probe 15 (Handy ohne VPN), Probe 19 (zweites Konto), Block F (Nachträge, Screenreader H06), Ablaufdatum des Client-Geheimnisses, Dateinamen aus Import 4 und 5 in `import_items`. Phase 10 und die Paritäts-Roadmap bleiben 🟡.
 
 ## Aktualisierung 11.11.2026 – Paritäts-Roadmap Phase 0 bis 9 (Betrieb, Service-Schicht, semantische Suche, Importaufträge, Dokumentpflege, Organisation, Administration, Texterkennung, Wissensgraph, Oberfläche und E-Mail-Import im Server) 🟡
 
