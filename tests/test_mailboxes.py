@@ -315,6 +315,8 @@ class MailboxPageTests(test_rights.EndpointTests):
         start = editor.get('/postfaecher/microsoft/privat/verbinden')
         self.assertEqual(start.status_code, 303)
         self.assertTrue(start.headers['location'].startswith(PERSONAL_AUTHORITY + '/authorize?'))
+        # Microsoft must ask for the account; the browser may be signed in with someone else's.
+        self.assertIn('prompt=select_account', start.headers['location'])
         # The personal identity is not the guest account in the tenant; it is accepted all the same.
         self.idp.overrides = {'preferred_username': 'markus@hotmail.example.test'}
         code, state = self.idp.authorize(start.headers['location'], 'msa-person')

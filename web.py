@@ -629,12 +629,12 @@ def register(app, ctx):
             raise HTTPException(422, str(error)) from None
         return RedirectResponse(f'/postfaecher/{mailbox_id}', status_code=303)
 
-    def mail_connect(request, chosen, callback, scope):
+    def mail_connect(request, chosen, callback, scope, prompt=None):
         import sessions
         mail_tools(request)
         state, nonce, verifier = sessions.start_login(store, ctx.clock())
         try:
-            target = chosen.authorize_url(state, nonce, verifier, scope, ctx.base + callback)
+            target = chosen.authorize_url(state, nonce, verifier, scope, ctx.base + callback, prompt=prompt)
         except Exception:  # discovery unreachable
             raise HTTPException(503, 'Der Anmeldedienst ist nicht erreichbar.') from None
         response = RedirectResponse(target, status_code=303)
@@ -697,7 +697,9 @@ def register(app, ctx):
     def mailbox_connect_personal(request: Request):
         """Consent for an Outlook.com mailbox over the consumers authority; only when switched on (D-032)."""
         from server_mail import GRAPH_SCOPE
-        return mail_connect(request, personal_provider(), MAIL_CALLBACK_PERSONAL, 'openid profile email ' + GRAPH_SCOPE)
+        # A browser often holds several personal Microsoft accounts: always ask which mailbox to connect.
+        return mail_connect(request, personal_provider(), MAIL_CALLBACK_PERSONAL, 'openid profile email ' + GRAPH_SCOPE,
+                            prompt='select_account')
 
     @app.get(MAIL_CALLBACK_PERSONAL)
     def mailbox_connected_personal(request: Request):
