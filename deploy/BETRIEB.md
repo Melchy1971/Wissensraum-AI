@@ -111,6 +111,10 @@ Dateien ohne erkannten Text bleiben 30 Tage in der Datenbank (`import_items.uplo
 
 Outlook.com, Hotmail, Live (D-032): Diese Postfächer liegen nicht im Mandanten, und Outlook.com nimmt seit 16.09.2024 kein IMAP mit Kennwort an. Einschalten mit `WR_MAIL_PERSONAL_ACCOUNTS=1` in `deploy/wissensraum.env`. Die Entra-App muss dafür unter Authentifizierung „Konten in einem beliebigen Organisationsverzeichnis und persönliche Microsoft-Konten“ zulassen (lehnt das Portal ab: im Manifest zuerst `requestedAccessTokenVersion` auf 2) und die Umleitungs-URI `https://wissen.melchy.cloud/postfaecher/microsoft/privat/rueckruf` haben. Die Server-Anmeldung prüft weiter den Mandanten. Danach erscheint unter Postfächer „Privates Microsoft-Postfach verbinden“.
 
+Netz des Workers (20.11.2026): Das Netz `backend` ist intern, der Worker kam dort weder an `imap.ionos.de` noch an `graph.microsoft.com` (keine Namensauflösung). Vorschau und Verbinden laufen im Server und gingen, Import und Synchronisation laufen im Worker und wären gescheitert. Seitdem hängt der Worker zusätzlich im Netz `wissensraum-ausgang`, das compose selbst anlegt. Dort ist nur der Worker, ohne veröffentlichten Port. Prüfung: `docker exec wissensraum-worker-1 python -c "import socket;socket.create_connection(('imap.ionos.de',993),5);print('ok')"`.
+
+Weitere Postfächer: Beim privaten Weg fragt Microsoft immer nach dem Konto (`prompt=select_account`), so lassen sich mehrere Outlook.com-Postfächer nacheinander verbinden. IONOS steht im IMAP-Formular als eigener Anbieter, Server `imap.ionos.de` und Port 993 setzt der Server.
+
 Schlüsselwechsel: neuen Schlüssel als `mail_key`, den alten als zweites Secret und `WR_MAIL_KEY_PREVIOUS_FILE`, Container neu anlegen, `docker compose exec server python server.py mail-rewrap`, danach den alten Schlüssel entfernen.
 
 ## Antwortqualität von qwen3:4b messen
