@@ -1,13 +1,13 @@
 # Ablauf für den VPS-Tag: Paritäts-Roadmap Phase 0 bis 9 in Betrieb nehmen
 
-Stand 17.11.2026:
+Stand 20.11.2026:
 
 | Block | Stand |
 |---|---|
 | A | 1 bis 3 erledigt (Gate 7 von 7 an `8483177`, `mail_key` angelegt), 4 Entra offen |
 | B | erledigt 13.11.2026, Übung bestanden |
 | C | erledigt 13.11.2026 09:04 UTC, Schema 26, Ablaufdatum des Client-Geheimnisses fehlt noch |
-| D | 16, 17 und 20 bestanden, 15, 18 (nach D-032 für Hotmail) und 19 offen |
+| D | 16, 17, 18 (Outlook.com, 20.11.2026) und 20 bestanden, 15 und 19 offen |
 | E | C09 erledigt 13.11.2026, nicht bestanden, KI-Antworten aus (D-033), B10 erledigt 17.11.2026 (P95 457 ms) |
 | F | offen |
 
