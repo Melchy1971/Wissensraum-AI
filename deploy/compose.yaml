@@ -67,7 +67,9 @@ services:
       - exports:/data/exports
     # Der Worker braucht PostgreSQL und Ollama. Liegt Ollama in einem anderen Netz als datenbank, dieses
     # Netz hier ergänzen. Nicht das Proxy-Netz: der Worker bietet nichts an.
-    networks: [datenbank]
+    # ausgang: Postfachabrufe brauchen das Internet (IMAP 993, Graph und login.microsoftonline.com 443).
+    # backend ist intern und ohne DNS nach draußen. ausgang hat nur den Worker, keinen veröffentlichten Port.
+    networks: [datenbank, ausgang]
     read_only: true
     tmpfs: ["/tmp:size=256m"]
     cap_drop: [ALL]
@@ -103,3 +105,5 @@ volumes:
 networks:
   datenbank: {external: true, name: backend}
   proxy: {external: true, name: proxy}
+  # Eigenes Netz nur für den ausgehenden Verkehr des Workers, von compose angelegt.
+  ausgang: {name: wissensraum-ausgang}
