@@ -11,9 +11,9 @@
 {% if items %}
 <form method="post" action="/postfaecher/{{ mailbox.id }}/import"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="folder" value="{{ folder }}">
 <table><thead><tr><th>Import</th><th>Nachricht</th><th>Anhänge freigeben</th></tr></thead><tbody>
-{% for item in items %}<tr><td>{% if item.imported %}schon importiert{% else %}<input type="checkbox" name="message" value="{{ item.id }}" aria-label="{{ item.subject }} importieren"><input type="hidden" name="subject:{{ item.id }}" value="{{ item.subject }}">{% endif %}</td>
+{% for item in items %}<tr><td>{% if item.imported %}schon importiert{% else %}<input type="checkbox" name="message" value="{{ item.id }}" aria-label="{{ item.subject }} importieren">{% endif %}<input type="hidden" name="subject:{{ item.id }}" value="{{ item.subject }}"></td>
 <td>{{ item.subject }}<br><small>{{ item.sender }} · {{ item.date }}</small></td>
-<td>{% for a in item.attachments %}<label><input type="checkbox" name="attachment" value="{{ item.id }}#{{ a.id }}"> {{ a.name }}</label><br>{% endfor %}</td></tr>{% endfor %}
+<td>{% for a in item.attachments %}<label><input type="checkbox" name="attachment" value="{{ item.id }}#{{ a.id }}"> {{ a.name }}</label><input type="hidden" name="name:{{ item.id }}#{{ a.id }}" value="{{ a.name }}"><br>{% endfor %}</td></tr>{% endfor %}
 </tbody></table>
 <button type="submit">Ausgewählte importieren</button></form>
 {% else %}<p>Keine Nachrichten.</p>{% endif %}

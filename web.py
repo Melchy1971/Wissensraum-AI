@@ -746,10 +746,19 @@ def register(app, ctx):
             released = {}
             for value in values.getlist('attachment')[:2000]:
                 message, _, part = str(value).partition('#')
-                if message in chosen and part:
+                if message and part:
                     released.setdefault(message, []).append(part)
+            # D08: attachments only of chosen messages, or of a message imported earlier (then only the attachment).
+            later = [m for m in released if m not in chosen][:500]
+            earlier = importer.imported_messages(mailbox_id, values.get('folder', 'INBOX'), later) if later else set()
+            released = {m: parts for m, parts in released.items() if m in chosen or m in earlier}
+            items += [{'id': m, 'subject': ' '.join(str(values.get(f'subject:{m}', '')).split())[:200],
+                       'only_attachments': True} for m in released if m not in chosen][:500]
+            for item in items:  # names for the job list; the document takes the name Graph or IMAP delivers
+                item['attachments'] = [{'id': p, 'name': ' '.join(str(values.get(f"name:{item['id']}#{p}", '')).split())[:200]}
+                                       for p in released.get(item['id'], ())]
             if not items:
-                raise HTTPException(422, 'Bitte mindestens eine Nachricht auswählen.')
+                raise HTTPException(422, 'Bitte mindestens eine Nachricht oder einen Anhang auswählen.')
             try:
                 with store.transaction():
                     job_id = importer.create_mail_job(ImportJobs(store, importer), mailbox_id,
