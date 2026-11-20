@@ -334,9 +334,13 @@ def register(app, ctx):
         return jobs, job
 
     def job_view(jobs, job, request):
-        from import_jobs import JOB_LABELS, REASON_LABELS, STATUS_LABELS
+        from import_jobs import JOB_LABELS, MAIL_KINDS, REASON_LABELS, STATUS_LABELS
         summary = jobs.summary(job['id'])
-        items = [{**item, 'status_text': STATUS_LABELS[item['status']],
+        # Mail items keep the message id as locator and "E-Mail: <Betreff>" as path. Only the owner of the
+        # mailbox sees the subject; administrators see the id, as they never see someone else's mailbox.
+        readable = job['kind'] in MAIL_KINDS and job['account_id'] == ctx.require_role(request, 'admin', 'editor')['id']
+        items = [{**item, 'locator': item['path'] if readable else item['locator'],
+                  'status_text': STATUS_LABELS[item['status']],
                   'reason_text': REASON_LABELS.get(item['reason'], item['reason'])} for item in jobs.items(job['id'])]
         kept = sum(1 for item in items if item['kept'] and item['status'] == 'quarantined')
         preview = {}

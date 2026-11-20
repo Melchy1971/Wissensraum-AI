@@ -250,6 +250,9 @@ class MailboxPageTests(test_rights.EndpointTests):
         self.assertEqual(chosen.status_code, 303)
         job = int(chosen.headers['location'].rsplit('/', 1)[1])
         self.assertIn(f'/importe/{job}', editor.get('/importe').text)
+        # The owner reads the subject in the job, not the message id; administrators do not.
+        self.assertIn('E-Mail: Rechnung', editor.get(f'/importe/{job}').text)
+        self.assertNotIn('E-Mail: Rechnung', self.clients['oid-admin'].get(f'/importe/{job}').text)
         summary = self.work()
         self.assertEqual((summary['status'], summary['imported']), ('completed', 2))
         documents = [i['document_id'] for i in ImportJobs(self.store).items(job)]
