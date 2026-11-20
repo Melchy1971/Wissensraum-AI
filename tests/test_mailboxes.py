@@ -263,6 +263,30 @@ class MailboxPageTests(test_rights.EndpointTests):
         created = [e for e in audit.entries(self.store, 100) if e['event'] == 'document_created']
         self.assertEqual(len(created), 2)
         self.assertIn('schon importiert', editor.get(f'/postfaecher/{mailbox}', params={'vorschau': 1}).text)
+        # An attachment left out the first time can be added later on its own; 12 stays out, it was never imported.
+        later = editor.post(f'/postfaecher/{mailbox}/import', data={'attachment': ['11#2', '12#9'], 'folder': 'INBOX',
+                                                                    'subject:11': 'Rechnung',
+                                                                    'name:11#2': 'rechnung.txt'})
+        self.assertEqual(later.status_code, 303)
+        job = int(later.headers['location'].rsplit('/', 1)[1])
+        self.assertEqual([i['path'] for i in ImportJobs(self.store).items(job)], ['Anhang: rechnung.txt (E-Mail: Rechnung)'])
+        self.assertEqual(editor.post(f'/postfaecher/{mailbox}/import', data={'attachment': ['12#9'], 'folder': 'INBOX'}
+                                     ).status_code, 422)
+
+    def test_attachment_added_after_its_message(self):
+        editor = self.clients['oid-editor']
+        mailbox = self.add(editor)
+        first = editor.post(f'/postfaecher/{mailbox}/import', data={'message': ['11'], 'subject:11': 'Rechnung',
+                                                                    'folder': 'INBOX'})
+        self.assertEqual(self.work()['imported'], 1)
+        self.assertEqual(first.status_code, 303)
+        later = editor.post(f'/postfaecher/{mailbox}/import', data={'attachment': ['11#2'], 'subject:11': 'Rechnung',
+                                                                    'name:11#2': 'rechnung.txt', 'folder': 'INBOX'})
+        job = int(later.headers['location'].rsplit('/', 1)[1])
+        self.assertEqual(self.work()['imported'], 1)
+        item = ImportJobs(self.store).items(job)[0]
+        self.assertEqual((item['path'], item['status']), ('Anhang: rechnung.txt (E-Mail: Rechnung)', 'imported'))
+        self.assertEqual(self.store.get(item['document_id'])['title'], 'rechnung')
 
     def test_job_stops_when_the_account_may_no_longer_import(self):
         editor = self.clients['oid-editor']

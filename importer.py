@@ -475,6 +475,16 @@ class Importer:
         self._mark_imported(account_id,items,lambda item:self._microsoft_import_key(item['id']))
         return items
 
+    def imported_messages(self,account_id,folder,message_ids):
+        """The ids among ``message_ids`` whose message is already a document of this mailbox."""
+        account=self.accounts.get(account_id)
+        if account['provider']=='microsoft':
+            keys={str(m):self._microsoft_import_key(str(m)) for m in message_ids}
+        else:
+            keys={str(m):self._imap_import_key(folder or 'INBOX',str(m)) for m in message_ids}
+        done=self._imported_ids(account_id,list(keys.values()))
+        return {m for m,k in keys.items() if k in done}
+
     def _mark_imported(self,account_id,items,key):
         keys=[key(item) for item in items]
         keys+=[key(item)+'#'+str(part['id']) for item in items for part in item.get('attachments',())]
@@ -805,7 +815,7 @@ class Importer:
         for message_id in order:
             item=known.get(message_id) or {}
             subject=item.get('subject') or message_id
-            if message_id in known:
+            if message_id in known and not item.get('only_attachments'):
                 entries.append(('E-Mail: '+subject,message_id))
             names={str(part.get('id')):part.get('name') for part in item.get('attachments',())}
             for part in released.get(message_id,()):
